@@ -30,6 +30,7 @@ dgl_option(USE_AVX "Build with AVX optimization" OFF)
 dgl_option(USE_LIBXSMM "Build with LIBXSMM library optimization" ON)
 dgl_option(USE_FP16 "Build with fp16 support to enable mixed precision training" OFF)
 dgl_option(USE_TVM "Build with TVM kernels" OFF)
+dgl_option(USE_CAF "Build with caf" OFF)
 dgl_option(BUILD_CPP_TEST "Build cpp unittest executables" OFF)
 dgl_option(LIBCXX_ENABLE_PARALLEL_ALGORITHMS "Enable the parallel algorithms library. This requires the PSTL to be available." OFF)
 dgl_option(USE_S3 "Build with S3 support" OFF)
@@ -162,6 +163,7 @@ file(GLOB_RECURSE DGL_SRC_1
   src/api/*.cc
   src/graph/*.cc
   src/scheduler/*.cc
+  src/inference/*.cc
 )
 
 list(APPEND DGL_SRC ${DGL_SRC_1})
@@ -206,6 +208,9 @@ set_property(TARGET dgl PROPERTY CXX_STANDARD 14)
 target_include_directories(dgl PRIVATE "include")
 target_include_directories(dgl PRIVATE "third_party/dlpack/include")
 target_include_directories(dgl PRIVATE "third_party/dmlc-core/include")
+target_include_directories(dgl PRIVATE "third_party/actor-framework/libcaf_core")
+target_include_directories(dgl PRIVATE "third_party/actor-framework/libcaf_io")
+target_include_directories(dgl PRIVATE "third_party/gloo")
 target_include_directories(dgl PRIVATE "third_party/phmap/")
 target_include_directories(dgl PRIVATE "third_party/xbyak/")
 target_include_directories(dgl PRIVATE "third_party/METIS/include/")
@@ -231,6 +236,29 @@ if(NOT MSVC)
   add_subdirectory("third_party/METIS/libmetis/")
   list(APPEND DGL_LINKER_LIBS metis)
 endif(NOT MSVC)
+
+# Compile caf
+if((NOT MSVC) AND USE_CAF)
+  SET(CAF_BUILD_STATIC_ONLY ON CACHE BOOL "")
+  SET(CAF_NO_OPENCL ON CACHE BOOL "")
+  SET(CAF_NO_OPENSSL ON CACHE BOOL "")
+  SET(CAF_NO_PYTHON ON CACHE BOOL "")
+  SET(CAF_NO_TOOLS ON CACHE BOOL "")
+  SET(CAF_NO_SUMMARY ON CACHE BOOL "")
+  SET(CAF_NO_UNIT_TESTS ON CACHE BOOL "")
+  SET(CAF_NO_EXAMPLES ON CACHE BOOL "")
+
+  add_subdirectory(./third_party/actor-framework)
+  list(APPEND DGL_LINKER_LIBS libcaf_core_static libcaf_io_static)
+
+  set(__USE_CUDA "${USE_CUDA}" CACHE BOOL "")
+  set(USE_CUDA OFF)
+  add_subdirectory(./third_party/gloo)
+  set(USE_CUDA "${__USE_CUDA}")
+  unset(__USE_CUDA)
+
+  list(APPEND DGL_LINKER_LIBS gloo)
+endif((NOT MSVC) AND USE_CAF)
 
 # Compile LIBXSMM
 if((NOT MSVC) AND USE_LIBXSMM)
@@ -320,6 +348,12 @@ endif(BUILD_TORCH)
 
 # Installation rules
 install(TARGETS dgl DESTINATION lib${LIB_SUFFIX})
+
+# Remote this
+add_executable(runServer ./src/tmp/server.cc)
+target_link_libraries(runServer dgl)
+add_executable(runClient ./src/tmp/client.cc)
+target_link_libraries(runClient dgl)
 
 # Testing
 if(BUILD_CPP_TEST)

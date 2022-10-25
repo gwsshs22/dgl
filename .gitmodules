@@ -34,3 +34,9 @@
 [submodule "third_party/thrust"]
 	path = third_party/thrust
 	url = https://github.com/NVIDIA/thrust.git
+[submodule "third_party/actor-framework"]
+	path = third_party/actor-framework
+	url = https://github.com/actor-framework/actor-framework.git
+[submodule "third_party/gloo"]
+	path = third_party/gloo
+	url = https://github.com/facebookincubator/gloo.git

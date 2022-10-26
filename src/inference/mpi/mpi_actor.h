@@ -8,17 +8,19 @@
 #include <gloo/rendezvous/context.h>
 #include <gloo/transport/tcp/device.h>
 
-#include "./actor/actor_types.h"
-#include "./actor/custom_types.h"
+#include "../actor/actor_types.h"
+#include "../actor/custom_types.h"
+
+#include "../common.h"
 
 namespace dgl {
 namespace inference {
 
 struct MpiConfig {
-  std::string hostname = "";
-  std::string iface = "";
   int rank = -1;
   int world_size = -1;
+  std::string hostname = "";
+  std::string iface = "";
 };
 
 // gloo based mpi actor

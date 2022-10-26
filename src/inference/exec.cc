@@ -3,12 +3,11 @@
  * \file dgl/inference/exec.h
  * \brief 
  */
-#include "actor/actor_types.h"
 #include "exec.h"
+
+#include "./actor/actor_types.h"
 #include "master_process.h"
 #include "worker_process.h"
-
-#include "mpi_actor.h"
 
 namespace dgl {
 namespace inference {
@@ -21,12 +20,12 @@ namespace inference {
 int dgl_inference_main(int argc, char** argv);
 
 void ExecMasterProcess() {
-  char *argv[] = {"", "-s", "-p", "43207"};
+  char *argv[] = {"", "-s", "-p", "43437"};
   dgl_inference_main(4, argv);
 }
 
 void ExecWorkerProcess() {
-  char *argv[] = {"", "-p", "43207"};
+  char *argv[] = {"", "-p", "43437"};
   dgl_inference_main(3, argv);
 }
 

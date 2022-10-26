@@ -9,9 +9,10 @@
 #include <gloo/rendezvous/prefix_store.h>
 #include <gloo/transport/tcp/device.h>
 
-#include "gloo_rendezvous_actor.h"
+#include "./mpi/mpi_actor.h"
+#include "./mpi/gloo_rendezvous_actor.h"
+
 #include "init_monitor_actor.h"
-#include "mpi_actor.h"
 
 namespace dgl {
 namespace inference {
@@ -31,18 +32,16 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto gloo_ra_ptr = system.registry().get(caf::gloo_ra_atom_v);
 
   auto mpi_a = mpi_actor::spawn(system, gloo_ra_ptr, MpiConfig {
+    .rank = 0,
+    .world_size = 2,
     .hostname = "localhost",
     .iface = "eno4",
-    .rank = 0,
-    .world_size = 2
   });
 
   caf::scoped_actor self { system };
   auto required_actors = std::vector<std::string>();
   required_actors.emplace_back("mpi");
   self->request(init_mon_actor, std::chrono::seconds(30), caf::wait_atom_v, required_actors);
-  self->send(mpi_a, 10);
-  self->send(mpi_a, 10);
 
   std::cerr << "Quit to enter:" << std::endl;
   std::string dummy;

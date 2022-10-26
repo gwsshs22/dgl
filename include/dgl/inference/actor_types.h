@@ -9,9 +9,6 @@
 #include <caf/all.hpp>
 #include <caf/io/all.hpp>
 
-#include "../common.h"
-#include "./custom_types.h"
-
 using NDArray = dgl::runtime::NDArray;
 
 CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
@@ -24,10 +21,13 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, init_atom, "init")
   CAF_ADD_ATOM(core_extension, caf, mpi_broadcast_atom, "mpi_bcast") // mpi broadcast
   CAF_ADD_ATOM(core_extension, caf, mpi_receive_atom, "mpi_rcv") // mpi receive
+  CAF_ADD_ATOM(core_extension, caf, enqueue_atom, "enqueue") // enqueue
+  CAF_ADD_ATOM(core_extension, caf, schedule_atom, "schedule") // schedule
 
   // For actor remote lookup
   CAF_ADD_ATOM(core_extension, caf, gloo_ra_atom, "gloo_ra") // gloo_rendezvous_actor
-  CAF_ADD_ATOM(core_extension, caf, init_mon_atom, "init_mon") // init_monitor_atom
+  CAF_ADD_ATOM(core_extension, caf, init_mon_atom, "init_mon") // init_monitor_actor
+  CAF_ADD_ATOM(core_extension, caf, exec_control_atom, "exec_ctl") // executor_control_actor
 
   CAF_ADD_TYPE_ID(core_extension, (std::vector<char>))
   CAF_ADD_TYPE_ID(core_extension, (std::vector<std::string>))
@@ -37,3 +37,10 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
 CAF_END_TYPE_ID_BLOCK(core_extension)
 
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(NDArray)
+
+template <typename Actor>
+void ReportToInitMon(Actor& self, std::string actor_name, int rank, int world_size) {
+  auto init_mon_ptr = self.system().registry().get(caf::init_mon_atom_v);
+  auto init_mon = caf::actor_cast<caf::actor>(init_mon_ptr);
+  self.send(init_mon, caf::initialized_atom_v, actor_name, rank, world_size);
+}

@@ -8,7 +8,7 @@
 #include <gloo/common/error.h>
 #include <gloo/rendezvous/store.h>
 
-#include "../actor/actor_types.h"
+#include <dgl/inference/actor_types.h>
 
 namespace dgl {
 namespace inference {

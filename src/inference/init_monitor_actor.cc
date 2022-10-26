@@ -3,31 +3,35 @@
 namespace dgl {
 namespace inference {
 
-init_monitor_actor::init_monitor_actor(caf::actor_config& config, u_int32_t world_size)
-    : event_based_actor(config), world_size_(world_size) {
+init_monitor_actor::init_monitor_actor(caf::actor_config& config)
+    : event_based_actor(config) {
 }
 
 caf::behavior init_monitor_actor::make_behavior() {
   return {
-    [&](caf::initialized_atom, const std::string& actor_name, u_int32_t rank, u_int32_t world_size) {
-      CAF_ASSERT(world_size == world_size_);
-      CAF_ASSERT(rank < world_size);
+    [&](caf::initialized_atom, const std::string& actor_name, int rank, int world_size) {
+      assert(world_size > 0);
+      assert(rank < world_size);
+      assert(rank >= 0);
       
       auto it = inited_map_.find(actor_name);
       if (it == inited_map_.end()) {
         auto rank_set = std::unordered_set<u_int32_t>();
         rank_set.insert(rank);
         inited_map_[actor_name] = std::move(rank_set);
+        world_size_map_[actor_name] = world_size;
       } else {
-        auto rank_set = it->second;
-        CAF_ASSERT(rank_set.find(rank) == rank_set.end());
+        auto& rank_set = it->second;
+        assert(rank_set.find(rank) == rank_set.end());
+        assert(world_size == world_size_map_[actor_name]);
+
         rank_set.insert(rank);
       }
 
       check_pendings();
     },
     [&](caf::wait_atom, const actor_names_t& actor_names) {
-      auto rp = make_response_promise();
+      auto rp = make_response_promise<bool>();
       if (all_initialized(actor_names)) {
         rp.deliver(true);
       } else {
@@ -45,9 +49,9 @@ bool init_monitor_actor::all_initialized(const actor_names_t& actor_names) {
     if (it == inited_map_.end()) {
       return false;
     }
-
+    
     auto inited_ranks = it->second;
-    if (inited_ranks.size() < world_size_) {
+    if (inited_ranks.size() < world_size_map_[name]) {
       return false;
     }
   }
@@ -76,11 +80,11 @@ init_monitor_proxy_actor::init_monitor_proxy_actor(caf::actor_config& config,
 caf::behavior init_monitor_proxy_actor::make_behavior() {
   caf::actor global_init_mon = caf::actor_cast<caf::actor>(global_init_mon_ptr_);
   return {
-    [=](caf::initialized_atom, const std::string& actor_name, u_int32_t rank, u_int32_t world_size) {
+    [=](caf::initialized_atom, const std::string& actor_name, int rank, int world_size) {
       send(global_init_mon, caf::initialized_atom_v, actor_name, rank, world_size);
     },
     [=](caf::wait_atom, const std::vector<std::string>& actor_names) {
-      auto rp = make_response_promise();
+      auto rp = make_response_promise<bool>();
       request(global_init_mon, caf::infinite, caf::wait_atom_v, actor_names).then(
         [=]() mutable {
           rp.deliver(true);

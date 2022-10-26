@@ -10,6 +10,7 @@
 #include <gloo/rendezvous/prefix_store.h>
 #include <gloo/transport/tcp/device.h>
 
+#include "./execution/executor_actor.h"
 #include "./mpi/mpi_actor.h"
 #include "./mpi/gloo_rendezvous_actor.h"
 
@@ -29,18 +30,25 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto local_init_mon_proxy = system.spawn<init_monitor_proxy_actor>(global_init_mon_ptr);
   system.registry().put(caf::init_mon_atom_v, local_init_mon_proxy);
 
+  auto exec_ctl_actor_ptr = system.middleman().remote_lookup(caf::exec_control_atom_v, node.value());
+
+  int rank = 1;
+  int world_size = 2;
+
   auto gloo_ra_ptr = system.middleman().remote_lookup(caf::gloo_ra_atom_v, node.value());
-  auto mpi_a = mpi_actor::spawn(system, gloo_ra_ptr, MpiConfig {
-    .rank = 1,
-    .world_size = 2,
+  auto mpi_a = system.spawn<mpi_actor>(gloo_ra_ptr, MpiConfig {
+    .rank = rank,
+    .world_size = world_size,
     .hostname = "localhost",
     .iface = "eno4",
   });
 
-  caf::scoped_actor self { system };
-  auto required_actors = std::vector<std::string>();
-  required_actors.emplace_back("mpi");
-  self->request(local_init_mon_proxy, std::chrono::seconds(30), caf::wait_atom_v, required_actors);
+  auto executor = system.spawn<executor_actor>(exec_ctl_actor_ptr, rank, world_size);
+
+  // caf::scoped_actor self { system };
+  // auto required_actors = std::vector<std::string>();
+  // required_actors.emplace_back("mpi");
+  // self->request(local_init_mon_proxy, std::chrono::seconds(30), caf::wait_atom_v, required_actors);
 
   std::cerr << "Quit to enter:" << std::endl;
   std::string dummy;

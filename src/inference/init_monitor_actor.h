@@ -6,14 +6,14 @@
 #include <caf/all.hpp>
 #include <caf/io/all.hpp>
 
-#include "./actor/actor_types.h"
+#include <dgl/inference/actor_types.h>
 
 namespace dgl {
 namespace inference {
 
 class init_monitor_actor : public caf::event_based_actor {
  public:
-  init_monitor_actor(caf::actor_config& config, u_int32_t world_size);
+  init_monitor_actor(caf::actor_config& config);
 
  private:
   using actor_names_t = std::vector<std::string>;
@@ -23,7 +23,7 @@ class init_monitor_actor : public caf::event_based_actor {
 
   void check_pendings();
 
-  const u_int32_t world_size_;
+  std::unordered_map<std::string, size_t> world_size_map_;
   std::unordered_map<std::string, std::unordered_set<u_int32_t>> inited_map_;
   std::vector<std::pair<actor_names_t, caf::response_promise>> pendings_;
 };

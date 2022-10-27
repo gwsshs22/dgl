@@ -5,7 +5,7 @@
  */
 #include "exec.h"
 
-#include <dgl/inference/actor_types.h>
+#include <dgl/inference/common.h>
 
 #include "master_process.h"
 #include "worker_process.h"

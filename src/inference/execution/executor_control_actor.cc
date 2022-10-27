@@ -1,6 +1,7 @@
 #include "executor_control_actor.h"
 
 #include <algorithm>
+#include <iostream>
 
 namespace dgl {
 namespace inference {
@@ -42,7 +43,9 @@ caf::behavior executor_control_actor::initializing() {
 caf::behavior executor_control_actor::running() {
   ReportToInitMon(*this, "exec_ctrl", 0, 1);
   return {
-
+    [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
+      std::cout << batch_id << " " << new_gnids << " " << src_gnids << " " << dst_gnids;
+    }
   };
 }
 

@@ -8,8 +8,7 @@
 #include <gloo/rendezvous/context.h>
 #include <gloo/transport/tcp/device.h>
 
-#include <dgl/inference/actor_types.h>
-#include "../common.h"
+#include <dgl/inference/common.h>
 
 namespace dgl {
 namespace inference {
@@ -35,8 +34,6 @@ class mpi_actor : public caf::blocking_actor {
   const caf::strong_actor_ptr gloo_rendezvous_actor_ptr_;
   const MpiConfig mpi_config_;
 };
-
-
 
 }  // namespace inference
 }  // namespace dgl

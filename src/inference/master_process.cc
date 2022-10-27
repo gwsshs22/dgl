@@ -9,7 +9,7 @@
 #include <gloo/rendezvous/prefix_store.h>
 #include <gloo/transport/tcp/device.h>
 
-#include "./scheduling/scheduling_actor.h"
+#include "./scheduling/scheduler_actor.h"
 #include "./execution/executor_control_actor.h"
 #include "./execution/executor_actor.h"
 #include "./mpi/mpi_actor.h"
@@ -56,9 +56,17 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(30), caf::wait_atom_v, required_actors);
   receive_result<bool>(res_hdl);
 
-  auto scheduler = system.spawn<scheduling_actor>(exec_ctl_actor_ptr);
+  auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr);
+  std::cerr << "All services initialized." << std::endl;
 
-  std::cerr << "All services initialized. Quit to enter:" << std::endl;
+  auto cpu_context = DLContext { kDLCPU, 0 };
+  NDArray new_gnids = NDArray::FromVector(std::vector<int32_t>{ 0, 1, 2, 3 }, cpu_context);
+  NDArray src_gnids = NDArray::FromVector(std::vector<int32_t>{ 1, 1, 2, 0, 3 }, cpu_context);
+  NDArray dst_gnids = NDArray::FromVector(std::vector<int32_t>{ 0, 1, 3, 3, 0 }, cpu_context);
+
+  anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
+
+  std::cerr << "Quit to enter:" << std::endl;
   std::string dummy;
   std::getline(std::cin, dummy);
 

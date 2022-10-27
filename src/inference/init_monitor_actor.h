@@ -6,7 +6,7 @@
 #include <caf/all.hpp>
 #include <caf/io/all.hpp>
 
-#include <dgl/inference/actor_types.h>
+#include <dgl/inference/common.h>
 
 namespace dgl {
 namespace inference {

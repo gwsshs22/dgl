@@ -1,6 +1,6 @@
 #pragma once
 
-#include <dgl/inference/actor_types.h>
+#include <dgl/inference/common.h>
 
 namespace dgl {
 namespace inference {

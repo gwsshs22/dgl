@@ -6,7 +6,7 @@
 #include <gloo/rendezvous/context.h>
 #include <gloo/transport/tcp/device.h>
 
-#include "../common.h"
+#include <dgl/inference/common.h>
 
 namespace dgl {
 namespace inference {

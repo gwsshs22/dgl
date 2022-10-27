@@ -63,13 +63,11 @@ caf::behavior executor_control_actor::running() {
       }
     },
     [&](caf::exec_atom, TaskType task_type, int batch_id) {
-      std::cerr << "Send task_type=" << task_type << ", batch_id = " << batch_id << std::endl;
       for (int i = 0; i < world_size_; i++) {
         send(executors_[i], caf::exec_atom_v, task_type, batch_id);
       }
     },
     [&](caf::done_atom, TaskType task_type, int batch_id, int rank) {
-      std::cerr << "Done task_type=" << task_type << ", batch_id = " << batch_id <<  ", rank=" << rank << std::endl;
       auto p = std::make_pair(task_type, batch_id);
       auto it = done_task_counter_.find(p);
 

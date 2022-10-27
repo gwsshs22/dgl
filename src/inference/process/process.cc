@@ -3,7 +3,7 @@
  * \file dgl/inference/exec.h
  * \brief 
  */
-#include "exec.h"
+#include "process.h"
 
 #include <dgl/inference/common.h>
 
@@ -21,12 +21,12 @@ namespace inference {
 int dgl_inference_main(int argc, char** argv);
 
 void ExecMasterProcess() {
-  char *argv[] = {"", "-s", "-p", "42237"};
+  char *argv[] = {"", "-s", "-p", "42297"};
   dgl_inference_main(4, argv);
 }
 
 void ExecWorkerProcess() {
-  char *argv[] = {"", "-p", "42237"};
+  char *argv[] = {"", "-p", "42297"};
   dgl_inference_main(3, argv);
 }
 
@@ -35,7 +35,7 @@ void caf_main(caf::actor_system& system, const config& cfg) {
   f(system, cfg);
 }
 
-DGL_INFERENCE_CAF_MAIN(caf::id_block::core_extension, caf::io::middleman)
+ DGL_INFERENCE_CAF_MAIN(caf::id_block::core_extension, caf::io::middleman)
 
 }  // namespace inference
 }  // namespace dgl

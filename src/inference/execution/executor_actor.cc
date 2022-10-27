@@ -51,15 +51,15 @@ void executor_actor::RequestAndReportTaskDone(caf::actor& task_executor,
 void executor_actor::InputBroadcast(int batch_id) {
   auto const& context = contexts_[batch_id];
   auto broadcaster = system().spawn(
-    input_broadcast_actor, mpi_actor_, context->new_ngids(), context->src_ngids(), context->dst_ngids());
+    input_broadcast_fn, mpi_actor_, context->new_ngids(), context->src_ngids(), context->dst_ngids());
   RequestAndReportTaskDone(broadcaster, TaskType::kInputBroadcast, batch_id);
 }
 
 void executor_actor::InputReceive(int batch_id) {
-  auto receiver = system().spawn(input_receive_actor, mpi_actor_);
+  auto receiver = system().spawn(input_receive_fn, mpi_actor_);
   auto& context = contexts_[batch_id];
   RequestAndReportTaskDone<std::vector<NDArray>>(receiver, TaskType::kInputBroadcast, batch_id,
-    [=](const std::vector<NDArray> ret) {
+    [&](const std::vector<NDArray> ret) {
       context->SetBatchInput(ret[0], ret[1], ret[2]);
     });
 }
@@ -69,7 +69,8 @@ void executor_actor::DoTestTask(int batch_id) {
   context->Print();
 }
 
-// 
+
+//
 
 caf::behavior executor_actor::make_behavior() {
   send(exec_ctl_actor_, caf::initialized_atom_v, caf::actor_cast<caf::strong_actor_ptr>(this), rank_, world_size_);

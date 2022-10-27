@@ -25,9 +25,11 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, done_atom, "done") // done
 
   // For actor remote lookup
-  CAF_ADD_ATOM(core_extension, caf, gloo_ra_atom, "gloo_ra") // gloo_rendezvous_actor
+  
   CAF_ADD_ATOM(core_extension, caf, init_mon_atom, "init_mon") // init_monitor_actor
+  CAF_ADD_ATOM(core_extension, caf, process_mon_atom, "proc_mon") // process_monitor_actor
   CAF_ADD_ATOM(core_extension, caf, exec_control_atom, "exec_ctl") // executor_control_actor
+  CAF_ADD_ATOM(core_extension, caf, gloo_ra_atom, "gloo_ra") // gloo_rendezvous_actor
 
   CAF_ADD_TYPE_ID(core_extension, (dgl::runtime::NDArray))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::TaskType))

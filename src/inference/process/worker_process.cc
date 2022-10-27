@@ -10,11 +10,11 @@
 #include <gloo/rendezvous/prefix_store.h>
 #include <gloo/transport/tcp/device.h>
 
-#include "./execution/executor_actor.h"
-#include "./mpi/mpi_actor.h"
-#include "./mpi/gloo_rendezvous_actor.h"
+#include "../execution/executor_actor.h"
+#include "../execution/mpi/mpi_actor.h"
+#include "../execution/mpi/gloo_rendezvous_actor.h"
 
-#include "init_monitor_actor.h"
+#include "../init_monitor_actor.h"
 
 namespace dgl {
 namespace inference {

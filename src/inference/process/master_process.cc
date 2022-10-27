@@ -9,13 +9,15 @@
 #include <gloo/rendezvous/prefix_store.h>
 #include <gloo/transport/tcp/device.h>
 
-#include "./scheduling/scheduler_actor.h"
-#include "./execution/executor_control_actor.h"
-#include "./execution/executor_actor.h"
-#include "./mpi/mpi_actor.h"
-#include "./mpi/gloo_rendezvous_actor.h"
+#include "../scheduling/scheduler_actor.h"
+#include "../execution/executor_control_actor.h"
+#include "../execution/executor_actor.h"
+#include "../execution/mpi/mpi_actor.h"
+#include "../execution/mpi/gloo_rendezvous_actor.h"
 
-#include "init_monitor_actor.h"
+#include "../init_monitor_actor.h"
+
+#include "process_control_actor.h"
 
 namespace dgl {
 namespace inference {
@@ -24,6 +26,9 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   caf::scoped_actor self { system };
   auto init_mon_actor = system.spawn<init_monitor_actor>();
   system.registry().put(caf::init_mon_atom_v, init_mon_actor);
+
+  auto process_mon_actor = system.spawn(process_monitor_fn);
+  system.registry().put(caf::process_mon_atom_v, process_mon_actor);
 
   auto exec_ctl_actor = system.spawn<executor_control_actor>();
   system.registry().put(caf::exec_control_atom_v, exec_ctl_actor);

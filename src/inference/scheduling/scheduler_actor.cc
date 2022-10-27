@@ -10,12 +10,22 @@ scheduler_actor::scheduler_actor(caf::actor_config& config,
 }
 
 caf::behavior scheduler_actor::make_behavior() {
+  send(exec_ctl_actor_, caf::set_atom_v);
   return {
     [&](caf::enqueue_atom,
         const NDArray& new_gnids,
         const NDArray& src_gnids,
         const NDArray& dst_gnids) {
       input_queue_.push(BatchInput { new_gnids, src_gnids, dst_gnids });
+      TrySchedule();
+    },
+    [&](caf::done_atom, TaskType task_type, int batch_id) {
+      if (task_type == TaskType::kInitialize) {
+        scheduled_batches_[batch_id]->SetStatus(ScheduledBatch::Status::kReady);
+        send(exec_ctl_actor_, caf::exec_atom_v, TaskType::kInputBroadcast, batch_id);
+      } else if (task_type == TaskType::kInputBroadcast) {
+        send(exec_ctl_actor_, caf::exec_atom_v, TaskType::kTest, batch_id);
+      }
       TrySchedule();
     }
   };
@@ -25,7 +35,7 @@ void scheduler_actor::TrySchedule() {
   // TODO: Better batching
   while (!input_queue_.empty()) {
     int batch_id = batch_id_counter_++;
-    scheduled_batches_.insert(std::make_pair(batch_id, std::make_unique<ScheduledBatch>(batch_id, input_queue_.front())));
+    scheduled_batches_.insert(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id, input_queue_.front())));
     input_queue_.pop();
   }
 

@@ -43,7 +43,7 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
     .iface = "eno4",
   });
 
-  auto executor = system.spawn<executor_actor>(exec_ctl_actor_ptr, rank, world_size);
+  auto executor = system.spawn<executor_actor>(exec_ctl_actor_ptr, caf::actor_cast<caf::strong_actor_ptr>(mpi_a), rank, world_size);
 
   // caf::scoped_actor self { system };
   // auto required_actors = std::vector<std::string>();

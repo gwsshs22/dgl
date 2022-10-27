@@ -23,7 +23,7 @@ class scheduler_actor : public caf::event_based_actor {
   int batch_id_counter_ = 0;
 
   std::queue<BatchInput> input_queue_;
-  std::map<int, std::unique_ptr<ScheduledBatch>> scheduled_batches_;
+  std::map<int, std::shared_ptr<ScheduledBatch>> scheduled_batches_;
 };
 
 }

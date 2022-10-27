@@ -16,8 +16,15 @@ class executor_control_actor : public caf::event_based_actor {
   caf::behavior initializing();
   caf::behavior running();
 
+  void TryRunning();
+
   int world_size_ = -1;
-  std::vector<std::pair<caf::strong_actor_ptr, int>> executors_;
+  std::vector<std::pair<caf::strong_actor_ptr, int>> pending_executors_;
+  std::vector<caf::actor> executors_;
+  bool scheduler_connected_ = false;
+  caf::actor scheduler_actor_;
+
+  std::map<std::pair<TaskType, int>, int> done_task_counter_;
 };
 
 }

@@ -22,7 +22,6 @@ namespace inference {
 
 void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   caf::scoped_actor self { system };
-
   auto init_mon_actor = system.spawn<init_monitor_actor>();
   system.registry().put(caf::init_mon_atom_v, init_mon_actor);
 
@@ -50,13 +49,15 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
     .iface = "eno4",
   });
 
-  auto executor = system.spawn<executor_actor>(exec_ctl_actor_ptr, rank, world_size);
+  auto executor = system.spawn<executor_actor>(exec_ctl_actor_ptr, caf::actor_cast<caf::strong_actor_ptr>(mpi_a), rank, world_size);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
+  auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr);
+
   auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(30), caf::wait_atom_v, required_actors);
   receive_result<bool>(res_hdl);
 
-  auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr);
+
   std::cerr << "All services initialized." << std::endl;
 
   auto cpu_context = DLContext { kDLCPU, 0 };
@@ -64,6 +65,8 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   NDArray src_gnids = NDArray::FromVector(std::vector<int32_t>{ 1, 1, 2, 0, 3 }, cpu_context);
   NDArray dst_gnids = NDArray::FromVector(std::vector<int32_t>{ 0, 1, 3, 3, 0 }, cpu_context);
 
+  anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
+  anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
   anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
 
   std::cerr << "Quit to enter:" << std::endl;

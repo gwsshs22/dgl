@@ -1,4 +1,4 @@
-#include "../inference/process/process.h"
+#include "../inference/entrypoint.h"
 
 int main(int argc, char* argv[]) {
   dgl::inference::ExecMasterProcess();

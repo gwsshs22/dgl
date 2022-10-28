@@ -2,12 +2,7 @@
 
 #include <iostream>
 
-#include <gloo/allreduce_ring.h>
-#include <gloo/broadcast.h>
-#include <gloo/rendezvous/context.h>
-#include <gloo/rendezvous/file_store.h>
-#include <gloo/rendezvous/prefix_store.h>
-#include <gloo/transport/tcp/device.h>
+#include <dgl/inference/envs.h>
 
 #include "../scheduling/scheduler_actor.h"
 #include "../execution/executor_control_actor.h"
@@ -15,20 +10,32 @@
 #include "../execution/mpi/mpi_actor.h"
 #include "../execution/mpi/gloo_rendezvous_actor.h"
 
-#include "../init_monitor_actor.h"
-
+#include "init_monitor_actor.h"
 #include "process_control_actor.h"
+
+
+#include "../execution/gnn/gnn_executor.h"
 
 namespace dgl {
 namespace inference {
 
 void MasterProcessMain(caf::actor_system& system, const config& cfg) {
-  caf::scoped_actor self { system };
+  auto master_host = GetEnv<std::string>(DGL_INFER_MASTER_HOST, "localhost");
+  auto master_port = GetEnv<u_int16_t>(DGL_INFER_MASTER_PORT, 0);
+  auto node_rank = GetEnv<int>(DGL_INFER_NODE_RANK, -1);
+  auto num_nodes = GetEnv<int>(DGL_INFER_NUM_NODES, -1);
+  auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
+  auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
+  // TODO: env variables validation
+
   auto init_mon_actor = system.spawn<init_monitor_actor>();
   system.registry().put(caf::init_mon_atom_v, init_mon_actor);
 
   auto process_mon_actor = system.spawn(process_monitor_fn);
   system.registry().put(caf::process_mon_atom_v, process_mon_actor);
+
+  auto process_creator = system.spawn(process_creator_fn);
+  system.registry().put(caf::process_creator_atom_v, process_creator);
 
   auto exec_ctl_actor = system.spawn<executor_control_actor>();
   system.registry().put(caf::exec_control_atom_v, exec_ctl_actor);
@@ -38,30 +45,36 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   system.registry().put(caf::gloo_ra_atom_v, gloo_ra);
   auto gloo_ra_ptr = system.registry().get(caf::gloo_ra_atom_v);
 
-  auto res = system.middleman().open(cfg.port);
-  if (!res) {
-    std::cerr << "*** cannot open port: " << caf::to_string(res.error()) << std::endl;
+  auto node_port = retry<uint16_t>([&] {
+    return system.middleman().open(master_port);
+  });
+
+  if (!node_port) {
+    // TODO: error handling
+    std::cerr << "*** cannot open port: " << caf::to_string(node_port.error()) << std::endl;
     return;
   }
 
-  int rank = 0;
-  int world_size = 2;
-
   auto mpi_a = system.spawn<mpi_actor>(gloo_ra_ptr, MpiConfig {
-    .rank = rank,
-    .world_size = world_size,
-    .hostname = "localhost",
-    .iface = "eno4",
+    .rank = node_rank,
+    .num_nodes = num_nodes,
+    .hostname = master_host,
+    .iface = iface,
   });
 
-  auto executor = system.spawn<executor_actor>(exec_ctl_actor_ptr, caf::actor_cast<caf::strong_actor_ptr>(mpi_a), rank, world_size);
+  auto executor = system.spawn<executor_actor>(
+      exec_ctl_actor_ptr,
+      caf::actor_cast<caf::strong_actor_ptr>(mpi_a),
+      node_rank,
+      num_nodes,
+      num_devices_per_node);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
   auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr);
 
+  caf::scoped_actor self { system };
   auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(30), caf::wait_atom_v, required_actors);
   receive_result<bool>(res_hdl);
-
 
   std::cerr << "All services initialized." << std::endl;
 

@@ -1,5 +1,6 @@
 #include "executor_actor.h"
 
+#include "./gnn/gnn_executor.h"
 #include "task_executors.h"
 
 namespace dgl {
@@ -9,14 +10,34 @@ executor_actor::executor_actor(caf::actor_config& config,
                                caf::strong_actor_ptr exec_ctl_actor_ptr,
                                caf::strong_actor_ptr mpi_actor_ptr,
                                int rank,
-                               int world_size)
+                               int num_nodes,
+                               int num_devices_per_node)
     : event_based_actor(config),
       rank_(rank),
-      world_size_(world_size) {
+      num_nodes_(num_nodes) {
   exec_ctl_actor_ = caf::actor_cast<caf::actor>(exec_ctl_actor_ptr);
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
+  auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
+  gnn_executor_group_ = spawn<caf::linked + caf::monitored>(
+      gnn_executor_group, self_ptr, num_devices_per_node);
 }
 
+caf::behavior executor_actor::make_behavior() {
+  return make_initializing_behavior();
+}
+
+// Initializing
+caf::behavior executor_actor::make_initializing_behavior() {
+  return {
+    [&](caf::initialized_atom) {
+      // gnn_executor_group_ is initialized.
+      send(exec_ctl_actor_, caf::initialized_atom_v, caf::actor_cast<caf::strong_actor_ptr>(this), rank_, num_nodes_);
+      become(make_running_behavior());
+    }
+  };
+}
+
+// Running
 void executor_actor::ReportTaskDone(TaskType task_type, int batch_id) {
   send(exec_ctl_actor_, caf::done_atom_v, task_type, batch_id, rank_);
 }
@@ -69,12 +90,11 @@ void executor_actor::DoTestTask(int batch_id) {
   context->Print();
 }
 
-
 //
 
-caf::behavior executor_actor::make_behavior() {
-  send(exec_ctl_actor_, caf::initialized_atom_v, caf::actor_cast<caf::strong_actor_ptr>(this), rank_, world_size_);
+caf::behavior executor_actor::make_running_behavior() {
   return {
+    // batch initialization
     [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
       contexts_.insert(std::make_pair(batch_id, std::make_shared<ExecutionContext>(batch_id, new_gnids, src_gnids, dst_gnids)));
       ReportTaskDone(TaskType::kInitialize, batch_id);
@@ -83,6 +103,7 @@ caf::behavior executor_actor::make_behavior() {
       contexts_.insert(std::make_pair(batch_id, std::make_shared<ExecutionContext>(batch_id)));
       ReportTaskDone(TaskType::kInitialize, batch_id);
     },
+    // batch task execution
     [&](caf::exec_atom, TaskType task_type, int batch_id) {
       switch (task_type) {
         case TaskType::kInputBroadcast:

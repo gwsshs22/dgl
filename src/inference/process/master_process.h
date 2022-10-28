@@ -1,6 +1,6 @@
 #pragma once
 
-#include "process.h"
+#include <dgl/inference/common.h>
 
 namespace dgl {
 namespace inference {

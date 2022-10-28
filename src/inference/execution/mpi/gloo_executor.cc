@@ -9,8 +9,8 @@ namespace inference {
 
 GlooExecutor::GlooExecutor(std::unique_ptr<gloo::rendezvous::Store>&& store,
                            u_int32_t rank,
-                           u_int32_t world_size)
-    : store_(std::move(store)), rank_(rank), world_size_(world_size) {
+                           u_int32_t num_nodes)
+    : store_(std::move(store)), rank_(rank), num_nodes_(num_nodes) {
 }
 
 void GlooExecutor::Initialize(const std::string& hostname, const std::string& iface) {
@@ -19,7 +19,7 @@ void GlooExecutor::Initialize(const std::string& hostname, const std::string& if
   attr.iface = iface;
   attr.ai_family = AF_UNSPEC;
 
-  context_ = std::make_shared<gloo::rendezvous::Context>(rank_, world_size_);
+  context_ = std::make_shared<gloo::rendezvous::Context>(rank_, num_nodes_);
   device_ = gloo::transport::tcp::CreateDevice(attr);  
   
   context_->connectFullMesh(*store_, device_);

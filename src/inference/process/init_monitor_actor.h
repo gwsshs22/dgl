@@ -3,9 +3,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <caf/all.hpp>
-#include <caf/io/all.hpp>
-
 #include <dgl/inference/common.h>
 
 namespace dgl {
@@ -23,7 +20,7 @@ class init_monitor_actor : public caf::event_based_actor {
 
   void check_pendings();
 
-  std::unordered_map<std::string, size_t> world_size_map_;
+  std::unordered_map<std::string, size_t> num_total_map_;
   std::unordered_map<std::string, std::unordered_set<u_int32_t>> inited_map_;
   std::vector<std::pair<actor_names_t, caf::response_promise>> pendings_;
 };

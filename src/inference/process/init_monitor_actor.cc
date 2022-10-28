@@ -9,9 +9,9 @@ init_monitor_actor::init_monitor_actor(caf::actor_config& config)
 
 caf::behavior init_monitor_actor::make_behavior() {
   return {
-    [&](caf::initialized_atom, const std::string& actor_name, int rank, int world_size) {
-      assert(world_size > 0);
-      assert(rank < world_size);
+    [&](caf::initialized_atom, const std::string& actor_name, int rank, int num_total) {
+      assert(num_total > 0);
+      assert(rank < num_total);
       assert(rank >= 0);
       
       auto it = inited_map_.find(actor_name);
@@ -19,11 +19,11 @@ caf::behavior init_monitor_actor::make_behavior() {
         auto rank_set = std::unordered_set<u_int32_t>();
         rank_set.insert(rank);
         inited_map_[actor_name] = std::move(rank_set);
-        world_size_map_[actor_name] = world_size;
+        num_total_map_[actor_name] = num_total;
       } else {
         auto& rank_set = it->second;
         assert(rank_set.find(rank) == rank_set.end());
-        assert(world_size == world_size_map_[actor_name]);
+        assert(num_total == num_total_map_[actor_name]);
 
         rank_set.insert(rank);
       }
@@ -51,7 +51,7 @@ bool init_monitor_actor::all_initialized(const actor_names_t& actor_names) {
     }
     
     auto inited_ranks = it->second;
-    if (inited_ranks.size() < world_size_map_[name]) {
+    if (inited_ranks.size() < num_total_map_[name]) {
       return false;
     }
   }
@@ -80,8 +80,8 @@ init_monitor_proxy_actor::init_monitor_proxy_actor(caf::actor_config& config,
 caf::behavior init_monitor_proxy_actor::make_behavior() {
   caf::actor global_init_mon = caf::actor_cast<caf::actor>(global_init_mon_ptr_);
   return {
-    [=](caf::initialized_atom, const std::string& actor_name, int rank, int world_size) {
-      send(global_init_mon, caf::initialized_atom_v, actor_name, rank, world_size);
+    [=](caf::initialized_atom, const std::string& actor_name, int rank, int num_total) {
+      send(global_init_mon, caf::initialized_atom_v, actor_name, rank, num_total);
     },
     [=](caf::wait_atom, const std::vector<std::string>& actor_names) {
       auto rp = make_response_promise<bool>();

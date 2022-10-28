@@ -14,10 +14,13 @@ class executor_actor : public caf::event_based_actor {
                  caf::strong_actor_ptr exec_ctl_actor_ptr,
                  caf::strong_actor_ptr mpi_actor_ptr,
                  int rank,
-                 int world_size);
+                 int num_nodes,
+                 int num_devices_per_node);
 
  private:
   caf::behavior make_behavior() override;
+  caf::behavior make_initializing_behavior();
+  caf::behavior make_running_behavior();
 
   void ReportTaskDone(TaskType task_type, int batch_id);
 
@@ -39,8 +42,9 @@ class executor_actor : public caf::event_based_actor {
 
   caf::actor exec_ctl_actor_;
   caf::actor mpi_actor_;
+  caf::actor gnn_executor_group_;
   int rank_;
-  int world_size_;
+  int num_nodes_;
 
   std::map<int, std::shared_ptr<ExecutionContext>> contexts_;
 };

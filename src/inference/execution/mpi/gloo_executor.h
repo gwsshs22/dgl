@@ -16,7 +16,7 @@ class GlooExecutor {
  public:
   GlooExecutor(std::unique_ptr<gloo::rendezvous::Store>&& store,
                u_int32_t rank,
-               u_int32_t world_size);
+               u_int32_t num_nodes);
  
   void Initialize(const std::string& hostname, const std::string& iface);
 
@@ -32,7 +32,7 @@ class GlooExecutor {
   std::shared_ptr<gloo::transport::Device> device_;
 
   const u_int32_t rank_;
-  const u_int32_t world_size_;
+  const u_int32_t num_nodes_;
 };
 
 }

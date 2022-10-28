@@ -28,14 +28,14 @@ mpi_actor::mpi_actor(caf::actor_config& config,
 
 void mpi_actor::act() {
   int rank = mpi_config_.rank;
-  int world_size = mpi_config_.world_size;
+  int num_nodes = mpi_config_.num_nodes;
 
   auto gloo_store = std::make_unique<ActorBasedStore>(this->system(), gloo_rendezvous_actor_ptr_);
-  auto gloo_executor = GlooExecutor(std::move(gloo_store), rank, world_size);
+  auto gloo_executor = GlooExecutor(std::move(gloo_store), rank, num_nodes);
   gloo_executor.Initialize(mpi_config_.hostname, mpi_config_.iface);
 
   bool running = true;
-  ReportToInitMon(*this, "mpi", rank, world_size);
+  ReportToInitMon(*this, "mpi", rank, num_nodes);
   receive_while([&]{ return running; }) (
     [&](caf::mpi_broadcast_atom, const NDArray& data) {
       broadcast_(gloo_executor, rank, data);

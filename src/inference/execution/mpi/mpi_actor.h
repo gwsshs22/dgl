@@ -15,7 +15,7 @@ namespace inference {
 
 struct MpiConfig {
   int rank = -1;
-  int world_size = -1;
+  int num_nodes = -1;
   std::string hostname = "";
   std::string iface = "";
 };

@@ -354,6 +354,8 @@ add_executable(runServer ./src/tmp/server.cc)
 target_link_libraries(runServer dgl)
 add_executable(runClient ./src/tmp/client.cc)
 target_link_libraries(runClient dgl)
+add_executable(runActorProcess ./src/tmp/actor.cc)
+target_link_libraries(runActorProcess dgl)
 
 # Testing
 if(BUILD_CPP_TEST)

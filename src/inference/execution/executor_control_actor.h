@@ -18,7 +18,7 @@ class executor_control_actor : public caf::event_based_actor {
 
   void TryRunning();
 
-  int world_size_ = -1;
+  int num_nodes_ = -1;
   std::vector<std::pair<caf::strong_actor_ptr, int>> pending_executors_;
   std::vector<caf::actor> executors_;
   bool scheduler_connected_ = false;

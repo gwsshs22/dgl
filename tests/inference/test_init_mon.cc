@@ -5,11 +5,10 @@
 #include <chrono>
 #include <thread>
 
-#include <caf/test/unit_test.hpp>
-#include <caf/test/unit_test_impl.hpp>
 #include <caf/test/dsl.hpp>
+#include <dgl/inference/common.h>
 
-#include "../../src/inference/init_monitor_actor.h"
+#include "../../src/inference/process/init_monitor_actor.h"
 
 namespace dgl {
 namespace inference {

@@ -9,7 +9,7 @@ void input_broadcast_fn(caf::blocking_actor* self,
                         const NDArray& src_ngids,
                         const NDArray& dst_ngids) {
   auto fn = [&](const NDArray& arr) {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_broadcast_atom_v, arr);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::broadcast_atom_v, arr);
     receive_result<void>(rh);
   };
   
@@ -24,7 +24,7 @@ void input_broadcast_fn(caf::blocking_actor* self,
 void input_receive_fn(caf::blocking_actor* self, const caf::actor& mpi_actor) {
 
   auto fn = [&]() {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_receive_atom_v, 0);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::receive_atom_v, 0);
     return receive_result<NDArray>(rh);
   };
 

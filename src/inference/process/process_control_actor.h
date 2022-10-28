@@ -16,8 +16,6 @@ caf::behavior process_monitor_fn(caf::stateful_actor<process_monitor_state>* sel
 
 void process_creator_fn(caf::blocking_actor* self);
 
-caf::behavior process_request_handler_fn(caf::event_based_actor* self, int actor_process_global_id);
-
 // Called by the master process or the worker process.
 void ForkActorProcess(int actor_process_global_id, const EnvSetter& env_setter); 
 
@@ -40,7 +38,7 @@ class process_control_actor : public caf::event_based_actor {
  protected:
 
   virtual EnvSetter MakeEnvSetter() = 0;
-  virtual caf::behavior make_running_behavior(const caf::strong_actor_ptr& req_handler_ptr) = 0;
+  virtual caf::behavior make_running_behavior(const caf::actor& req_handler) = 0;
 
  private:
   caf::behavior make_behavior();

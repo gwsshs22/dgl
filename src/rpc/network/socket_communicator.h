@@ -12,7 +12,8 @@
 #include <unordered_map>
 #include <memory>
 
-#include "../../runtime/semaphore_wrapper.h"
+#include <dgl/runtime/semaphore_wrapper.h>
+
 #include "communicator.h"
 #include "msg_queue.h"
 #include "tcp_socket.h"

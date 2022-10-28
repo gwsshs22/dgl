@@ -18,10 +18,14 @@ EnvSetter gnn_executor::MakeEnvSetter() {
   };
 }
 
-caf::behavior gnn_executor::make_running_behavior(const caf::strong_actor_ptr& req_handler_ptr) {
-  caf::actor req_handler = caf::actor_cast<caf::actor>(req_handler_ptr);
+caf::behavior gnn_executor::make_running_behavior(const caf::actor& req_handler) {
   return {
-    [=]() {
+    [=](caf::exec_atom, const caf::message& msg) {
+      send(req_handler, caf::request_atom_v, req_id_counter_++, msg);
+    },
+    [=](caf::response_atom, uint64_t req_id, const caf::message& msg) {
+      std::cerr << "gnn_executor(" << local_rank() << ") returns "
+        << "(req_id=" << req_id << ")" << caf::to_string(msg) << std::endl;
     }
   };
 }
@@ -43,6 +47,11 @@ caf::behavior gnn_executor_group(
       if (self->state.num_initialized == self->state.num_devices_per_node) {
         auto owner_actor = caf::actor_cast<caf::actor>(owner_ptr);
         self->send(owner_actor, caf::initialized_atom_v);
+      }
+    },
+    [=](caf::broadcast_atom, const caf::message& msg) {
+      for (int i = 0; i < num_devices_per_node; i++) {
+        self->send(self->state.executors[i], caf::exec_atom_v, msg);
       }
     }
   };

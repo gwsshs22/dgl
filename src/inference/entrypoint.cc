@@ -9,10 +9,6 @@
 
 #include <dgl/inference/common.h>
 
-#include "./process/master_process.h"
-#include "./process/worker_process.h"
-#include "./process/actor_process.h"
-
 namespace dgl {
 namespace inference {
 

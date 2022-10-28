@@ -19,12 +19,13 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, check_atom, "check")
   CAF_ADD_ATOM(core_extension, caf, initialized_atom, "inited")
   CAF_ADD_ATOM(core_extension, caf, init_atom, "init")
-  CAF_ADD_ATOM(core_extension, caf, mpi_broadcast_atom, "mpi_bcast") // mpi broadcast
-  CAF_ADD_ATOM(core_extension, caf, mpi_receive_atom, "mpi_rcv") // mpi receive
+  CAF_ADD_ATOM(core_extension, caf, broadcast_atom, "broadcast") // broadcast
   CAF_ADD_ATOM(core_extension, caf, enqueue_atom, "enqueue") // enqueue
   CAF_ADD_ATOM(core_extension, caf, exec_atom, "exec") // exec
   CAF_ADD_ATOM(core_extension, caf, done_atom, "done") // done
-  CAF_ADD_ATOM(core_extension, caf, create_atom, "create") // done
+  CAF_ADD_ATOM(core_extension, caf, create_atom, "create") // create
+  CAF_ADD_ATOM(core_extension, caf, request_atom, "request") // request
+  CAF_ADD_ATOM(core_extension, caf, response_atom, "response") // response
 
   // For actor remote lookup
   
@@ -37,6 +38,7 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_TYPE_ID(core_extension, (dgl::runtime::NDArray))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::TaskType))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::EnvSetter))
+  
 
 CAF_END_TYPE_ID_BLOCK(core_extension)
 

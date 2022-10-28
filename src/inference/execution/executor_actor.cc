@@ -88,6 +88,11 @@ void executor_actor::InputReceive(int batch_id) {
 void executor_actor::DoTestTask(int batch_id) {
   auto const& context = contexts_[batch_id];
   context->Print();
+  if (batch_id == 0) {
+    send(gnn_executor_group_, caf::broadcast_atom_v, caf::make_message(batch_id, std::string("String!")));
+  } else {
+    send(gnn_executor_group_, caf::broadcast_atom_v, caf::make_message(std::string("String!!!!"), batch_id));
+  }
 }
 
 //

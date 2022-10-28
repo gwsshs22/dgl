@@ -27,4 +27,15 @@ DGL_REGISTER_GLOBAL("inference.process._CAPI_DGLInferenceStartActorProcessThread
     inference::StartActorProcessThread();
   });
 
+DGL_REGISTER_GLOBAL("inference.process._CAPI_DGLInferenceActorNotifyInitialized")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    inference::ActorNotifyInitialized();
+  });
+
+DGL_REGISTER_GLOBAL("inference.process._CAPI_DGLInferenceActorFetchRequest")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    auto req = inference::ActorFetchRequest();
+    req.Done(req.message() + caf::make_message("Done"));
+  });
+
 }  // namespace dgl

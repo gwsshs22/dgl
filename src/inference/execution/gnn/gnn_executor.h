@@ -17,9 +17,10 @@ class gnn_executor : public process_control_actor {
  private:
   EnvSetter MakeEnvSetter() override;
 
-  caf::behavior make_running_behavior(const caf::strong_actor_ptr& req_handler_ptr) override;
+  caf::behavior make_running_behavior(const caf::actor& req_handler) override;
 
   caf::strong_actor_ptr owner_ptr_;
+  uint64_t req_id_counter_ = 0;
 };
 
 struct gnn_executor_group_state {

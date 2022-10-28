@@ -37,10 +37,10 @@ void mpi_actor::act() {
   bool running = true;
   ReportToInitMon(*this, "mpi", rank, num_nodes);
   receive_while([&]{ return running; }) (
-    [&](caf::mpi_broadcast_atom, const NDArray& data) {
+    [&](caf::broadcast_atom, const NDArray& data) {
       broadcast_(gloo_executor, rank, data);
     },
-    [&](caf::mpi_receive_atom, int root_rank) {
+    [&](caf::receive_atom, int root_rank) {
       return receive_(gloo_executor, root_rank);
     }
   );
@@ -89,14 +89,14 @@ inline void broadcast_(GlooExecutor& gloo_executor,
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
   wirte_metadata_(strm, data);
-  gloo_executor.Broadcast(metadata_buf, 512, rank);
+  gloo_executor.Broadcast(metadata_buf, __METADATA_MAX_BYTES, rank);
   gloo_executor.Broadcast(data.Ptr<u_int8_t>(), data.GetSize(), rank);
 }
 
 inline NDArray receive_(GlooExecutor& gloo_executor,
                         u_int32_t root_rank) {
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
-  gloo_executor.Broadcast(metadata_buf, 512, root_rank);
+  gloo_executor.Broadcast(metadata_buf, __METADATA_MAX_BYTES, root_rank);
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
   auto empty_arr = create_from_metadata_(strm);
   gloo_executor.Broadcast(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), root_rank);

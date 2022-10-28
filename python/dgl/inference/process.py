@@ -46,8 +46,8 @@ def main():
 # Call by a new child actor process
 def fork():
     _CAPI_DGLInferenceStartActorProcessThread()
-
-    import time
-    time.sleep(30)
+    _CAPI_DGLInferenceActorNotifyInitialized()
+    while True:
+        _CAPI_DGLInferenceActorFetchRequest()
 
 _init_api("dgl.inference.process")

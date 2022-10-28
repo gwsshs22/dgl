@@ -52,7 +52,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   if (!node_port) {
     // TODO: error handling
     std::cerr << "*** cannot open port: " << caf::to_string(node_port.error()) << std::endl;
-    return;
+    exit(-1);
   }
 
   auto mpi_a = system.spawn<mpi_actor>(gloo_ra_ptr, MpiConfig {

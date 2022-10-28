@@ -3,7 +3,7 @@
  * \file semaphore_wrapper.cc
  * \brief A simple corss platform semaphore wrapper
  */
-#include "semaphore_wrapper.h"
+#include <dgl/runtime/semaphore_wrapper.h>
 
 #include <dmlc/logging.h>
 

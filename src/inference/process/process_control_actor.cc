@@ -113,18 +113,6 @@ void ForkActorProcess(int actor_process_global_id, const EnvSetter& env_setter) 
   }
 }
 
-caf::behavior process_request_handler_fn(caf::event_based_actor* self, int actor_process_global_id) {
-  auto process_monitor_ptr = self->system().registry().get(caf::process_mon_atom_v);
-  auto process_monitor = caf::actor_cast<caf::actor>(process_monitor_ptr);
-  self->send(process_monitor, caf::initialized_atom_v, actor_process_global_id);
-
-  return {
-    [](int x) {
-      std::cerr << "A process request handler got " << x << std::endl;
-    }
-  };
-}
-
 // process_control_actor
 
 process_control_actor::process_control_actor(caf::actor_config& config,
@@ -156,13 +144,14 @@ caf::behavior process_control_actor::make_behavior() {
     [&](caf::done_atom) {
     },
     // From process_monitor
-    [&](caf::initialized_atom, const caf::strong_actor_ptr& process_request_handler) {
+    [&](caf::initialized_atom, const caf::strong_actor_ptr& process_request_handler_ptr) {
       auto owner = caf::actor_cast<caf::actor>(owner_ptr_);
-      send(owner, caf::initialized_atom_v, role_, local_rank_);
 
       // process_request_handler is in the newly created actor process
+      caf::actor process_request_handler = caf::actor_cast<caf::actor>(process_request_handler_ptr);
+      send(process_request_handler, caf::connect_atom_v);
       become(make_running_behavior(process_request_handler));
-
+      send(owner, caf::initialized_atom_v, role_, local_rank_);
     }
   };
 }

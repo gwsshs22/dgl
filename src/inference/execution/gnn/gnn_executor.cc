@@ -46,7 +46,7 @@ caf::behavior gnn_executor_group(
       self->state.num_initialized++;
       if (self->state.num_initialized == self->state.num_devices_per_node) {
         auto owner_actor = caf::actor_cast<caf::actor>(owner_ptr);
-        self->send(owner_actor, caf::initialized_atom_v);
+        self->send(owner_actor, caf::initialized_atom_v, "gnn_executor_group", 0);
       }
     },
     [=](caf::broadcast_atom, const caf::message& msg) {

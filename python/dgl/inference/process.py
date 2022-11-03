@@ -2,21 +2,22 @@ import argparse
 import os
 
 import dgl.inference.envs as envs
+from .graph_server_process import GraphServerProcess
+from .gnn_executor_process import GnnExecutorProcess
 from .._ffi.function import _init_api
 
-def make_main_parser():
+
+def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--role")
-    parser.add_argument("--master-host")
+    parser.add_argument("--role", required=True)
+    parser.add_argument("--master-host", required=True)
     parser.add_argument("--master-port", type=int)
     parser.add_argument("--node-rank", type=int, required=False, default=0)
     parser.add_argument("--num-nodes", type=int)
     parser.add_argument("--num-devices-per-node", type=int)
+    parser.add_argument("--ip-config-path", required=True)
+    parser.add_argument("--graph-config-path", required=True)
     parser.add_argument("--iface", type=str, required=False, default="")
-    return parser
-
-def main():
-    parser = make_main_parser()
     args = parser.parse_args()
 
     if args.role == "master":
@@ -36,6 +37,8 @@ def main():
     os.environ[envs.DGL_INFER_NODE_RANK] = str(node_rank)
     os.environ[envs.DGL_INFER_NUM_NODES] = str(args.num_nodes)
     os.environ[envs.DGL_INFER_NUM_DEVICES_PER_NODE] = str(args.num_devices_per_node)
+    os.environ[envs.DGL_INFER_IP_CONFIG_PATH] = args.ip_config_path
+    os.environ[envs.DGL_INFER_GRAPH_CONFIG_PATH] = args.graph_config_path
     os.environ[envs.DGL_INFER_IFACE] = args.iface
 
     if args.role == "master":
@@ -43,11 +46,38 @@ def main():
     else:
         _CAPI_DGLInferenceExecWorkerProcess()
 
-# Call by a new child actor process
+# Called by a new child actor process
 def fork():
     _CAPI_DGLInferenceStartActorProcessThread()
-    _CAPI_DGLInferenceActorNotifyInitialized()
-    while True:
-        _CAPI_DGLInferenceActorFetchRequest()
+
+    actor_process_role = os.environ[envs.DGL_INFER_ACTOR_PROCESS_ROLE]
+    num_nodes = int(os.environ[envs.DGL_INFER_NUM_NODES])
+    node_rank = int(os.environ[envs.DGL_INFER_NODE_RANK])
+    local_rank = int(os.environ[envs.DGL_INFER_LOCAL_RANK])
+    num_devices_per_node = int(os.environ[envs.DGL_INFER_NUM_DEVICES_PER_NODE])
+    ip_config_path = os.environ[envs.DGL_INFER_IP_CONFIG_PATH]
+    graph_config_path = os.environ[envs.DGL_INFER_GRAPH_CONFIG_PATH]
+    iface = os.environ[envs.DGL_INFER_IFACE]
+
+    channel = ActorProcessChannel()
+
+    if actor_process_role == "gnn_executor":
+        actor_process = GnnExecutorProcess(channel, num_nodes, ip_config_path)
+    elif actor_process_role == "graph_server":
+        actor_process = GraphServerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path)
+
+    else:
+        printf(f"Unknown actor_process_role: {actor_process_role}")
+        exit(-1)
+
+    actor_process.run()
+
+class ActorProcessChannel:
+
+    def notify_initialized(self):
+        _CAPI_DGLInferenceActorNotifyInitialized()
+
+    def fetch_request(self):
+        return _CAPI_DGLInferenceActorFetchRequest()
 
 _init_api("dgl.inference.process")

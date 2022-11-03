@@ -1,6 +1,7 @@
 #include "executor_actor.h"
 
 #include "./gnn/gnn_executor.h"
+#include "./gnn/graph_server_actor.h"
 #include "task_executors.h"
 
 namespace dgl {
@@ -20,6 +21,7 @@ executor_actor::executor_actor(caf::actor_config& config,
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
   gnn_executor_group_ = spawn<caf::linked + caf::monitored>(
       gnn_executor_group, self_ptr, num_devices_per_node);
+  graph_server_actor_ = spawn<graph_server_actor, caf::linked + caf::monitored>(self_ptr);
 }
 
 caf::behavior executor_actor::make_behavior() {
@@ -29,10 +31,14 @@ caf::behavior executor_actor::make_behavior() {
 // Initializing
 caf::behavior executor_actor::make_initializing_behavior() {
   return {
-    [&](caf::initialized_atom) {
-      // gnn_executor_group_ is initialized.
-      send(exec_ctl_actor_, caf::initialized_atom_v, caf::actor_cast<caf::strong_actor_ptr>(this), rank_, num_nodes_);
-      become(make_running_behavior());
+    [&](caf::initialized_atom, const std::string component_name, int) {
+      std::cerr << component_name << " is initialized " << std::endl;
+      num_initialized_components_ += 1;
+      if (num_initialized_components_ == 2) {
+        // gnn_executor_group_ and graph_server_actor_ are initialized.
+        send(exec_ctl_actor_, caf::initialized_atom_v, caf::actor_cast<caf::strong_actor_ptr>(this), rank_, num_nodes_);
+        become(make_running_behavior());
+      }
     }
   };
 }

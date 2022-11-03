@@ -43,6 +43,9 @@ class executor_actor : public caf::event_based_actor {
   caf::actor exec_ctl_actor_;
   caf::actor mpi_actor_;
   caf::actor gnn_executor_group_;
+  caf::actor graph_server_actor_;
+
+  int num_initialized_components_ = 0;
   int rank_;
   int num_nodes_;
 

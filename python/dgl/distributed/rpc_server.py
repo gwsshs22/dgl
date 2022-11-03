@@ -6,7 +6,7 @@ from ..base import DGLError
 from . import rpc
 from .constants import MAX_QUEUE_SIZE, SERVER_EXIT, SERVER_KEEP_ALIVE
 
-def start_server(server_id, ip_config, num_servers, num_clients, server_state, \
+def start_server(server_id, ip_config, num_servers, num_clients, server_state, start_callback, \
     max_queue_size=MAX_QUEUE_SIZE, net_type='socket'):
     """Start DGL server, which will be shared with all the rpc services.
 
@@ -78,6 +78,10 @@ def start_server(server_id, ip_config, num_servers, num_clients, server_state, \
                          blocking=net_type == 'socket')
     rpc.set_num_client(num_clients)
     recv_clients = {}
+
+    if start_callback is not None:
+        start_callback()
+
     while True:
         # go through if any client group is ready for connection
         for group_id in list(recv_clients.keys()):

@@ -390,7 +390,7 @@ class DistGraphServer(KVServer):
                                data_tensor=edge_feats[name])
                 self.orig_data.add(str(data_name))
 
-    def start(self):
+    def start(self, start_callback=None):
         """ Start graph store server.
         """
         # start server
@@ -403,6 +403,7 @@ class DistGraphServer(KVServer):
                      num_servers=self.num_servers,
                      num_clients=self.num_clients,
                      server_state=server_state,
+                     start_callback=start_callback,
                      net_type=self.net_type)
 
 class DistGraph:

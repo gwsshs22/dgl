@@ -17,9 +17,7 @@ class GraphServerProcess:
         self._keep_alive = False # Whether to keep server alive when clients exit
 
     def run(self):
-        print(f"GraphServerProcess is running, ip_config_path={self._ip_config_path}")
-
-        # # From dgl.distributed.initialize
+        # From dgl.distributed.initialize
         from ..distributed import rpc
         from ..distributed.dist_graph import DistGraphServer
 

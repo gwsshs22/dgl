@@ -32,7 +32,6 @@ caf::behavior executor_actor::make_behavior() {
 caf::behavior executor_actor::make_initializing_behavior() {
   return {
     [&](caf::initialized_atom, const std::string component_name, int) {
-      std::cerr << component_name << " is initialized " << std::endl;
       num_initialized_components_ += 1;
       if (num_initialized_components_ == 2) {
         // gnn_executor_group_ and graph_server_actor_ are initialized.

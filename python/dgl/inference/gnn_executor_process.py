@@ -9,7 +9,8 @@ class GnnExecutorProcess:
         self._group_id = 0
 
     def run(self):
-        print(f"GnnExecutorProcess is running, ip_config_path={self._ip_config_path}")
+        # From dgl.distributed.initialize
+
         from ..distributed.constants import MAX_QUEUE_SIZE
         from ..distributed.kvstore import init_kvstore, close_kvstore
         from ..distributed.rpc_client import connect_to_server

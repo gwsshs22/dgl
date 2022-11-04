@@ -5,6 +5,14 @@
 namespace dgl {
 namespace inference {
 
+caf::actor spawn_executor_control_actor(caf::actor_system& system, SchedulingType scheduling_type) {
+  if (scheduling_type == SchedulingType::kIndependent) {
+    return system.spawn<independent_scheduling_executor_control_actor>();
+  } else {
+    return system.spawn<gang_scheduling_executor_control_actor>();
+  }
+}
+
 executor_control_actor::executor_control_actor(caf::actor_config& config)
     : event_based_actor(config) {
 }
@@ -42,7 +50,9 @@ caf::behavior executor_control_actor::initializing() {
 
 void executor_control_actor::TryRunning() {
   if ((pending_executors_.size() == num_nodes_) && scheduler_connected_) {
-    std::sort(pending_executors_.begin(), pending_executors_.end(), [](const auto& e1, const auto& e2) { return e1.second < e2.second; });
+    std::sort(pending_executors_.begin(), pending_executors_.end(),
+      [](const auto& e1, const auto& e2) { return e1.second < e2.second; });
+
     for (auto const& pe : pending_executors_) {
       executors_.emplace_back(caf::actor_cast<caf::actor>(pe.first));
     }
@@ -53,7 +63,11 @@ void executor_control_actor::TryRunning() {
   }
 }
 
-caf::behavior executor_control_actor::running() {
+gang_scheduling_executor_control_actor::gang_scheduling_executor_control_actor(caf::actor_config& config)
+    : executor_control_actor(config) {
+}
+
+caf::behavior gang_scheduling_executor_control_actor::running() {
   return {
     [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
       send(executors_[0], caf::init_atom_v, batch_id, new_gnids, src_gnids, dst_gnids);
@@ -81,6 +95,24 @@ caf::behavior executor_control_actor::running() {
         done_task_counter_.erase(it);
         send(scheduler_actor_, caf::done_atom_v, task_type, batch_id);
       }
+    }
+  };
+}
+
+independent_scheduling_executor_control_actor::independent_scheduling_executor_control_actor(caf::actor_config& config)
+    : executor_control_actor(config) {
+}
+
+caf::behavior independent_scheduling_executor_control_actor::running() {
+  return {
+    [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
+      send(executors_[batch_id % num_nodes_], caf::init_atom_v, batch_id, new_gnids, src_gnids, dst_gnids);
+    },
+    [&](caf::exec_atom, TaskType task_type, int batch_id) {
+      send(executors_[batch_id % num_nodes_], caf::exec_atom_v, task_type, batch_id);
+    },
+    [&](caf::done_atom, TaskType task_type, int batch_id, int rank) {
+      send(scheduler_actor_, caf::done_atom_v, task_type, batch_id);
     }
   };
 }

@@ -10,6 +10,7 @@
 #include <caf/io/all.hpp>
 
 #include <dgl/inference/types.h>
+#include <dgl/inference/envs.h>
 #include <dgl/runtime/ndarray.h>
 
 CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)

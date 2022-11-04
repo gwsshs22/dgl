@@ -39,9 +39,9 @@ void StartActorProcessThread() {
 }
 
 void caf_main(caf::actor_system& system, const config& cfg) {
-  if (cfg.type == SystemType::kMaster) {
+  if (cfg.type == ActorSystemType::kMasterProcess) {
     MasterProcessMain(system, cfg);
-  } else if (cfg.type == SystemType::kWorker) {
+  } else if (cfg.type == ActorSystemType::kWorkerProcess) {
     WorkerProcessMain(system, cfg);
   } else {
     ActorProcessMain(system, cfg);

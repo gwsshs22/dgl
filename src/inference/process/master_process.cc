@@ -2,8 +2,6 @@
 
 #include <iostream>
 
-#include <dgl/inference/envs.h>
-
 #include "../scheduling/scheduler_actor.h"
 #include "../execution/executor_control_actor.h"
 #include "../execution/executor_actor.h"
@@ -26,6 +24,10 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto num_nodes = GetEnv<int>(DGL_INFER_NUM_NODES, -1);
   auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
+
+  auto paral_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
+  auto scheduling_type = GetEnumEnv<SchedulingType>(DGL_INFER_SCHEDULING_TYPE);
+  auto using_agg_cache = GetEnv<bool>(DGL_INFER_USING_AGGREGATION_CACHE, false);
   // TODO: env variables validation
 
   auto init_mon_actor = system.spawn<init_monitor_actor>();
@@ -37,7 +39,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto process_creator = system.spawn(process_creator_fn);
   system.registry().put(caf::process_creator_atom_v, process_creator);
 
-  auto exec_ctl_actor = system.spawn<executor_control_actor>();
+  auto exec_ctl_actor = spawn_executor_control_actor(system, scheduling_type);
   system.registry().put(caf::exec_control_atom_v, exec_ctl_actor);
   auto exec_ctl_actor_ptr = system.registry().get(caf::exec_control_atom_v);
 

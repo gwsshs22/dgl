@@ -1,7 +1,5 @@
 #include "gnn_executor.h"
 
-#include <dgl/inference/envs.h>
-
 namespace dgl {
 namespace inference {
 

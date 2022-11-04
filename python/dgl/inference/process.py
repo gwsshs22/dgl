@@ -9,15 +9,17 @@ from .._ffi.function import _init_api
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--role", required=True)
+    parser.add_argument("--role", required=True, choices=["master", "worker"])
     parser.add_argument("--master-host", required=True)
     parser.add_argument("--master-port", type=int)
     parser.add_argument("--node-rank", type=int, required=False, default=0)
     parser.add_argument("--num-nodes", type=int)
-    parser.add_argument("--num-devices-per-node", type=int)
+    parser.add_argument("--num-devices-per-node", type=int,  required=True)
     parser.add_argument("--ip-config-path", required=True)
     parser.add_argument("--graph-config-path", required=True)
     parser.add_argument("--iface", type=str, required=False, default="")
+    parser.add_argument("--execution-type", type=str, required=True, choices=["dgl", "p3-independent", "p3-gang", "vcut"])
+    parser.add_argument("--use-aggregation-cache", type=bool, default=False)
     args = parser.parse_args()
 
     if args.role == "master":
@@ -40,6 +42,24 @@ def main():
     os.environ[envs.DGL_INFER_IP_CONFIG_PATH] = args.ip_config_path
     os.environ[envs.DGL_INFER_GRAPH_CONFIG_PATH] = args.graph_config_path
     os.environ[envs.DGL_INFER_IFACE] = args.iface
+
+    if args.execution_type == "dgl":
+        os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.DGL.value)
+        os.environ[envs.DGL_INFER_SCHEDULING_TYPE] = str(envs.SchedulingType.INDEPENDENT.value)
+    elif args.execution_type == "p3-independent":
+        os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.P3.value)
+        os.environ[envs.DGL_INFER_SCHEDULING_TYPE] = str(envs.SchedulingType.INDEPENDENT.value)
+    elif args.execution_type == "p3-gang":
+        os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.P3.value)
+        os.environ[envs.DGL_INFER_SCHEDULING_TYPE] = str(envs.SchedulingType.GANG.value)
+    elif args.execution_type == "vcut":
+        os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.VERTEX_CUT.value)
+        os.environ[envs.DGL_INFER_SCHEDULING_TYPE] = str(envs.SchedulingType.GANG.value)
+    else:
+        print(f"Unexpected --execution-type {args.execution_type}")
+        exit(-1)
+
+    os.environ[envs.DGL_INFER_USING_AGGREGATION_CACHE] = "1" if args.use_aggregation_cache else "0"
 
     if args.role == "master":
         _CAPI_DGLInferenceExecMasterProcess()

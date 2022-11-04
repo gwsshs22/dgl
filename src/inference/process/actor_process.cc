@@ -4,7 +4,6 @@
 
 #include <dmlc/blockingconcurrentqueue.h>
 
-#include <dgl/inference/envs.h>
 #include <dgl/runtime/semaphore_wrapper.h>
 
 #include "process_control_actor.h"

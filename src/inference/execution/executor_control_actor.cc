@@ -42,7 +42,9 @@ caf::behavior executor_control_actor::initializing() {
 
 void executor_control_actor::TryRunning() {
   if ((pending_executors_.size() == num_nodes_) && scheduler_connected_) {
-    std::sort(pending_executors_.begin(), pending_executors_.end(), [](const auto& e1, const auto& e2) { return e1.second < e2.second; });
+    std::sort(pending_executors_.begin(), pending_executors_.end(),
+      [](const auto& e1, const auto& e2) { return e1.second < e2.second; });
+
     for (auto const& pe : pending_executors_) {
       executors_.emplace_back(caf::actor_cast<caf::actor>(pe.first));
     }

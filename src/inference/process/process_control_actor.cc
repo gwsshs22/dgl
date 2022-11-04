@@ -8,8 +8,6 @@
 #include <signal.h>
 #include <string>
 
-#include <dgl/inference/envs.h>
-
 namespace dgl {
 namespace inference {
 

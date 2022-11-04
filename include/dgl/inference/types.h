@@ -16,10 +16,10 @@ struct config : caf::actor_system_config {
   int type;
 };
 
-enum SystemType {
-  kMaster = 0,
-  kWorker = 1,
-  kActor = 2,
+enum ActorSystemType {
+  kMasterProcess = 0,
+  kWorkerProcess = 1,
+  kActorProcess = 2,
 };
 
 enum TaskType {

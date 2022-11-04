@@ -1,7 +1,5 @@
 #include "graph_server_actor.h"
 
-#include <dgl/inference/envs.h>
-
 namespace dgl {
 namespace inference {
 

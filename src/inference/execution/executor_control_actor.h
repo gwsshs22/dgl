@@ -10,6 +10,11 @@ class executor_control_actor : public caf::event_based_actor {
  public:
   executor_control_actor(caf::actor_config& config);
 
+ protected:
+  caf::actor scheduler_actor_;
+  int num_nodes_ = -1;
+  std::vector<caf::actor> executors_;
+
  private:
   caf::behavior make_behavior() override;
 
@@ -18,11 +23,8 @@ class executor_control_actor : public caf::event_based_actor {
 
   void TryRunning();
 
-  int num_nodes_ = -1;
   std::vector<std::pair<caf::strong_actor_ptr, int>> pending_executors_;
-  std::vector<caf::actor> executors_;
   bool scheduler_connected_ = false;
-  caf::actor scheduler_actor_;
 
   std::map<std::pair<TaskType, int>, int> done_task_counter_;
 };

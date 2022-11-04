@@ -3,7 +3,6 @@
 
 #include <caf/test/dsl.hpp>
 #include <dgl/inference/common.h>
-#include <dgl/inference/envs.h>
 
 #include "../../src/inference/process/process_control_actor.h"
 

@@ -3,8 +3,6 @@
 #include <iostream>
 #include <thread>
 
-#include <dgl/inference/envs.h>
-
 #include "../execution/executor_actor.h"
 #include "../execution/mpi/mpi_actor.h"
 #include "../execution/mpi/gloo_rendezvous_actor.h"
@@ -22,6 +20,9 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto num_nodes = GetEnv<int>(DGL_INFER_NUM_NODES, -1);
   auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
+
+  auto paral_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
+  auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
   // TODO: env variables validation
 
   auto node = retry<caf::node_id>([&] {

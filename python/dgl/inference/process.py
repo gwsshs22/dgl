@@ -9,15 +9,17 @@ from .._ffi.function import _init_api
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--role", required=True)
+    parser.add_argument("--role", required=True, choices=["master", "worker"])
     parser.add_argument("--master-host", required=True)
     parser.add_argument("--master-port", type=int)
     parser.add_argument("--node-rank", type=int, required=False, default=0)
     parser.add_argument("--num-nodes", type=int)
-    parser.add_argument("--num-devices-per-node", type=int)
+    parser.add_argument("--num-devices-per-node", type=int,  required=True)
     parser.add_argument("--ip-config-path", required=True)
     parser.add_argument("--graph-config-path", required=True)
     parser.add_argument("--iface", type=str, required=False, default="")
+    parser.add_argument("--parallelization-type", type=str, required=True, choices=["data", "p3", "vcut"])
+    parser.add_argument("--using-precomputed-aggregations", action="store_true")
     args = parser.parse_args()
 
     if args.role == "master":
@@ -40,6 +42,18 @@ def main():
     os.environ[envs.DGL_INFER_IP_CONFIG_PATH] = args.ip_config_path
     os.environ[envs.DGL_INFER_GRAPH_CONFIG_PATH] = args.graph_config_path
     os.environ[envs.DGL_INFER_IFACE] = args.iface
+
+    if args.parallelization_type == "data":
+        os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.DATA.value)
+    elif args.parallelization_type == "p3":
+        os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.P3.value)
+    elif args.parallelization_type == "vcut":
+        os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.VERTEX_CUT.value)
+    else:
+        print(f"Unexpected --parallelization-type {args.parallelization_type}")
+        exit(-1)
+
+    os.environ[envs.DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS] = "1" if args.using_precomputed_aggregations else "0"
 
     if args.role == "master":
         _CAPI_DGLInferenceExecMasterProcess()

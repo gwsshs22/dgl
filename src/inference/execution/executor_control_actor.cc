@@ -2,11 +2,15 @@
 
 #include <algorithm>
 
+#include "task_executors.h"
+
 namespace dgl {
 namespace inference {
 
-executor_control_actor::executor_control_actor(caf::actor_config& config)
+executor_control_actor::executor_control_actor(caf::actor_config& config,
+                                               caf::strong_actor_ptr mpi_actor_ptr)
     : event_based_actor(config) {
+  mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
 }
 
 caf::behavior executor_control_actor::make_behavior() {
@@ -57,32 +61,56 @@ void executor_control_actor::TryRunning() {
 
 caf::behavior executor_control_actor::running() {
   return {
-    [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
-      send(executors_[0], caf::init_atom_v, batch_id, new_gnids, src_gnids, dst_gnids);
+    [&](caf::init_atom,
+        int batch_id, 
+        int node_rank,
+        int local_rank,
+        const NDArray& new_gnids,
+        const NDArray& src_gnids,
+        const NDArray& dst_gnids) {
+      system().spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, src_gnids, dst_gnids);
+      send(executors_[node_rank], caf::init_atom_v, batch_id, local_rank);
+      done_task_counter_.emplace(std::make_pair(TaskType::kInitialize, batch_id), 1);
+    },
+    [&](caf::exec_atom, TaskType task_type, int batch_id, int node_rank, int local_rank) {
+      send(executors_[node_rank], caf::exec_atom_v, task_type, batch_id, local_rank);
+      done_task_counter_.emplace(std::make_pair(task_type, batch_id), 1);
+    },
+    [&](caf::broadcast_init_atom,
+        int batch_id,
+        const NDArray& new_gnids,
+        const NDArray& src_gnids,
+        const NDArray& dst_gnids) {
+      send(executors_[0], caf::broadcast_init_atom_v, batch_id, new_gnids, src_gnids, dst_gnids);
       
       for (int i = 1; i < num_nodes_; i++) {
-        send(executors_[i], caf::init_atom_v, batch_id);
+        send(executors_[i], caf::broadcast_init_atom_v, batch_id);
       }
+
+      done_task_counter_.emplace(std::make_pair(TaskType::kInitialize, batch_id), num_nodes_);
     },
-    [&](caf::exec_atom, TaskType task_type, int batch_id) {
+    [&](caf::broadcast_exec_atom, TaskType task_type, int batch_id) {
       for (int i = 0; i < num_nodes_; i++) {
         send(executors_[i], caf::exec_atom_v, task_type, batch_id);
       }
+
+      done_task_counter_.emplace(std::make_pair(task_type, batch_id), num_nodes_);
     },
-    [&](caf::done_atom, TaskType task_type, int batch_id, int rank) {
+    [&](caf::done_atom, TaskType task_type, int batch_id, int node_rank) {
       auto p = std::make_pair(task_type, batch_id);
       auto it = done_task_counter_.find(p);
-
-      if (it == done_task_counter_.end()) {
-        it = done_task_counter_.emplace(p, 1).first;
-      } else {
-        ((*it).second)++;
+      ((*it).second)--;
+      if (it->second > 0) {
+        return;
       }
 
-      if (it->second == num_nodes_) {
-        done_task_counter_.erase(it);
+      done_task_counter_.erase(it);
+      if (task_type == TaskType::kInitialize) {
+        send(scheduler_actor_, caf::initialized_atom_v, batch_id);
+      } else {
         send(scheduler_actor_, caf::done_atom_v, task_type, batch_id);
       }
+        
     }
   };
 }

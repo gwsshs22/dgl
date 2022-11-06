@@ -37,10 +37,10 @@ void mpi_actor::act() {
   bool running = true;
   ReportToInitMon(*this, "mpi", rank, num_nodes);
   receive_while([&]{ return running; }) (
-    [&](caf::broadcast_atom, const NDArray& data) {
+    [&](caf::mpi_bsend_atom, const NDArray& data) {
       broadcast_(gloo_executor, rank, data);
     },
-    [&](caf::receive_atom, int root_rank) {
+    [&](caf::mpi_brecv_atom, int root_rank) {
       return receive_(gloo_executor, root_rank);
     }
   );

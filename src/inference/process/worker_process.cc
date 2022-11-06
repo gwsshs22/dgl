@@ -45,8 +45,6 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto process_creator = system.spawn(process_creator_fn);
   system.registry().put(caf::process_creator_atom_v, process_creator);
 
-  auto exec_ctl_actor_ptr = system.middleman().remote_lookup(caf::exec_control_atom_v, node.value());
-
   auto gloo_ra_ptr = system.middleman().remote_lookup(caf::gloo_ra_atom_v, node.value());
   auto mpi_a = system.spawn<mpi_actor>(gloo_ra_ptr, MpiConfig {
     .rank = node_rank,
@@ -54,6 +52,8 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
     .hostname = master_host,
     .iface = iface,
   });
+
+  auto exec_ctl_actor_ptr = system.middleman().remote_lookup(caf::exec_control_atom_v, node.value());
 
   auto executor = system.spawn<executor_actor>(
       exec_ctl_actor_ptr,

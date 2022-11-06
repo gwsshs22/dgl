@@ -13,7 +13,7 @@ class executor_actor : public caf::event_based_actor {
   executor_actor(caf::actor_config& config,
                  caf::strong_actor_ptr exec_ctl_actor_ptr,
                  caf::strong_actor_ptr mpi_actor_ptr,
-                 int rank,
+                 int node_rank,
                  int num_nodes,
                  int num_devices_per_node);
 
@@ -34,9 +34,6 @@ class executor_actor : public caf::event_based_actor {
                                 TaskType task_type,
                                 int batch_id);
 
-  void InputBroadcast(int batch_id);
-  void InputReceive(int batch_id);
-
   // TODO: remote this
   void DoTestTask(int batch_id);
 
@@ -46,7 +43,7 @@ class executor_actor : public caf::event_based_actor {
   caf::actor graph_server_actor_;
 
   int num_initialized_components_ = 0;
-  int rank_;
+  int node_rank_;
   int num_nodes_;
 
   std::map<int, std::shared_ptr<ExecutionContext>> contexts_;

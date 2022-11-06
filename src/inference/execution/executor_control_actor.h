@@ -8,7 +8,8 @@ namespace inference {
 class executor_control_actor : public caf::event_based_actor {
 
  public:
-  executor_control_actor(caf::actor_config& config);
+  executor_control_actor(caf::actor_config& config,
+                         caf::strong_actor_ptr mpi_actor_ptr);
 
  protected:
   caf::actor scheduler_actor_;
@@ -25,6 +26,8 @@ class executor_control_actor : public caf::event_based_actor {
 
   std::vector<std::pair<caf::strong_actor_ptr, int>> pending_executors_;
   bool scheduler_connected_ = false;
+
+  caf::actor mpi_actor_;
 
   std::map<std::pair<TaskType, int>, int> done_task_counter_;
 };

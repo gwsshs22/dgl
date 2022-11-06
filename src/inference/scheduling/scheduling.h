@@ -14,23 +14,28 @@ struct BatchInput {
 class Scheduler {
 
  public:
-  virtual void Initialize() = 0;
-  virtual void BroadcastInitialize() = 0;
-  virtual void Execute() = 0;
-  virtual void BroadcastExecute() = 0;
+  virtual void LocalInitialize(int batch_id, int node_rank, int local_rank, const BatchInput& batch_input) = 0;
 
+  virtual void LocalExecute(TaskType task_type, int batch_id, int node_rank, int local_rank) = 0;
+
+  virtual void BroadcastInitialize(int batch_id, const BatchInput& batch_input) = 0;
+  
+  virtual void BroadcastExecute(TaskType task_type, int batch_id) = 0;
 };
 
 class SchedulingPolicy {
 
  public:
   virtual void OnNewBatch(Scheduler& scheduler, BatchInput&& input) = 0;
-  virtual void OnInitializeDone(Scheduler& scheduler) = 0;
-  virtual void OnBatchInitializeDone(Scheduler& scheduler) = 0;
-  virtual void OnExecuteDone(Scheduler& scheduler) = 0;
-  virtual void OnBroadcastExecuteDone(Scheduler& scheduler) = 0;
+  virtual void OnInitialized(Scheduler& scheduler, int batch_id) = 0;
+  virtual void OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) = 0;
 
 };
+
+std::shared_ptr<SchedulingPolicy> CreatePolicy(ParallelizationType type,
+                                               bool using_precomputed_aggs,
+                                               int num_nodes,
+                                               int num_devices_per_node);
 
 }
 }

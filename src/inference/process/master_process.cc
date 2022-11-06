@@ -25,7 +25,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
 
-  auto paral_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
+  auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
   auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
   // TODO: env variables validation
 
@@ -37,10 +37,6 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
 
   auto process_creator = system.spawn(process_creator_fn);
   system.registry().put(caf::process_creator_atom_v, process_creator);
-
-  auto exec_ctl_actor = system.spawn<executor_control_actor>();
-  system.registry().put(caf::exec_control_atom_v, exec_ctl_actor);
-  auto exec_ctl_actor_ptr = system.registry().get(caf::exec_control_atom_v);
 
   auto gloo_ra = system.spawn<gloo_rendezvous_actor>();
   system.registry().put(caf::gloo_ra_atom_v, gloo_ra);
@@ -63,15 +59,25 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
     .iface = iface,
   });
 
+  auto mpi_actor_ptr = caf::actor_cast<caf::strong_actor_ptr>(mpi_a);
+
+  auto exec_ctl_actor = system.spawn<executor_control_actor>(mpi_actor_ptr);
+  system.registry().put(caf::exec_control_atom_v, exec_ctl_actor);
+  auto exec_ctl_actor_ptr = system.registry().get(caf::exec_control_atom_v);
+
   auto executor = system.spawn<executor_actor>(
       exec_ctl_actor_ptr,
-      caf::actor_cast<caf::strong_actor_ptr>(mpi_a),
+      mpi_actor_ptr,
       node_rank,
       num_nodes,
       num_devices_per_node);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
-  auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr);
+  auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr,
+                                                 parallel_type,
+                                                 using_precomputed_aggregations,
+                                                 num_nodes,
+                                                 num_devices_per_node);
 
   caf::scoped_actor self { system };
   auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(30), caf::wait_atom_v, required_actors);

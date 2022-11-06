@@ -2,14 +2,10 @@
 
 #include <dgl/inference/common.h>
 
+#include "scheduling.h"
+
 namespace dgl {
 namespace inference {
-
-struct BatchInput {
-  NDArray new_gnids;
-  NDArray src_gnids;
-  NDArray dst_gnids;
-};
 
 class ScheduledBatch {
 

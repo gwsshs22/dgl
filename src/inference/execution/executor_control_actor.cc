@@ -68,7 +68,7 @@ caf::behavior executor_control_actor::running() {
         const NDArray& new_gnids,
         const NDArray& src_gnids,
         const NDArray& dst_gnids) {
-      system().spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, src_gnids, dst_gnids);
+      system().spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
       send(executors_[node_rank], caf::init_atom_v, batch_id, local_rank);
       done_task_counter_.emplace(std::make_pair(TaskType::kInitialize, batch_id), 1);
     },

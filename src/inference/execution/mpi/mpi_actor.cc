@@ -5,45 +5,51 @@
 
 #include <dgl/runtime/ndarray.h>
 
-#include "gloo_rendezvous_actor.h"
-#include "gloo_executor.h"
-
 namespace dgl {
 namespace inference {
 
-inline void broadcast_(GlooExecutor& gloo_executor,
-                       u_int32_t rank,
-                       const NDArray& data);
+void broadcast_send(caf::blocking_actor* self,
+                    caf::response_promise rp,
+                    std::shared_ptr<GlooExecutor> gloo_executor,
+                    u_int32_t rank,
+                    const NDArray& data,
+                    uint32_t tag);
 
-inline NDArray receive_(GlooExecutor& gloo_executor,
-                        u_int32_t root_rank);
+void broadcast_recv(caf::blocking_actor* self,
+                    caf::response_promise rp,
+                    std::shared_ptr<GlooExecutor> gloo_executor,
+                    u_int32_t root_rank,
+                    uint32_t tag);
 
 mpi_actor::mpi_actor(caf::actor_config& config,
           const caf::strong_actor_ptr& gloo_rendezvous_actor_ptr,
           const MpiConfig& mpi_config)
-    : blocking_actor(config),
+    : event_based_actor(config),
       gloo_rendezvous_actor_ptr_(gloo_rendezvous_actor_ptr),
       mpi_config_(mpi_config) {
 }
 
-void mpi_actor::act() {
+caf::behavior mpi_actor::make_behavior() {
   int rank = mpi_config_.rank;
   int num_nodes = mpi_config_.num_nodes;
 
   auto gloo_store = std::make_unique<ActorBasedStore>(this->system(), gloo_rendezvous_actor_ptr_);
-  auto gloo_executor = GlooExecutor(std::move(gloo_store), rank, num_nodes);
-  gloo_executor.Initialize(mpi_config_.hostname, mpi_config_.iface);
+  gloo_executor_ = std::make_shared<GlooExecutor>(std::move(gloo_store), rank, num_nodes);
+  gloo_executor_->Initialize(mpi_config_.hostname, mpi_config_.iface);
 
-  bool running = true;
   ReportToInitMon(*this, "mpi", rank, num_nodes);
-  receive_while([&]{ return running; }) (
-    [&](caf::mpi_bsend_atom, const NDArray& data) {
-      broadcast_(gloo_executor, rank, data);
+  return {
+    [=](caf::mpi_bsend_atom, const NDArray& data, uint32_t tag) {
+      auto rp = make_response_promise<bool>();
+      spawn(broadcast_send, rp, this->gloo_executor_, rank, data, tag);
+      return rp;
     },
-    [&](caf::mpi_brecv_atom, int root_rank) {
-      return receive_(gloo_executor, root_rank);
+    [=](caf::mpi_brecv_atom, int root_rank, uint32_t tag) {
+      auto rp = make_response_promise<NDArray>();
+      spawn(broadcast_recv, rp, this->gloo_executor_, root_rank, tag);
+      return rp;
     }
-  );
+  };
 }
 
 constexpr unsigned int __METADATA_MAX_BYTES = 512;
@@ -83,25 +89,33 @@ inline NDArray create_from_metadata_(dmlc::Stream& stream) {
       DLContext{kDLCPU, 0});
 }
 
-inline void broadcast_(GlooExecutor& gloo_executor,
-                u_int32_t rank,
-                const NDArray& data) {
+void broadcast_send(caf::blocking_actor* self,
+                    caf::response_promise rp,
+                    std::shared_ptr<GlooExecutor> gloo_executor,
+                    u_int32_t rank,
+                    const NDArray& data,
+                    uint32_t tag) {
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
   wirte_metadata_(strm, data);
-  gloo_executor.Broadcast(metadata_buf, __METADATA_MAX_BYTES, rank);
-  gloo_executor.Broadcast(data.Ptr<u_int8_t>(), data.GetSize(), rank);
+  gloo_executor->Broadcast(metadata_buf, __METADATA_MAX_BYTES, rank, tag);
+  gloo_executor->Broadcast(data.Ptr<u_int8_t>(), data.GetSize(), rank, tag);
+
+  rp.deliver(true);
 }
 
-inline NDArray receive_(GlooExecutor& gloo_executor,
-                        u_int32_t root_rank) {
+void broadcast_recv(caf::blocking_actor* self,
+                    caf::response_promise rp,
+                    std::shared_ptr<GlooExecutor> gloo_executor,
+                    u_int32_t root_rank,
+                    uint32_t tag) {
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
-  gloo_executor.Broadcast(metadata_buf, __METADATA_MAX_BYTES, root_rank);
+  gloo_executor->Broadcast(metadata_buf, __METADATA_MAX_BYTES, root_rank, tag);
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
   auto empty_arr = create_from_metadata_(strm);
-  gloo_executor.Broadcast(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), root_rank);
+  gloo_executor->Broadcast(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), root_rank, tag);
 
-  return empty_arr;
+  rp.deliver(std::move(empty_arr));
 }
 
 }

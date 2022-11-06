@@ -7,10 +7,11 @@ void input_bsend_fn(caf::blocking_actor* self,
                     const caf::actor& mpi_actor,
                     const NDArray& new_ngids,
                     const NDArray& src_ngids,
-                    const NDArray& dst_ngids) {
+                    const NDArray& dst_ngids,
+                    const uint32_t tag) {
   auto fn = [&](const NDArray& arr) {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_bsend_atom_v, arr);
-    receive_result<void>(rh);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_bsend_atom_v, arr, tag);
+    receive_result<bool>(rh);
   };
   
   fn(new_ngids);
@@ -21,10 +22,10 @@ void input_bsend_fn(caf::blocking_actor* self,
   });
 }
 
-void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor) {
+void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag) {
 
   auto fn = [&]() {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, 0);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, 0, tag);
     return receive_result<NDArray>(rh);
   };
 
@@ -46,10 +47,11 @@ void input_send_fn(caf::blocking_actor *self,
                    int node_rank,
                    const NDArray& new_ngids,
                    const NDArray& src_ngids,
-                   const NDArray& dst_ngids) {
+                   const NDArray& dst_ngids,
+                   const uint32_t tag) {
   auto fn = [&](const NDArray& arr) {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_send_atom_v, node_rank, arr);
-    receive_result<void>(rh);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_send_atom_v, node_rank, arr, tag);
+    receive_result<bool>(rh);
   };
 
   fn(new_ngids);
@@ -57,9 +59,9 @@ void input_send_fn(caf::blocking_actor *self,
   fn(dst_ngids);
 }
 
-void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor) {
+void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag) {
   auto fn = [&]() {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, 0);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, 0, tag);
     return receive_result<NDArray>(rh);
   };
 

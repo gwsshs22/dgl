@@ -10,6 +10,9 @@
 
 #include <dgl/inference/common.h>
 
+#include "gloo_rendezvous_actor.h"
+#include "gloo_executor.h"
+
 namespace dgl {
 namespace inference {
 
@@ -21,7 +24,7 @@ struct MpiConfig {
 };
 
 // gloo based mpi actor
-class mpi_actor : public caf::blocking_actor {
+class mpi_actor : public caf::event_based_actor {
 
  public:
   mpi_actor(caf::actor_config& config,
@@ -29,9 +32,11 @@ class mpi_actor : public caf::blocking_actor {
             const MpiConfig& mpi_config);
 
  private:
-  void act() override;
+  // void act() override;
+  caf::behavior make_behavior();
 
   const caf::strong_actor_ptr gloo_rendezvous_actor_ptr_;
+  std::shared_ptr<GlooExecutor> gloo_executor_;
   const MpiConfig mpi_config_;
 };
 

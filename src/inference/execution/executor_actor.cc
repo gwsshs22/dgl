@@ -91,7 +91,7 @@ caf::behavior executor_actor::make_running_behavior() {
       auto context = std::make_shared<ExecutionContext>(batch_id, local_rank);
       contexts_.insert(std::make_pair(batch_id, context));
 
-      auto receiver = spawn(input_recv_fn, mpi_actor_);
+      auto receiver = spawn(input_recv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
       RequestAndReportTaskDone<std::vector<NDArray>>(receiver, TaskType::kInitialize, batch_id,
         [=](const std::vector<NDArray> ret) {
           context->SetBatchInput(ret[0], ret[1], ret[2]);
@@ -100,14 +100,14 @@ caf::behavior executor_actor::make_running_behavior() {
     [&](caf::broadcast_init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
       auto context = std::make_shared<ExecutionContext>(batch_id, new_gnids, src_gnids, dst_gnids);
       contexts_.insert(std::make_pair(batch_id, context));
-      auto broadcaster = spawn(input_bsend_fn, mpi_actor_, new_gnids, src_gnids, dst_gnids);
+      auto broadcaster = spawn(input_bsend_fn, mpi_actor_, new_gnids, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
       RequestAndReportTaskDone(broadcaster, TaskType::kInitialize, batch_id);
     },
     [&](caf::broadcast_init_atom, int batch_id) {
       auto context = std::make_shared<ExecutionContext>(batch_id);
       contexts_.insert(std::make_pair(batch_id, context));
 
-      auto receiver = spawn(input_brecv_fn, mpi_actor_);
+      auto receiver = spawn(input_brecv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
       RequestAndReportTaskDone<std::vector<NDArray>>(receiver, TaskType::kInitialize, batch_id,
         [=](const std::vector<NDArray> ret) {
           context->SetBatchInput(ret[0], ret[1], ret[2]);

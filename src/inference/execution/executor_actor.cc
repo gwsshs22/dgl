@@ -121,6 +121,30 @@ caf::behavior executor_actor::make_running_behavior() {
     // batch task execution
     [&](caf::exec_atom, TaskType task_type, int batch_id, int local_rank) {
       switch (task_type) {
+        case TaskType::kSampling:
+          // std::cerr << "batch_id=" << batch_id << "kSampling Done" << std::endl;
+          ReportTaskDone(TaskType::kSampling, batch_id);
+          break;
+        case TaskType::kPrepareInput:
+          // std::cerr << "batch_id=" << batch_id << "kPrepareInput Done" << std::endl;
+          ReportTaskDone(TaskType::kPrepareInput, batch_id);
+          break;
+        case TaskType::kCompute:
+          // std::cerr << "batch_id=" << batch_id << "kCompute Done" << std::endl;
+          ReportTaskDone(TaskType::kCompute, batch_id);
+          break;
+        case TaskType::kPrepareAggregations:
+          // std::cerr << "batch_id=" << batch_id << "kPrepareAggregations Done" << std::endl;
+          ReportTaskDone(TaskType::kPrepareAggregations, batch_id);
+          break;
+        case TaskType::kRecomputeAggregations:
+          // std::cerr << "batch_id=" << batch_id << "kRecomputeAggregations Done" << std::endl;
+          ReportTaskDone(TaskType::kRecomputeAggregations, batch_id);
+          break;
+        case TaskType::kComputeRemaining:
+          // std::cerr << "batch_id=" << batch_id << "kComputeRemaining Done" << std::endl;
+          ReportTaskDone(TaskType::kComputeRemaining, batch_id);
+          break;
         case TaskType::kTest:
           DoTestTask(batch_id);
           break;

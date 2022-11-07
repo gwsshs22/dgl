@@ -23,9 +23,14 @@ enum ActorSystemType {
 };
 
 enum TaskType {
-  kInitialize = 0,
-  kSampling = 1,
-  kPrepareInput = 2,
+  kNone = 0,
+  kInitialize = 1,
+  kSampling = 2,
+  kPrepareInput = 3,
+  kCompute = 4,
+  kPrepareAggregations = 5,
+  kRecomputeAggregations = 6,
+  kComputeRemaining = 7,
   kTest = 999999,
 };
 

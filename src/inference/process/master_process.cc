@@ -90,9 +90,14 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   NDArray src_gnids = NDArray::FromVector(std::vector<int32_t>{ 1, 1, 2, 0, 3 }, cpu_context);
   NDArray dst_gnids = NDArray::FromVector(std::vector<int32_t>{ 0, 1, 3, 3, 0 }, cpu_context);
 
-  anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
-  anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
-  anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
+  for (int j = 0; j < 4; j++) {
+  for (int i = 0; i < 4; i++) {
+    anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
+  }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  // anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
+  // anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
 
   std::cerr << "Quit to enter:" << std::endl;
   std::string dummy;

@@ -1,5 +1,7 @@
 #include "scheduling_policy.h"
 
+#include <limits>
+
 namespace dgl {
 namespace inference {
 
@@ -41,24 +43,142 @@ DataSchedulingPolicy::DataSchedulingPolicy(bool using_precomputed_aggs,
                                            int num_nodes,
                                            int num_devices_per_node)
    : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node) {
+  
+  for (int i = 0; i < num_nodes; i++) {
+    for (int j = 0; j < num_devices_per_node; j++) {
+      scheduled_batches_.emplace_back(std::map<int, std::shared_ptr<ScheduledBatch>>());
+    }
+  }
 }
-
 void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
   while (!input_queue_.empty()) {
+    int min_allocated_num = std::numeric_limits<int>::max();
+    int global_rank = -1;
+
+    for (int i = 0; i < num_nodes_ * num_devices_per_node_; i++) {
+      if (scheduled_batches_[i].size() < min_allocated_num) {
+        min_allocated_num = scheduled_batches_[i].size();
+        global_rank = i;
+      }
+    }
+
+    if (min_allocated_num >= 8) {
+      break;
+    }
+
     int batch_id = IssueBatchId();
-    int target_node_rank = batch_id % num_nodes_;
-    scheduler.LocalInitialize(batch_id, target_node_rank, input_queue_.front());
+    int node_rank = global_rank / num_devices_per_node_;
+    scheduler.LocalInitialize(batch_id, node_rank, input_queue_.front());
     input_queue_.pop();
+ 
+    scheduled_batches_[global_rank].emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));
+    batch_id_to_global_rank_[batch_id] = global_rank;
+  }
+
+  for (int global_rank = 0; global_rank < num_nodes_ * num_devices_per_node_; global_rank++) {
+    int node_rank = global_rank / num_devices_per_node_;
+    int local_rank = global_rank % num_devices_per_node_;
+    auto& scheduled_batches = scheduled_batches_[global_rank];
+
+    bool is_first_batch = true;
+
+    for (auto it = scheduled_batches.begin(); it != scheduled_batches.end();) {
+      int batch_id = it->first;
+      auto& scheduled_batch = it->second;
+      bool batch_finished = false;
+
+      if (scheduled_batch->status == BatchStatus::kInitialized) {
+        scheduled_batch->status = BatchStatus::kSampling;
+        scheduler.LocalExecute(TaskType::kSampling, batch_id, node_rank, local_rank);
+      } else if (scheduled_batch->status == BatchStatus::kSampled) {
+        scheduled_batch->status = BatchStatus::kComputing;
+
+        scheduler.LocalExecute(TaskType::kPrepareInput, batch_id, node_rank, local_rank);
+        if (using_precomputed_aggs_) { 
+          scheduler.LocalExecute(TaskType::kPrepareAggregations, batch_id, node_rank, local_rank);
+        }
+
+      } else if (scheduled_batch->status == BatchStatus::kComputing && is_first_batch) { // Only the first batch can proceed computation
+        if (scheduled_batch->input_prepared && !scheduled_batch->input_computing) {
+          scheduled_batch->input_computing = true;
+          scheduler.LocalExecute(TaskType::kCompute, batch_id, node_rank, local_rank);
+        }
+
+        if (using_precomputed_aggs_ && scheduled_batch->aggregation_prepared && !scheduled_batch->aggregation_recomputing) {
+          scheduled_batch->aggregation_recomputing = true;
+          scheduler.LocalExecute(TaskType::kRecomputeAggregations, batch_id, node_rank, local_rank);
+        }
+      } else if (scheduled_batch->status == BatchStatus::kFirstLayerComputed) { // Only for precomputed aggregations
+        scheduled_batch->status = BatchStatus::kComputeRemaining;
+        scheduler.LocalExecute(TaskType::kComputeRemaining, batch_id, node_rank, local_rank);
+      } else if (scheduled_batch->status == BatchStatus::kComputed) {
+        std::cout << "[DONE] batch_id= " << batch_id << " at node_rank=" << node_rank << " local_rank=" << local_rank << std::endl;
+        batch_finished = true;
+      }
+
+      is_first_batch = false;
+
+      if (batch_finished) {
+        scheduled_batches.erase(it++);
+      } else {
+        ++it;
+      }
+    }
   }
 }
 
 void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
+  auto global_rank = batch_id_to_global_rank_[batch_id];
+  auto it = scheduled_batches_[global_rank].find(batch_id);
+  auto& scheduled_batch = it->second;
+
+  std::cerr << "batch_id=" << batch_id << ", status=" << BatchStatusNames[scheduled_batch->status] <<
+      ", task_type=" << task_type << std::endl;
+
+  if (task_type == TaskType::kSampling) {
+    scheduled_batch->status = kSampled;
+    TryScheduling(scheduler);
+    return;
+  }
+
+  if (task_type == TaskType::kPrepareInput) {
+    // std::cerr << "batch_id=" << batch_id << ", status=" << scheduled_batch.status << std::endl;
+    scheduled_batch->input_prepared = true;
+  } else if (task_type == TaskType::kCompute) {
+    assert(scheduled_batch->input_prepared && scheduled_batch->input_computing);
+    scheduled_batch->input_computed = true;
+  } else if (task_type == TaskType::kPrepareAggregations) {
+    scheduled_batch->aggregation_prepared = true;
+  } else if (task_type == TaskType::kRecomputeAggregations) {
+    assert(scheduled_batch->aggregation_prepared && scheduled_batch->aggregation_recomputing);
+    scheduled_batch->aggregation_recomputed = true;
+  } else if (task_type == TaskType::kComputeRemaining) {
+    assert(using_precomputed_aggs_);
+    scheduled_batch->status = BatchStatus::kComputed;
+  }
+
+  if (using_precomputed_aggs_) {
+    if (scheduled_batch->input_computed && scheduled_batch->aggregation_recomputed &&
+        scheduled_batch->status == BatchStatus::kComputing) {
+      scheduled_batch->status = BatchStatus::kFirstLayerComputed;
+    }
+  } else {
+    if (scheduled_batch->input_computed) {
+      scheduled_batch->status = BatchStatus::kComputed;
+    }
+  }
+
   TryScheduling(scheduler);
 }
 
 void DataSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
-  int target_node_rank = batch_id % num_nodes_;
-  scheduler.LocalExecute(TaskType::kTest, batch_id, target_node_rank, 0);
+  auto global_rank = batch_id_to_global_rank_[batch_id];
+  auto it = scheduled_batches_[global_rank].find(batch_id);
+  assert(it != scheduled_batches_[global_rank].end());
+  assert(it->second->status == kInitializing);
+  it->second->status = kInitialized;
+
+  TryScheduling(scheduler);
 }
 
 ////////////////////////

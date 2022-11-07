@@ -23,7 +23,7 @@ class scheduler_actor : public caf::event_based_actor, Scheduler {
  private:
   caf::behavior make_behavior() override;
 
-  void LocalInitialize(int batch_id, int node_rank, int local_rank, const BatchInput& batch_input) override;
+  void LocalInitialize(int batch_id, int node_rank, const BatchInput& batch_input) override;
 
   void LocalExecute(TaskType task_type, int batch_id, int node_rank, int local_rank) override;
 

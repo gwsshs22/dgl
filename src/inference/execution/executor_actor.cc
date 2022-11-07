@@ -87,8 +87,13 @@ void executor_actor::DoTestTask(int batch_id) {
 //
 caf::behavior executor_actor::make_running_behavior() {
   return {
-    [&](caf::init_atom, int batch_id, int local_rank) {
-      auto context = std::make_shared<ExecutionContext>(batch_id, local_rank);
+    [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
+      auto context = std::make_shared<ExecutionContext>(batch_id, new_gnids, src_gnids, dst_gnids);
+      contexts_.insert(std::make_pair(batch_id, context));
+      ReportTaskDone(TaskType::kInitialize, batch_id);
+    },
+    [&](caf::init_atom, int batch_id) {
+      auto context = std::make_shared<ExecutionContext>(batch_id);
       contexts_.insert(std::make_pair(batch_id, context));
 
       auto receiver = spawn(input_recv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
@@ -114,7 +119,7 @@ caf::behavior executor_actor::make_running_behavior() {
         });
     },
     // batch task execution
-    [&](caf::exec_atom, TaskType task_type, int batch_id) {
+    [&](caf::exec_atom, TaskType task_type, int batch_id, int local_rank) {
       switch (task_type) {
         case TaskType::kTest:
           DoTestTask(batch_id);

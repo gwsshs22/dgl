@@ -115,7 +115,7 @@ inline void receive_result(caf::response_handle<caf::blocking_actor, caf::messag
 }
 
 inline uint32_t CreateMpiTag(int batch_id, TaskType task_type) {
-  return ((uint32_t) batch_id) << 8 + (uint32_t)(task_type);
+  return (((uint32_t) batch_id) << 8) + (uint32_t)(task_type);
 }
 
 }

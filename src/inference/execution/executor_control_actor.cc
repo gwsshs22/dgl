@@ -64,12 +64,16 @@ caf::behavior executor_control_actor::running() {
     [&](caf::init_atom,
         int batch_id, 
         int node_rank,
-        int local_rank,
         const NDArray& new_gnids,
         const NDArray& src_gnids,
         const NDArray& dst_gnids) {
-      system().spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
-      send(executors_[node_rank], caf::init_atom_v, batch_id, local_rank);
+      if (node_rank == 0) {
+        send(executors_[node_rank], caf::init_atom_v, batch_id, new_gnids, src_gnids, dst_gnids);  
+      } else {
+        spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
+        send(executors_[node_rank], caf::init_atom_v, batch_id);
+      }
+
       done_task_counter_.emplace(std::make_pair(TaskType::kInitialize, batch_id), 1);
     },
     [&](caf::exec_atom, TaskType task_type, int batch_id, int node_rank, int local_rank) {
@@ -91,7 +95,7 @@ caf::behavior executor_control_actor::running() {
     },
     [&](caf::broadcast_exec_atom, TaskType task_type, int batch_id) {
       for (int i = 0; i < num_nodes_; i++) {
-        send(executors_[i], caf::exec_atom_v, task_type, batch_id);
+        send(executors_[i], caf::exec_atom_v, task_type, batch_id, -1);
       }
 
       done_task_counter_.emplace(std::make_pair(task_type, batch_id), num_nodes_);

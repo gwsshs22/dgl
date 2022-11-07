@@ -8,17 +8,9 @@ namespace inference {
 class ExecutionContext {
 
  public:
-  ExecutionContext(int batch_id) : ExecutionContext(batch_id, -1) {
-  }
+  ExecutionContext(int batch_id);
 
-  ExecutionContext(int batch_id, int local_rank);
-
-  ExecutionContext(int batch_id, const NDArray& new_ngids, const NDArray& src_ngids, const NDArray& dst_ngids)
-      : ExecutionContext(batch_id, -1, new_ngids, src_ngids, dst_ngids) {
-  }
-
-  ExecutionContext(int batch_id, int local_rank, const NDArray& new_ngids, const NDArray& src_ngids, const NDArray& dst_ngids);
-  
+  ExecutionContext(int batch_id, const NDArray& new_ngids, const NDArray& src_ngids, const NDArray& dst_ngids);
 
   ExecutionContext(const ExecutionContext& other) = delete;
   ExecutionContext(ExecutionContext&& other) = delete;
@@ -46,7 +38,6 @@ class ExecutionContext {
 
  private:
   const int batch_id_;
-  const int local_rank_;
 
   NDArray new_ngids_;
   NDArray src_ngids_;

@@ -34,15 +34,22 @@ int BaseSchedulingPolicy::IssueBatchId() {
   return batch_id_counter_++;
 }
 
-// DataSchedulingPolicy
+//////////////////////////
+// DataSchedulingPolicy //
+//////////////////////////
 DataSchedulingPolicy::DataSchedulingPolicy(bool using_precomputed_aggs,
                                            int num_nodes,
                                            int num_devices_per_node)
    : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node) {
-
 }
 
 void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
+  while (!input_queue_.empty()) {
+    int batch_id = IssueBatchId();
+    int target_node_rank = batch_id % num_nodes_;
+    scheduler.LocalInitialize(batch_id, target_node_rank, input_queue_.front());
+    input_queue_.pop();
+  }
 }
 
 void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
@@ -50,10 +57,13 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
 }
 
 void DataSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
-
+  int target_node_rank = batch_id % num_nodes_;
+  scheduler.LocalExecute(TaskType::kTest, batch_id, target_node_rank, 0);
 }
 
-// P3SchedulingPolicy
+////////////////////////
+// P3SchedulingPolicy //
+////////////////////////
 void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) { 
   
 }
@@ -66,33 +76,18 @@ void P3SchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
   
 }
 
-// VertexCutSchedulingPolicy
+///////////////////////////////
+// VertexCutSchedulingPolicy //
+///////////////////////////////
 void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
   while (!input_queue_.empty()) {
     int batch_id = IssueBatchId();
     scheduler.BroadcastInitialize(batch_id, input_queue_.front());
     input_queue_.pop();
   }
-  // for (auto const& p : scheduled_batches_) {
-  //   auto& scheduled_batch = p.second;
-  //   if (scheduled_batch->status() == ScheduledBatch::Status::kCreated) {
-  //     scheduled_batch->SetStatus(ScheduledBatch::Status::kInitializing);
-  //     const auto& batch_input = scheduled_batch->batch_input();
-  //     send(exec_ctl_actor_, caf::init_atom_v, scheduled_batch->batch_id(),
-  //         batch_input.new_gnids, batch_input.src_gnids, batch_input.dst_gnids);
-  //   }
-  // }
 }
 
 void VertexCutSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
-      // if (task_type == TaskType::kInitialize) {
-      //   scheduled_batches_[batch_id]->SetStatus(ScheduledBatch::Status::kReady);
-      //   send(exec_ctl_actor_, caf::exec_atom_v, TaskType::kInputBroadcast, batch_id);
-      // } else if (task_type == TaskType::kInputBroadcast) {
-      //   send(exec_ctl_actor_, caf::exec_atom_v, TaskType::kTest, batch_id);
-      // }
-      // TrySchedule();
-  std::cerr << "batch_id=" << batch_id << " task_type=" << task_type << " done." << std::endl;
   TryScheduling(scheduler);
 }
 

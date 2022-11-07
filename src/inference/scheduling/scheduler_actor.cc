@@ -14,8 +14,8 @@ scheduler_actor::scheduler_actor(caf::actor_config& config,
   policy_ = CreatePolicy(parallelization_type, using_precomputed_aggs, num_nodes, num_devices_per_node);
 }
 
-void scheduler_actor::LocalInitialize(int batch_id, int node_rank, int local_rank, const BatchInput& batch_input) {
-  send(exec_ctl_actor_, caf::init_atom_v, batch_id, node_rank, local_rank,
+void scheduler_actor::LocalInitialize(int batch_id, int node_rank, const BatchInput& batch_input) {
+  send(exec_ctl_actor_, caf::init_atom_v, batch_id, node_rank,
        batch_input.new_gnids, batch_input.src_gnids, batch_input.dst_gnids);
 }
 

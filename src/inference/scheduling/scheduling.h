@@ -14,7 +14,7 @@ struct BatchInput {
 class Scheduler {
 
  public:
-  virtual void LocalInitialize(int batch_id, int node_rank, int local_rank, const BatchInput& batch_input) = 0;
+  virtual void LocalInitialize(int batch_id, int node_rank, const BatchInput& batch_input) = 0;
 
   virtual void LocalExecute(TaskType task_type, int batch_id, int node_rank, int local_rank) = 0;
 

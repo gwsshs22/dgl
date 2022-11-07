@@ -26,6 +26,10 @@ class GlooExecutor {
     Broadcast(ptr, num_bytes, root, 0);
   }
 
+  void Send(u_int8_t* ptr, const u_int32_t num_bytes, u_int32_t dst_rank, u_int32_t tag);
+
+  void Recv(u_int8_t* ptr, const u_int32_t num_bytes, u_int32_t src_rank, u_int32_t tag);
+
  private:
   std::unique_ptr<gloo::rendezvous::Store> store_;
   std::shared_ptr<gloo::rendezvous::Context> context_;

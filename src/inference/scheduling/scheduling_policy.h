@@ -24,7 +24,7 @@ class BaseSchedulingPolicy : public SchedulingPolicy {
   const bool using_precomputed_aggs_;
   const int num_nodes_;
   const int num_devices_per_node_;
-  
+
   std::queue<BatchInput> input_queue_;
 
  private:
@@ -32,6 +32,10 @@ class BaseSchedulingPolicy : public SchedulingPolicy {
 };
 
 class DataSchedulingPolicy : public BaseSchedulingPolicy {
+
+  struct GpuAssignment {
+
+  };
 
  public:
   DataSchedulingPolicy(bool using_precomputed_aggs,

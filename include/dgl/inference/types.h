@@ -24,7 +24,8 @@ enum ActorSystemType {
 
 enum TaskType {
   kInitialize = 0,
-  kInputBroadcast = 1,
+  kSampling = 1,
+  kPrepareInput = 2,
   kTest = 999999,
 };
 

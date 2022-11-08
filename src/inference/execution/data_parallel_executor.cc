@@ -1,5 +1,7 @@
 #include "executor_actor.h"
 
+#include "./sampling/sampling_actor.h"
+
 namespace dgl {
 namespace inference {
 
@@ -25,7 +27,13 @@ data_parallel_executor::data_parallel_executor(caf::actor_config& config,
                                                    mpi_actor_ptr,
                                                    node_rank,
                                                    num_nodes,
+                                                   num_devices_per_node,
                                                    num_devices_per_node) {
+
+  auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
+  for (int i = 0; i < num_devices_per_node; i++) {
+    samplers_.emplace_back(spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, i));
+  }
 }
 
 void data_parallel_executor::Sampling(int batch_id, int local_rank) {

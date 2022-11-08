@@ -58,7 +58,8 @@ class executor_actor : public caf::event_based_actor {
                  caf::strong_actor_ptr mpi_actor_ptr,
                  int node_rank,
                  int num_nodes,
-                 int num_devices_per_node);
+                 int num_devices_per_node,
+                 int required_init_count);
 
  protected:
   virtual void Sampling(int batch_id, int local_rank) {
@@ -115,6 +116,8 @@ class executor_actor : public caf::event_based_actor {
   caf::behavior make_behavior() override;
   caf::behavior make_initializing_behavior();
   caf::behavior make_running_behavior();
+
+  int required_init_count_;
 };
 
 template <typename ExecutionContext>
@@ -123,15 +126,17 @@ executor_actor<ExecutionContext>::executor_actor(caf::actor_config& config,
                                                  caf::strong_actor_ptr mpi_actor_ptr,
                                                  int node_rank,
                                                  int num_nodes,
-                                                 int num_devices_per_node)
+                                                 int num_devices_per_node,
+                                                 int required_init_count)
     : event_based_actor(config),
       node_rank_(node_rank),
-      num_nodes_(num_nodes) {
+      num_nodes_(num_nodes),
+      required_init_count_(required_init_count + 2) { // Include the common graph_server_actor and gnn_executor_group
   exec_ctl_actor_ = caf::actor_cast<caf::actor>(exec_ctl_actor_ptr);
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
   gnn_executor_group_ = spawn<caf::linked + caf::monitored>(
-      gnn_executor_group, self_ptr, num_devices_per_node);
+        gnn_executor_group, self_ptr, num_devices_per_node);
   graph_server_actor_ = spawn<graph_server_actor, caf::linked + caf::monitored>(self_ptr);
 }
 
@@ -146,8 +151,8 @@ caf::behavior executor_actor<ExecutionContext>::make_initializing_behavior() {
   return {
     [&](caf::initialized_atom, const std::string component_name, int) {
       num_initialized_components_ += 1;
-      if (num_initialized_components_ == 2) {
-        // gnn_executor_group_ and graph_server_actor_ are initialized.
+      if (num_initialized_components_ == required_init_count_) {
+        // All components are initialized.
         send(exec_ctl_actor_, caf::initialized_atom_v, caf::actor_cast<caf::strong_actor_ptr>(this), node_rank_, num_nodes_);
         become(make_running_behavior());
       }
@@ -290,6 +295,8 @@ class data_parallel_executor : public executor_actor<DataParallelExecutionContex
   void PrepareInput(int batch_id, int local_rank);
 
   void Compute(int batch_id, int local_rank);
+
+  std::vector<caf::actor> samplers_;
 };
 
 class P3ExecutionContext : public BaseExecutionContext {

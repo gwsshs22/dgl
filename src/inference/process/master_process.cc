@@ -83,7 +83,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
                                                  num_devices_per_node);
 
   caf::scoped_actor self { system };
-  auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(30), caf::wait_atom_v, required_actors);
+  auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(60), caf::wait_atom_v, required_actors);
   receive_result<bool>(res_hdl);
 
   std::cerr << "All services initialized." << std::endl;

@@ -4,6 +4,7 @@ import os
 import dgl.inference.envs as envs
 from .graph_server_process import GraphServerProcess
 from .gnn_executor_process import GnnExecutorProcess
+from .sampler_process import SamplerProcess
 from .._ffi.function import _init_api
 
 
@@ -72,14 +73,15 @@ def fork():
     ip_config_path = os.environ[envs.DGL_INFER_IP_CONFIG_PATH]
     graph_config_path = os.environ[envs.DGL_INFER_GRAPH_CONFIG_PATH]
     iface = os.environ[envs.DGL_INFER_IFACE]
-
+    parallel_type = envs.get_parallelization_type()
     channel = ActorProcessChannel()
 
     if actor_process_role == "gnn_executor":
         actor_process = GnnExecutorProcess(channel, num_nodes, ip_config_path)
     elif actor_process_role == "graph_server":
-        actor_process = GraphServerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path)
-
+        actor_process = GraphServerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path, parallel_type)
+    elif actor_process_role == "sampler":
+        actor_process = SamplerProcess(channel, num_nodes, ip_config_path)
     else:
         printf(f"Unknown actor_process_role: {actor_process_role}")
         exit(-1)

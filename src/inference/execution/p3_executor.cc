@@ -25,7 +25,10 @@ p3_executor::p3_executor(caf::actor_config& config,
                                          mpi_actor_ptr,
                                          node_rank,
                                          num_nodes,
-                                         num_devices_per_node) {
+                                         num_devices_per_node,
+                                         0) {
+  // gnn_executor_group_ = spawn<caf::linked + caf::monitored>(
+  //       gnn_executor_group, self_ptr, num_devices_per_node);
 }
 
 void p3_executor::Sampling(int batch_id, int local_rank) {

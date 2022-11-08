@@ -26,7 +26,8 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
                                                mpi_actor_ptr,
                                                node_rank,
                                                num_nodes,
-                                               num_devices_per_node),
+                                               num_devices_per_node,
+                                               0),
       using_precomputed_aggs_(using_precomputed_aggs) {
 }
 

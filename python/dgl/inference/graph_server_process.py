@@ -1,13 +1,19 @@
 # from dgl.distributed.dist_context import init
+from .envs import ParallelizationType
 
 class GraphServerProcess:
 
-    def __init__(self, channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path):
+    def __init__(self, channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path, parallel_type):
         self._channel = channel
         self._num_nodes = num_nodes
         self._node_rank = node_rank
         self._num_devices_per_node = num_devices_per_node
-        self._num_clients = num_devices_per_node * num_nodes
+
+        if parallel_type == ParallelizationType.DATA or parallel_type == ParallelizationType.P3:
+            self._num_clients = num_devices_per_node * 2 * num_nodes
+        else:
+            self._num_clients = num_devices_per_node * num_nodes
+
         self._ip_config_path = ip_config_path
         self._graph_config_path = graph_config_path
         self._num_servers = 1 # Number of servers for one machin including backup servers

@@ -20,3 +20,12 @@ class ParallelizationType(Enum):
     DATA = 0
     P3 = 1
     VERTEX_CUT = 2
+
+def get_parallelization_type():
+    ptype = int(os.environ[DGL_INFER_PARALLELIZATION_TYPE])
+    if ptype == 0:
+        return ParallelizationType.DATA
+    elif ptype == 1:
+        return ParallelizationType.P3
+    else:
+        return ParallelizationType.VERTEX_CUT

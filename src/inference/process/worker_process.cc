@@ -21,7 +21,7 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
 
-  auto paral_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
+  auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
   auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
   // TODO: env variables validation
 
@@ -55,12 +55,15 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
 
   auto exec_ctl_actor_ptr = system.middleman().remote_lookup(caf::exec_control_atom_v, node.value());
 
-  auto executor = system.spawn<executor_actor>(
+  auto executor = spawn_executor_actor(
+      system,
+      parallel_type,
       exec_ctl_actor_ptr,
       caf::actor_cast<caf::strong_actor_ptr>(mpi_a),
       node_rank,
       num_nodes,
-      num_devices_per_node);
+      num_devices_per_node,
+      using_precomputed_aggregations);
 
   std::cerr << "Quit to enter:" << std::endl;
   std::string dummy;

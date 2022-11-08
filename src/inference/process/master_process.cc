@@ -65,12 +65,15 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   system.registry().put(caf::exec_control_atom_v, exec_ctl_actor);
   auto exec_ctl_actor_ptr = system.registry().get(caf::exec_control_atom_v);
 
-  auto executor = system.spawn<executor_actor>(
+  auto executor = spawn_executor_actor(
+      system,
+      parallel_type,
       exec_ctl_actor_ptr,
       mpi_actor_ptr,
       node_rank,
       num_nodes,
-      num_devices_per_node);
+      num_devices_per_node,
+      using_precomputed_aggregations);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
   auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr,

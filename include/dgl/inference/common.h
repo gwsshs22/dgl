@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <exception>
 #include <iostream>
 
 #include <caf/all.hpp>

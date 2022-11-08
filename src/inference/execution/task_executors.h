@@ -24,5 +24,13 @@ void input_send_fn(caf::blocking_actor *self,
 
 void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag);
 
+void sampling_fn(caf::blocking_actor *self,
+                 const caf::actor& sampler,
+                 int batch_id);
+
+void cleanup_fn(caf::blocking_actor *self,
+                const caf::actor& sampler,
+                int batch_id);
+
 }
 }

@@ -78,5 +78,23 @@ void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const
   });
 }
 
+void sampling_fn(caf::blocking_actor* self,
+                 const caf::actor& sampler,
+                 int batch_id) {
+  auto rh = self->request(sampler, caf::infinite, caf::sampling_atom_v, batch_id);
+  receive_result<bool>(rh);
+  self->receive([](caf::get_atom) {
+  });
+}
+
+void cleanup_fn(caf::blocking_actor* self,
+                const caf::actor& sampler,
+                int batch_id) {
+  auto rh = self->request(sampler, caf::infinite, caf::cleanup_atom_v, batch_id);
+  receive_result<bool>(rh);
+  self->receive([](caf::get_atom) {
+  });
+}
+
 }
 }

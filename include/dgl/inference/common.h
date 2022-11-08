@@ -38,6 +38,9 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, request_atom, "request") // request
   CAF_ADD_ATOM(core_extension, caf, response_atom, "response") // response
 
+  CAF_ADD_ATOM(core_extension, caf, cleanup_atom, "cleanup") // cleanup
+  CAF_ADD_ATOM(core_extension, caf, sampling_atom, "sampling") // sampling
+
   // For actor remote lookup
   
   CAF_ADD_ATOM(core_extension, caf, init_mon_atom, "init_mon") // init_monitor_actor

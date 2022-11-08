@@ -6,7 +6,7 @@ from .graph_server_process import GraphServerProcess
 from .gnn_executor_process import GnnExecutorProcess
 from .sampler_process import SamplerProcess
 from .._ffi.function import _init_api
-
+from .._ffi.object import register_object, ObjectBase
 
 def main():
     parser = argparse.ArgumentParser()
@@ -95,5 +95,19 @@ class ActorProcessChannel:
 
     def fetch_request(self):
         return _CAPI_DGLInferenceActorFetchRequest()
+
+@register_object('inference.process.ActorRequest')
+class ActorRequest(ObjectBase):
+    
+    @property
+    def request_type(self):
+        return _CAPI_DGLInferenceActorRequestGetRequestType(self)
+
+    @property
+    def batch_id(self):
+        return _CAPI_DGLInferenceActorRequestGetBatchId(self)
+    
+    def done(self):
+        _CAPI_DGLInferenceActorRequestDone(self)
 
 _init_api("dgl.inference.process")

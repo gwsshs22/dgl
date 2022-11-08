@@ -37,8 +37,8 @@ data_parallel_executor::data_parallel_executor(caf::actor_config& config,
 }
 
 void data_parallel_executor::Sampling(int batch_id, int local_rank) {
-  std::cerr << "batch_id=" << batch_id << " Sampling Done" << std::endl;
-  ReportTaskDone(TaskType::kSampling, batch_id);
+  auto sampling_task = spawn(sampling_fn, samplers_[local_rank], batch_id);
+  RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
 }
 
 void data_parallel_executor::PrepareInput(int batch_id, int local_rank) {

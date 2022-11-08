@@ -5,32 +5,39 @@
 namespace dgl {
 namespace inference {
 
-class Request {
+struct ActorRequest {
 
- public:
-  Request() = default;
-  Request(const Request& other) = default;
-  Request(Request&& other) = default;
-  Request& operator=(Request&& other) = default;
+  ActorRequest() = default;
+  ActorRequest(const ActorRequest& other) = default;
+  ActorRequest(ActorRequest&& other) = default;
+  ActorRequest& operator=(ActorRequest&& other) = default;
+  ActorRequest(uint64_t req_id, int request_type, int batch_id);
 
-  Request(const caf::message& message, uint64_t req_id);
+  inline uint64_t req_id() {
+    return req_id_;
+  }
 
-  void Done(const caf::message& response);
+  inline int request_type() {
+    return request_type_;
+  }
 
-  inline const caf::message& message() {
-    return message_;
+  inline int batch_id() {
+    return batch_id_;
   }
 
  private:
-  caf::message message_;
   uint64_t req_id_;
+  int request_type_;
+  int batch_id_;
 };
 
 void ActorProcessMain(caf::actor_system& system, const config& cfg);
 
 void ActorNotifyInitialized();
 
-Request ActorFetchRequest();
+ActorRequest ActorFetchRequest();
+
+void ActorRequestDone(uint64_t req_id);
 
 }  // namespace inference
 }  // namespace dgl

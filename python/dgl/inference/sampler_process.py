@@ -1,4 +1,6 @@
 class SamplerProcess:
+    SAMPLE_REQUEST_TYPE = 0
+    CLEANUP_REQUEST_TYPE = 1
 
     def __init__(self, channel, num_nodes, ip_config_path):
         self._channel = channel
@@ -25,4 +27,16 @@ class SamplerProcess:
 
         self._channel.notify_initialized()
         while True:
-            self._channel.fetch_request()
+            req = self._channel.fetch_request()
+            if req.request_type == SamplerProcess.SAMPLE_REQUEST_TYPE:
+                self.sample(req)
+            else:
+                self.cleanup(req)
+
+    def sample(self, req):
+
+        req.done()
+    
+    def cleanup(self, req):
+
+        req.done()

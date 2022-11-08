@@ -12,15 +12,11 @@ namespace dgl {
 namespace inference {
 
 static dgl::runtime::Semaphore sem_;
-static dmlc::moodycamel::BlockingConcurrentQueue<Request> queue_;
+static dmlc::moodycamel::BlockingConcurrentQueue<ActorRequest> queue_;
 static caf::actor process_request_handler_;
 
-Request::Request(const caf::message& message, uint64_t req_id)
-    : message_(message), req_id_(req_id) {
-}
-
-void Request::Done(const caf::message& response) {
-  anon_send(process_request_handler_, caf::response_atom_v, req_id_, response);
+ActorRequest::ActorRequest(uint64_t req_id, int request_type, int batch_id)
+    : req_id_(req_id), request_type_(request_type), batch_id_(batch_id) {
 }
 
 struct process_request_handler_state {
@@ -35,11 +31,11 @@ caf::behavior process_request_handler_fn(caf::stateful_actor<process_request_han
     [=](caf::connect_atom) {
       self->state.requester_actor = caf::actor_cast<caf::actor>(self->current_sender());
     },
-    [=](caf::request_atom, uint64_t req_id, const caf::message& message) {
-      queue_.enqueue(Request(message, req_id));
+    [=](caf::request_atom, uint64_t req_id, int request_type, int batch_id) {
+      queue_.enqueue(ActorRequest(req_id, request_type, batch_id));
     },
-    [=](caf::response_atom, uint64_t req_id, const caf::message& response) {
-      self->send(self->state.requester_actor, caf::response_atom_v, req_id, response);
+    [=](caf::response_atom, uint64_t req_id) {
+      self->send(self->state.requester_actor, caf::response_atom_v, req_id);
     },
     [=](caf::initialized_atom) {
       if (self->state.initialized) {
@@ -86,10 +82,14 @@ void ActorNotifyInitialized() {
   anon_send(process_request_handler_, caf::initialized_atom_v);
 }
 
-Request ActorFetchRequest() {
-  Request req;
-  queue_.wait_dequeue<Request>(req);
+ActorRequest ActorFetchRequest() {
+  ActorRequest req;
+  queue_.wait_dequeue<ActorRequest>(req);
   return req;
+}
+
+void ActorRequestDone(uint64_t req_id) {
+  anon_send(process_request_handler_, caf::response_atom_v, req_id);
 }
 
 }

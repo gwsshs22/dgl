@@ -20,6 +20,7 @@ class sampling_actor : public process_control_actor {
   caf::behavior make_running_behavior(const caf::actor& req_handler) override;
 
   uint64_t req_id_counter_ = 0;
+  std::unordered_map<uint64_t, caf::response_promise> rp_map_;
 };
 
 }

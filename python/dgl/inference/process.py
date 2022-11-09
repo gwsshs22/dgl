@@ -77,7 +77,7 @@ def fork():
     channel = ActorProcessChannel()
 
     if actor_process_role == "gnn_executor":
-        actor_process = GnnExecutorProcess(channel, num_nodes, ip_config_path)
+        actor_process = GnnExecutorProcess(channel, num_nodes, ip_config_path, parallel_type)
     elif actor_process_role == "graph_server":
         actor_process = GraphServerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path, parallel_type)
     elif actor_process_role == "sampler":
@@ -98,7 +98,7 @@ class ActorProcessChannel:
 
 @register_object('inference.process.ActorRequest')
 class ActorRequest(ObjectBase):
-    
+
     @property
     def request_type(self):
         return _CAPI_DGLInferenceActorRequestGetRequestType(self)

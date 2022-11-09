@@ -2,7 +2,8 @@ from .api import *
 
 class SamplerProcess:
     SAMPLE_REQUEST_TYPE = 0
-    CLEANUP_REQUEST_TYPE = 1
+    DATA_PARALLEL_INPUT_FETCH = 1
+    CLEANUP_REQUEST_TYPE = 99999
 
     def __init__(self, channel, num_nodes, ip_config_path):
         self._channel = channel
@@ -30,19 +31,27 @@ class SamplerProcess:
         self._channel.notify_initialized()
         while True:
             req = self._channel.fetch_request()
-            if req.request_type == SamplerProcess.SAMPLE_REQUEST_TYPE:
+            request_type = req.request_type
+            if request_type == SamplerProcess.SAMPLE_REQUEST_TYPE:
                 self.sample(req)
-            else:
+            elif request_type == SamplerProcess.DATA_PARALLEL_INPUT_FETCH:
+                self.data_parallel_input_fetch(req)
+            elif request_type == SamplerProcess.CLEANUP_REQUEST_TYPE:
                 self.cleanup(req)
+            else:
+                print(f"Unknown request_type={request_type}")
+                exit(-1)
 
     def sample(self, req):
         batch_id = req.batch_id
         new_ngids = load_tensor(batch_id, "new_ngids")
         src_ngids = load_tensor(batch_id, "src_ngids")
         dst_ngids = load_tensor(batch_id, "dst_ngids")
-        print(f"[{batch_id}] new_ngids={new_ngids}")
         req.done()
     
     def cleanup(self, req):
-
+        req.done()
+    
+    def data_parallel_input_fetch(self, req):
+        # Put a tensor to gpu.
         req.done()

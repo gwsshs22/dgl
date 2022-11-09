@@ -1,4 +1,3 @@
-# from dgl.distributed.dist_context import init
 from .envs import ParallelizationType
 
 class GraphServerProcess:
@@ -9,7 +8,9 @@ class GraphServerProcess:
         self._node_rank = node_rank
         self._num_devices_per_node = num_devices_per_node
 
-        if parallel_type == ParallelizationType.DATA or parallel_type == ParallelizationType.P3:
+        if parallel_type == ParallelizationType.DATA:
+            self._num_clients = num_devices_per_node * 3 * num_nodes
+        elif parallel_type == ParallelizationType.DATA or parallel_type == ParallelizationType.P3:
             self._num_clients = num_devices_per_node * 2 * num_nodes
         else:
             self._num_clients = num_devices_per_node * num_nodes

@@ -30,6 +30,7 @@ void move_input_to_shared_mem_fn(caf::blocking_actor *self,
                                  const NDArray& src_ngids,
                                  const NDArray& dst_ngids);
 
+// sampler
 void sampling_fn(caf::blocking_actor *self,
                  const caf::actor& sampler,
                  int batch_id);
@@ -37,6 +38,22 @@ void sampling_fn(caf::blocking_actor *self,
 void cleanup_fn(caf::blocking_actor *self,
                 const caf::actor& sampler,
                 int batch_id);
+
+enum gnn_executor_request_type {
+  kComputeRequestType = 0,
+  kCleanupRequestType = 99999
+};
+
+void gnn_execute_fn(caf::blocking_actor *self,
+                    const caf::actor& gnn_executor_grp_actor,
+                    int batch_id,
+                    gnn_executor_request_type req_type,
+                    int local_rank);
+
+void gnn_broadcast_execute_fn(caf::blocking_actor *self,
+                              const caf::actor& gnn_executor_grp_actor,
+                              int batch_id,
+                              gnn_executor_request_type req_type);
 
 }
 }

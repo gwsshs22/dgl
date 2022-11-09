@@ -96,6 +96,7 @@ class data_parallel_executor : public executor_actor {
   void Compute(int batch_id, int local_rank);
 
   std::vector<caf::actor> samplers_;
+  std::vector<caf::actor> input_fetchers_;
 };
 
 class p3_executor : public executor_actor {

@@ -112,5 +112,34 @@ void cleanup_fn(caf::blocking_actor* self,
   self->receive([](caf::get_atom) { });
 }
 
+
+void gnn_execute_fn(caf::blocking_actor *self,
+                    const caf::actor& gnn_executor_grp_actor,
+                    int batch_id,
+                    gnn_executor_request_type req_type,
+                    int local_rank) {
+  auto rh = self->request(gnn_executor_grp_actor,
+                          caf::infinite,
+                          caf::exec_atom_v,
+                          batch_id,
+                          static_cast<int>(req_type),
+                          local_rank);
+  receive_result<bool>(rh);
+  self->receive([](caf::get_atom) { });
+}
+
+void gnn_broadcast_execute_fn(caf::blocking_actor *self,
+                              const caf::actor& gnn_executor_grp_actor,
+                              int batch_id,
+                              gnn_executor_request_type req_type) {
+  auto rh = self->request(gnn_executor_grp_actor,
+                          caf::infinite,
+                          caf::broadcast_exec_atom_v,
+                          batch_id,
+                          static_cast<int>(req_type));
+  receive_result<bool>(rh);
+  self->receive([](caf::get_atom) { });
+}
+
 }
 }

@@ -38,8 +38,10 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, request_atom, "request") // request
   CAF_ADD_ATOM(core_extension, caf, response_atom, "response") // response
 
+  // sampling_actor
   CAF_ADD_ATOM(core_extension, caf, cleanup_atom, "cleanup") // cleanup
   CAF_ADD_ATOM(core_extension, caf, sampling_atom, "sampling") // sampling
+  CAF_ADD_ATOM(core_extension, caf, data_parallel_input_fetch_atom, "dp_inpt_ft") // sampling
 
   // object storage actor
   CAF_ADD_ATOM(core_extension, caf, move_to_shared_atom, "move_to_s") // move to shared mem

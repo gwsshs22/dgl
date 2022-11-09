@@ -1,3 +1,5 @@
+from .api import *
+
 class SamplerProcess:
     SAMPLE_REQUEST_TYPE = 0
     CLEANUP_REQUEST_TYPE = 1
@@ -34,7 +36,11 @@ class SamplerProcess:
                 self.cleanup(req)
 
     def sample(self, req):
-
+        batch_id = req.batch_id
+        new_ngids = load_tensor(batch_id, "new_ngids")
+        src_ngids = load_tensor(batch_id, "src_ngids")
+        dst_ngids = load_tensor(batch_id, "dst_ngids")
+        print(f"[{batch_id}] new_ngids={new_ngids}")
         req.done()
     
     def cleanup(self, req):

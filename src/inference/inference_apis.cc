@@ -7,6 +7,7 @@
 
 #include "../c_api_common.h"
 
+#include "execution/mem_utils.h"
 #include "entrypoint.h"
 
 using dgl::runtime::DGLArgs;
@@ -74,6 +75,14 @@ DGL_REGISTER_GLOBAL("inference.process._CAPI_DGLInferenceActorRequestDone")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
     const ActorRequestWrapperRef wrapper = args[0];
     inference::ActorRequestDone(wrapper->req_id);
+  });
+
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceLoadTensor")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    int batch_id = args[0];
+    std::string name = args[1];
+
+    *rv = inference::LoadFromSharedMemory(batch_id, name);
   });
 
 }  // namespace dgl

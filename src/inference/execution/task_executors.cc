@@ -18,8 +18,7 @@ void input_bsend_fn(caf::blocking_actor* self,
   fn(src_ngids);
   fn(dst_ngids);
 
-  self->receive([](caf::get_atom) {
-  });
+  self->receive([](caf::get_atom) { });
 }
 
 void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag) {
@@ -78,13 +77,31 @@ void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const
   });
 }
 
+void move_input_to_shared_mem_fn(caf::blocking_actor *self,
+                                 const caf::actor& object_storage_actor,
+                                 const NDArray& new_ngids,
+                                 const NDArray& src_ngids,
+                                 const NDArray& dst_ngids) {
+  auto fn = [&](const std::string& name, const NDArray& arr) {
+    auto rh = self->request(object_storage_actor, caf::infinite, caf::put_atom_v, name, arr);
+    receive_result<bool>(rh);
+    rh = self->request(object_storage_actor, caf::infinite, caf::move_to_shared_atom_v, name);
+    receive_result<bool>(rh);
+  };
+
+  fn("new_ngids", new_ngids);
+  fn("src_ngids", src_ngids);
+  fn("dst_ngids", dst_ngids);
+
+  self->receive([](caf::get_atom) { });
+}
+
 void sampling_fn(caf::blocking_actor* self,
                  const caf::actor& sampler,
                  int batch_id) {
   auto rh = self->request(sampler, caf::infinite, caf::sampling_atom_v, batch_id);
   receive_result<bool>(rh);
-  self->receive([](caf::get_atom) {
-  });
+  self->receive([](caf::get_atom) { });
 }
 
 void cleanup_fn(caf::blocking_actor* self,
@@ -92,8 +109,7 @@ void cleanup_fn(caf::blocking_actor* self,
                 int batch_id) {
   auto rh = self->request(sampler, caf::infinite, caf::cleanup_atom_v, batch_id);
   receive_result<bool>(rh);
-  self->receive([](caf::get_atom) {
-  });
+  self->receive([](caf::get_atom) { });
 }
 
 }

@@ -97,7 +97,6 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
         if (using_precomputed_aggs_) { 
           scheduler.LocalExecute(TaskType::kPrepareAggregations, batch_id, node_rank, local_rank);
         }
-
       } else if (scheduled_batch->status == BatchStatus::kComputing && is_first_batch) { // Only the first batch can proceed computation
         if (scheduled_batch->input_prepared && !scheduled_batch->input_computing) {
           scheduled_batch->input_computing = true;
@@ -112,7 +111,7 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
         scheduled_batch->status = BatchStatus::kComputeRemaining;
         scheduler.LocalExecute(TaskType::kComputeRemaining, batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kComputed) {
-        std::cout << "[DONE] batch_id= " << batch_id << " at node_rank=" << node_rank << " local_rank=" << local_rank << std::endl;
+        std::cerr << "[DONE] batch_id= " << batch_id << std::endl;
         batch_finished = true;
       }
 
@@ -132,9 +131,6 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
   auto it = scheduled_batches_[global_rank].find(batch_id);
   auto& scheduled_batch = it->second;
 
-  std::cerr << "batch_id=" << batch_id << ", status=" << BatchStatusNames[scheduled_batch->status] <<
-      ", task_type=" << task_type << std::endl;
-
   if (task_type == TaskType::kSampling) {
     scheduled_batch->status = kSampled;
     TryScheduling(scheduler);
@@ -142,7 +138,6 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
   }
 
   if (task_type == TaskType::kPrepareInput) {
-    // std::cerr << "batch_id=" << batch_id << ", status=" << scheduled_batch.status << std::endl;
     scheduled_batch->input_prepared = true;
   } else if (task_type == TaskType::kCompute) {
     assert(scheduled_batch->input_prepared && scheduled_batch->input_computing);

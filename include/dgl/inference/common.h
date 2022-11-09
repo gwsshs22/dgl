@@ -41,6 +41,11 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, cleanup_atom, "cleanup") // cleanup
   CAF_ADD_ATOM(core_extension, caf, sampling_atom, "sampling") // sampling
 
+  // object storage actor
+  CAF_ADD_ATOM(core_extension, caf, move_to_shared_atom, "move_to_s") // move to shared mem
+  CAF_ADD_ATOM(core_extension, caf, move_to_gpu_atom, "move_to_g") // move to gpu mem
+  CAF_ADD_ATOM(core_extension, caf, internal_set_atom, "intrnl_set") // move to gpu mem
+
   // For actor remote lookup
   
   CAF_ADD_ATOM(core_extension, caf, init_mon_atom, "init_mon") // init_monitor_actor
@@ -50,15 +55,18 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, gloo_ra_atom, "gloo_ra") // gloo_rendezvous_actor
 
   CAF_ADD_TYPE_ID(core_extension, (dgl::runtime::NDArray))
+  CAF_ADD_TYPE_ID(core_extension, (std::shared_ptr<dgl::runtime::SharedMemory>))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::TaskType))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::EnvSetter))
-  
+  CAF_ADD_TYPE_ID(core_extension, (DLContext))
 
 CAF_END_TYPE_ID_BLOCK(core_extension)
 
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::runtime::NDArray)
+CAF_ALLOW_UNSAFE_MESSAGE_TYPE(std::shared_ptr<dgl::runtime::SharedMemory>)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(std::vector<dgl::runtime::NDArray>)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::inference::EnvSetter)
+CAF_ALLOW_UNSAFE_MESSAGE_TYPE(DLContext)
 
 namespace dgl {
 namespace inference {

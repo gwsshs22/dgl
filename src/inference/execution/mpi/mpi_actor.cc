@@ -1,9 +1,8 @@
 #include "mpi_actor.h"
 
-#include <dlpack/dlpack.h>
-#include <dmlc/memory_io.h>
-
 #include <dgl/runtime/ndarray.h>
+
+#include "../mem_utils.h"
 
 namespace dgl {
 namespace inference {
@@ -75,43 +74,6 @@ caf::behavior mpi_actor::make_behavior() {
   };
 }
 
-constexpr unsigned int __METADATA_MAX_BYTES = 512;
-
-inline void wirte_metadata_(dmlc::Stream& stream,
-                            const NDArray& data) {
-  stream.Write(data->ndim);
-  stream.WriteArray(data->shape, data->ndim);
-  stream.Write(data->dtype.code);
-  stream.Write(data->dtype.bits);
-  stream.Write(data->dtype.lanes);
-}
-
-inline NDArray create_from_metadata_(dmlc::Stream& stream) {
-  int ndim;
-  int64_t *shape;
-  uint8_t code;
-  uint8_t bits;
-  uint16_t lanes;
-
-  stream.Read(&ndim);
-  shape = new int64_t[ndim];
-  stream.ReadArray(shape, ndim);
-  stream.Read(&code);
-  stream.Read(&bits);
-  stream.Read(&lanes);
-
-  auto shape_vector = std::vector<int64_t>();
-  for (auto itr = shape; itr != shape + ndim; itr++) {
-    shape_vector.push_back(*itr);
-  }
-
-  delete shape;
-  
-  return NDArray::Empty(shape_vector,
-      DLDataType{code, bits, lanes},
-      DLContext{kDLCPU, 0});
-}
-
 void broadcast_send_(caf::blocking_actor* self,
                     caf::response_promise rp,
                     std::shared_ptr<GlooExecutor> gloo_executor,
@@ -120,7 +82,7 @@ void broadcast_send_(caf::blocking_actor* self,
                     uint32_t tag) {
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
-  wirte_metadata_(strm, data);
+  WriteMetadata(strm, data);
   gloo_executor->Broadcast(metadata_buf, __METADATA_MAX_BYTES, rank, tag);
   gloo_executor->Broadcast(data.Ptr<u_int8_t>(), data.GetSize(), rank, tag);
 
@@ -135,7 +97,7 @@ void broadcast_recv_(caf::blocking_actor* self,
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   gloo_executor->Broadcast(metadata_buf, __METADATA_MAX_BYTES, root_rank, tag);
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
-  auto empty_arr = create_from_metadata_(strm);
+  auto empty_arr = CreateFromMetadata(strm);
   gloo_executor->Broadcast(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), root_rank, tag);
 
   rp.deliver(std::move(empty_arr));
@@ -149,7 +111,7 @@ void send_(caf::blocking_actor* self,
           uint32_t tag) {
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
-  wirte_metadata_(strm, data);
+  WriteMetadata(strm, data);
   gloo_executor->Send(metadata_buf, __METADATA_MAX_BYTES, dst_rank, tag);
   gloo_executor->Send(data.Ptr<u_int8_t>(), data.GetSize(), dst_rank, tag);
 
@@ -164,7 +126,7 @@ void recv_(caf::blocking_actor* self,
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   gloo_executor->Recv(metadata_buf, __METADATA_MAX_BYTES, src_rank, tag);
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
-  auto empty_arr = create_from_metadata_(strm);
+  auto empty_arr = CreateFromMetadata(strm);
   gloo_executor->Recv(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), src_rank, tag);
 
   rp.deliver(std::move(empty_arr));

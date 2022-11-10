@@ -1,11 +1,13 @@
+import torch # Can implement with NDArrays, but we stick to pytorch now
+
 from .api import *
 
 class SamplerProcess:
     SAMPLE_REQUEST_TYPE = 0
     DATA_PARALLEL_INPUT_FETCH = 1
-    CLEANUP_REQUEST_TYPE = 99999
 
-    def __init__(self, channel, num_nodes, ip_config_path):
+
+    def __init__(self, channel, num_nodes, ip_config_path, local_rank):
         self._channel = channel
         self._num_nodes = num_nodes
         self._num_servers = 1 # Number of servers for one machin including backup servers
@@ -13,6 +15,7 @@ class SamplerProcess:
         self._net_type = "socket"
         self._group_id = 0
         self._num_omp_threads = 1
+        self._local_rank = local_rank
 
     def run(self):
         # From dgl.distributed.initialize
@@ -36,8 +39,6 @@ class SamplerProcess:
                 self.sample(req)
             elif request_type == SamplerProcess.DATA_PARALLEL_INPUT_FETCH:
                 self.data_parallel_input_fetch(req)
-            elif request_type == SamplerProcess.CLEANUP_REQUEST_TYPE:
-                self.cleanup(req)
             else:
                 print(f"Unknown request_type={request_type}")
                 exit(-1)
@@ -47,11 +48,12 @@ class SamplerProcess:
         new_ngids = load_tensor(batch_id, "new_ngids")
         src_ngids = load_tensor(batch_id, "src_ngids")
         dst_ngids = load_tensor(batch_id, "dst_ngids")
+
+        test_local_tensor = torch.ones(10) * 2
+        test_shared_tensor_1_cpu = torch.ones(10) * 10
+        put_tensor(batch_id, "test_shared_tensor_1_cpu", test_shared_tensor_1_cpu)
         req.done()
-    
-    def cleanup(self, req):
-        req.done()
-    
+
     def data_parallel_input_fetch(self, req):
-        # Put a tensor to gpu.
+        # It will not be called.
         req.done()

@@ -26,109 +26,13 @@ class BaseSchedulingPolicy : public SchedulingPolicy {
   const int num_devices_per_node_;
 
   std::queue<BatchInput> input_queue_;
+  std::unordered_map<int, int> batch_id_to_req_id_;
 
  private:
   int batch_id_counter_ = 0;
-};
-
-struct GpuRepresentation {
-  int running_batch_id = -1;
-  TaskType running_task_type = TaskType::kNone;
-};
-
-struct SamplerRepresentation {
-  int running_batch_id = -1;
-};
-
-class NodeRepresentation {
-
- public:
-  NodeRepresentation(int num_devices_per_node)
-      : gpus_(num_devices_per_node),
-        samplers_(num_devices_per_node),
-        num_idle_gpus_(num_devices_per_node),
-        num_idle_samplers_(num_devices_per_node) {
-  }
-
-  inline int num_idle_gpus() {
-    return num_idle_gpus_;
-  }
-
-  inline int num_idle_samplers() {
-    return num_idle_samplers_;
-  }
-
-  int assign_sampler(int batch_id) {
-    for (int i = 0; i < samplers_.size(); i++) {
-      if (samplers_[i].running_batch_id == -1) {
-        samplers_[i].running_batch_id = batch_id;
-        num_idle_samplers_--;
-        return i;
-      }
-    }
-
-    return -1;
-  }
-
-  bool release_sampler(int batch_id) {
-    for (int i = 0; i < samplers_.size(); i++) {
-      if (samplers_[i].running_batch_id == batch_id) {
-        samplers_[i].running_batch_id = -1;
-        num_idle_samplers_++;
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  int assign_gpu(int batch_id, TaskType task_type) {
-    for (int i = 0; i < gpus_.size(); i++) {
-      if (gpus_[i].running_batch_id == -1) {
-        gpus_[i].running_batch_id = batch_id;
-        gpus_[i].running_task_type = task_type;
-        num_idle_gpus_--;
-        return i;
-      }
-    }
-
-    return -1;
-  }
-
-  bool release_gpu(int batch_id) {
-    for (int i = 0; i < gpus_.size(); i++) {
-      if (gpus_[i].running_batch_id == batch_id) {
-        gpus_[i].running_batch_id = -1;
-        gpus_[i].running_task_type = TaskType::kNone;
-        num_idle_gpus_++;
-        return true;
-      }
-    }
-
-    return false;
-  }
-
- private:
-  std::vector<GpuRepresentation> gpus_;
-  std::vector<SamplerRepresentation> samplers_;
-  int num_idle_gpus_;
-  int num_idle_samplers_;
-};
-
-
-
-
-  static const char* const BatchStatusNames[] = {
-    "kInitializing",
-    "kInitialized",
-    "kSampling",
-    "kSampled",
-    "kComputing",
-    "kFirstLayerComputed", // Only used with cache
-    "kComputeRemaining",
-    "kComputed",
-  };
   
+};
+
 class DataSchedulingPolicy : public BaseSchedulingPolicy {
 
   enum BatchStatus {
@@ -140,9 +44,9 @@ class DataSchedulingPolicy : public BaseSchedulingPolicy {
     kFirstLayerComputed, // Only used with cache
     kComputeRemaining,
     kComputed,
+    kResultFetching,
+    kFinished
   };
-
-
 
   struct ScheduledBatch {
     int batch_id;
@@ -165,11 +69,11 @@ class DataSchedulingPolicy : public BaseSchedulingPolicy {
 
   void OnInitialized(Scheduler& scheduler, int batch_id) override;
   void OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) override;
+  void OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) override;
 
  private:
   void TryScheduling(Scheduler& scheduler) override;
 
-  std::vector<NodeRepresentation> nodes_;
   std::vector<std::map<int, std::shared_ptr<ScheduledBatch>>> scheduled_batches_;
   std::map<int, int> batch_id_to_global_rank_;
 };
@@ -184,6 +88,7 @@ class P3SchedulingPolicy : public BaseSchedulingPolicy {
 
   void OnInitialized(Scheduler& scheduler, int batch_id) override;
   void OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) override;
+  void OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) override;
 
  private:
   void TryScheduling(Scheduler& scheduler) override;
@@ -200,6 +105,7 @@ class VertexCutSchedulingPolicy : public BaseSchedulingPolicy {
 
   void OnInitialized(Scheduler& scheduler, int batch_id) override;
   void OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) override;
+  void OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) override;
 
  private:
   void TryScheduling(Scheduler& scheduler) override;

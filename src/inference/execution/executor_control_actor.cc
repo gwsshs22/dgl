@@ -7,6 +7,36 @@
 namespace dgl {
 namespace inference {
 
+namespace {
+void fetch_result_fn(caf::blocking_actor* self,
+                     const caf::actor& scheduler,
+                     const caf::actor& executor,
+                     const caf::actor& mpi_actor,
+                     int batch_id,
+                     int node_rank,
+                     int local_rank) {
+  if (node_rank == 0) {
+    auto rh = self->request(executor, caf::infinite, caf::direct_fetch_result_atom_v, batch_id, local_rank);
+    auto result = receive_result<NDArray>(rh);
+    self->send(scheduler, caf::finished_atom_v, batch_id, result);
+    return;
+  }
+
+  self->send(executor, caf::fetch_result_atom_v, batch_id, local_rank);
+  auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, node_rank, CreateMpiTag(batch_id, TaskType::kFetchResult));
+  auto result = receive_result<NDArray>(rh);
+  self->send(scheduler, caf::finished_atom_v, batch_id, result);
+}
+
+void broadcast_fetch_result_fn(caf::blocking_actor* self,
+                               const caf::actor& scheduler_actor,
+                               const std::vector<caf::actor>& executors,
+                               const caf::actor& mpi_actor,
+                               int batch_id) {
+  
+}
+}
+
 executor_control_actor::executor_control_actor(caf::actor_config& config,
                                                caf::strong_actor_ptr mpi_actor_ptr)
     : event_based_actor(config) {
@@ -80,6 +110,15 @@ caf::behavior executor_control_actor::running() {
       send(executors_[node_rank], caf::exec_atom_v, task_type, batch_id, local_rank);
       done_task_counter_.emplace(std::make_pair(task_type, batch_id), 1);
     },
+    [&](caf::fetch_result_atom, int batch_id, int node_rank, int local_rank) {
+      spawn(fetch_result_fn, 
+            scheduler_actor_,
+            executors_[node_rank],
+            mpi_actor_,
+            batch_id,
+            node_rank,
+            local_rank);
+    },
     [&](caf::broadcast_init_atom,
         int batch_id,
         const NDArray& new_gnids,
@@ -100,6 +139,13 @@ caf::behavior executor_control_actor::running() {
 
       done_task_counter_.emplace(std::make_pair(task_type, batch_id), num_nodes_);
     },
+    [&](caf::broadcast_fetch_result_atom, int batch_id) {
+      spawn(broadcast_fetch_result_fn,
+            scheduler_actor_,
+            executors_,
+            mpi_actor_,
+            batch_id);
+    },
     [&](caf::done_atom, TaskType task_type, int batch_id, int node_rank) {
       auto p = std::make_pair(task_type, batch_id);
       auto it = done_task_counter_.find(p);
@@ -115,7 +161,8 @@ caf::behavior executor_control_actor::running() {
         send(scheduler_actor_, caf::done_atom_v, task_type, batch_id);
       }
         
-    }
+    },
+    
   };
 }
 

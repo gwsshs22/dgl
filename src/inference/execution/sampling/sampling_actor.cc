@@ -7,7 +7,7 @@ namespace inference {
 namespace {
 static const int SAMPLING_REQUEST = 0;
 static const int DATA_PARALLEL_INPUT_FETCH_REQUEST = 1;
-static const int CLEANUP_REQUEST = 99999;
+static const int CLEANUP_REQUEST = DGL_INFER_CLEANUP_REQUEST_TYPE;
 }
 
 sampling_actor::sampling_actor(caf::actor_config& config,

@@ -24,6 +24,9 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, broadcast_init_atom, "binit")
   CAF_ADD_ATOM(core_extension, caf, exec_atom, "exec") // exec
   CAF_ADD_ATOM(core_extension, caf, broadcast_exec_atom, "bexec")
+  CAF_ADD_ATOM(core_extension, caf, fetch_result_atom, "fetch") // exec
+  CAF_ADD_ATOM(core_extension, caf, direct_fetch_result_atom, "d_fetch") // exec
+  CAF_ADD_ATOM(core_extension, caf, broadcast_fetch_result_atom, "bfetch")
 
   // MPI
   CAF_ADD_ATOM(core_extension, caf, mpi_bsend_atom, "m_bsend") // MPI broadcast send
@@ -34,6 +37,7 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, broadcast_atom, "broadcast") // broadcast
   CAF_ADD_ATOM(core_extension, caf, enqueue_atom, "enqueue") // enqueue
   CAF_ADD_ATOM(core_extension, caf, done_atom, "done") // done
+  CAF_ADD_ATOM(core_extension, caf, finished_atom, "finished") // finished
   CAF_ADD_ATOM(core_extension, caf, create_atom, "create") // create
   CAF_ADD_ATOM(core_extension, caf, request_atom, "request") // request
   CAF_ADD_ATOM(core_extension, caf, response_atom, "response") // response

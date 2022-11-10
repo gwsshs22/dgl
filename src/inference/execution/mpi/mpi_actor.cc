@@ -97,7 +97,7 @@ void broadcast_recv_(caf::blocking_actor* self,
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   gloo_executor->Broadcast(metadata_buf, __METADATA_MAX_BYTES, root_rank, tag);
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
-  auto empty_arr = CreateFromMetadata(strm);
+  auto empty_arr = CreateEmptyArrayFromMetadata(strm);
   gloo_executor->Broadcast(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), root_rank, tag);
 
   rp.deliver(std::move(empty_arr));
@@ -126,7 +126,7 @@ void recv_(caf::blocking_actor* self,
   u_int8_t metadata_buf[__METADATA_MAX_BYTES];
   gloo_executor->Recv(metadata_buf, __METADATA_MAX_BYTES, src_rank, tag);
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
-  auto empty_arr = CreateFromMetadata(strm);
+  auto empty_arr = CreateEmptyArrayFromMetadata(strm);
   gloo_executor->Recv(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), src_rank, tag);
 
   rp.deliver(std::move(empty_arr));

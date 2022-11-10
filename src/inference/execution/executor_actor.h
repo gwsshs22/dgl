@@ -47,6 +47,14 @@ class executor_actor : public caf::event_based_actor {
     throw std::runtime_error("ComputeRemaining not implemented");
   }
 
+  virtual void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) {
+    throw std::runtime_error("DirectFetchResult not implemented");
+  }
+
+  virtual void FetchResult(int batch_id, int local_rank) {
+    throw std::runtime_error("FetchResult not implemented");
+  }
+
   void ReportTaskDone(TaskType task_type, int batch_id);
 
   template <typename T, typename F>
@@ -95,8 +103,13 @@ class data_parallel_executor : public executor_actor {
 
   void Compute(int batch_id, int local_rank);
 
+  void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) override;
+
+  void FetchResult(int batch_id, int local_rank) override;
+
+  void Cleanup(int batch_id, int local_rank);
+
   std::vector<caf::actor> samplers_;
-  std::vector<caf::actor> input_fetchers_;
 };
 
 class p3_executor : public executor_actor {

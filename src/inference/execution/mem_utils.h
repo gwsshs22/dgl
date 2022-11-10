@@ -8,9 +8,17 @@
 namespace dgl {
 namespace inference {
 
+inline std::string GetArrayDataName(int batch_id, const std::string& name) {
+  return  "/d-" + std::to_string(batch_id) + "_" + name;
+}
+
+inline std::string GetArrayMetadataName(int batch_id, const std::string& name) {
+  return  "/m-" + std::to_string(batch_id) + "_" + name;
+}
+
 static constexpr unsigned int __METADATA_MAX_BYTES = 512;
 
-inline NDArray CreateFromMetadata(dmlc::Stream& stream) {
+inline NDArray CreateEmptyArrayFromMetadata(dmlc::Stream& stream) {
   int ndim;
   int64_t *shape;
   uint8_t code;
@@ -49,6 +57,10 @@ inline void WriteMetadata(dmlc::Stream& stream,
   stream.Write(data->dtype.lanes);
   stream.Write(data->ctx.device_type);
   stream.Write(data->ctx.device_id);
+
+  if (data->ctx.device_type == kDLGPU) {
+    stream.Write(data->data); // Address in GPU
+  }
 }
 
 inline std::shared_ptr<runtime::SharedMemory> CreateMetadataSharedMem(const std::string& name,
@@ -62,12 +74,12 @@ inline std::shared_ptr<runtime::SharedMemory> CreateMetadataSharedMem(const std:
 }
 
 inline std::shared_ptr<runtime::SharedMemory> CreateMetadata(int batch_id, const std::string& name, const NDArray& arr) {
-  return CreateMetadataSharedMem("/m-" + std::to_string(batch_id) + "_" + name, arr);
+  return CreateMetadataSharedMem(GetArrayMetadataName(batch_id, name), arr);
 }
 
 inline NDArray CopyToSharedMem(int batch_id, const std::string& name, const NDArray& src_arr) {
   NDArray copied = NDArray::EmptyShared(
-      "/d-" + std::to_string(batch_id) + "_" + name,
+      GetArrayDataName(batch_id, name),
       std::vector<int64_t>(src_arr->shape, src_arr->shape + src_arr->ndim),
       src_arr->dtype,
       DLContext{kDLCPU, 0},
@@ -78,6 +90,8 @@ inline NDArray CopyToSharedMem(int batch_id, const std::string& name, const NDAr
   return copied;
 }
 
+// It turns out that it is impossible to share device memory between processes.
+// This will not be called.
 inline NDArray CopyToGpu(const NDArray& src_arr, int local_rank) {
   NDArray copied = NDArray::Empty(
       std::vector<int64_t>(src_arr->shape, src_arr->shape + src_arr->ndim),
@@ -90,7 +104,7 @@ inline NDArray CopyToGpu(const NDArray& src_arr, int local_rank) {
 }
 
 inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
-  auto metadata = runtime::SharedMemory("/m-" + std::to_string(batch_id) + "_" + name);
+  auto metadata = runtime::SharedMemory(GetArrayMetadataName(batch_id, name));
   auto metadata_buf = metadata.Open(__METADATA_MAX_BYTES);
 
   dmlc::MemoryFixedSizeStream strm(metadata_buf, __METADATA_MAX_BYTES);
@@ -103,6 +117,8 @@ inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
   DLDeviceType device_type;
   int device_id;
 
+  void* address_in_gpu;
+
   shape = new int64_t[ndim];
 
   {
@@ -114,6 +130,10 @@ inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
     stream.Read(&lanes);
     stream.Read(&device_type);
     stream.Read(&device_id);
+
+    if (device_type == kDLGPU) {
+      stream.Read(&address_in_gpu);
+    }
   }
 
   auto shape_vector = std::vector<int64_t>();
@@ -124,10 +144,13 @@ inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
   delete shape;
 
   if (device_type == kDLCPU) {
-    return NDArray::EmptyShared("/d-" + std::to_string(batch_id) + "_" + name, shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0}, false);
+    return NDArray::EmptyShared(GetArrayDataName(batch_id, name), shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0}, false);
   } else {
+    // It turns out that it is impossible to share device memory between processes.
+    CHECK(false);
     assert(device_type == kDLGPU);
-    return NDArray::Empty(shape_vector, DLDataType{code, bits, lanes},  DLContext{device_type, device_id});
+    NDArray ret;
+    return ret;
   }
 }
 

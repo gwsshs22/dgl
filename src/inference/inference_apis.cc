@@ -8,6 +8,7 @@
 #include "../c_api_common.h"
 
 #include "execution/mem_utils.h"
+#include "process/object_storage.h"
 #include "entrypoint.h"
 
 using dgl::runtime::DGLArgs;
@@ -83,6 +84,21 @@ DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceLoadTensor")
     std::string name = args[1];
 
     *rv = inference::LoadFromSharedMemory(batch_id, name);
+  });
+
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferencePutTensor")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    int batch_id = args[0];
+    std::string name = args[1];
+    NDArray src_arr = args[2];
+
+    inference::ObjectStorage::GetInstance()->CopyToSharedMemory(batch_id, name, src_arr);
+  });
+
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceTensorCleanup")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    int batch_id = args[0];
+    inference::ObjectStorage::GetInstance()->Cleanup(batch_id);
   });
 
 }  // namespace dgl

@@ -40,6 +40,9 @@ void move_to_shared_mem_fn(caf::blocking_actor* self,
   }
 }
 
+
+// It turns out that it is impossible to share device memory between processes.
+// This will not be called.
 void move_to_gpu_mem_fn(caf::blocking_actor* self,
                         const caf::actor& object_storage_actor,
                         int batch_id,
@@ -110,6 +113,9 @@ caf::behavior object_storage_actor(caf::stateful_actor<object_storage>* self,
       return rp;
     },
     [=](caf::move_to_gpu_atom, const std::string& name, int local_rank) {
+      // It turns out that it is impossible to share device memory between processes.
+      CHECK(false);
+
       assert(self->state.arrays.find(name) != self->state.arrays.end());
       auto src_arr = self->state.arrays[name];
       bool metadata_shared_mem_exists =

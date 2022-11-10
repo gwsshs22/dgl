@@ -7,6 +7,7 @@
 #include <dgl/runtime/semaphore_wrapper.h>
 
 #include "process_control_actor.h"
+#include "object_storage.h"
 
 namespace dgl {
 namespace inference {
@@ -32,7 +33,12 @@ caf::behavior process_request_handler_fn(caf::stateful_actor<process_request_han
       self->state.requester_actor = caf::actor_cast<caf::actor>(self->current_sender());
     },
     [=](caf::request_atom, uint64_t req_id, int request_type, int batch_id) {
-      queue_.enqueue(ActorRequest(req_id, request_type, batch_id));
+      if (request_type == DGL_INFER_CLEANUP_REQUEST_TYPE) {
+        ObjectStorage::GetInstance()->Cleanup(batch_id);
+      } else {
+        queue_.enqueue(ActorRequest(req_id, request_type, batch_id));
+      }
+      
     },
     [=](caf::response_atom, uint64_t req_id) {
       self->send(self->state.requester_actor, caf::response_atom_v, req_id);

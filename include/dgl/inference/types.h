@@ -2,6 +2,8 @@
 
 #include <dgl/runtime/ndarray.h>
 
+#define DGL_INFER_CLEANUP_REQUEST_TYPE 99999999
+
 namespace dgl {
 namespace inference {
 
@@ -31,7 +33,8 @@ enum TaskType {
   kPrepareAggregations = 5,
   kRecomputeAggregations = 6,
   kComputeRemaining = 7,
-  kTest = 999999,
+  kFetchResult = 99,
+  kTest = 100,
 };
 
 }

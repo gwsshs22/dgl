@@ -17,6 +17,12 @@
 namespace dgl {
 namespace inference {
 
+caf::behavior result_collector_fn(caf::event_based_actor* self) {
+  return [&](caf::done_atom, int req_id, const NDArray& result){
+    std::cout << "req_id=" << req_id << ", ret=" << result << std::endl;
+  };
+}
+
 void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto master_host = GetEnv<std::string>(DGL_INFER_MASTER_HOST, "localhost");
   auto master_port = GetEnv<u_int16_t>(DGL_INFER_MASTER_PORT, 0);
@@ -76,7 +82,10 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
       using_precomputed_aggregations);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
+  auto result_collector = system.spawn(result_collector_fn);
+
   auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr,
+                                                 result_collector,
                                                  parallel_type,
                                                  using_precomputed_aggregations,
                                                  num_nodes,
@@ -93,11 +102,11 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   NDArray src_gnids = NDArray::FromVector(std::vector<int32_t>{ 1, 1, 2, 0, 3 }, cpu_context);
   NDArray dst_gnids = NDArray::FromVector(std::vector<int32_t>{ 0, 1, 3, 3, 0 }, cpu_context);
 
-  for (int j = 0; j < 128; j++) {
+  for (int j = 0; j < 32; j++) {
   for (int i = 0; i < 4; i++) {
     anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
   }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   // anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
   // anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);

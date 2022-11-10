@@ -80,13 +80,13 @@ inline void executor_actor::RequestAndReportTaskDone(caf::actor& task_executor,
 caf::behavior executor_actor::make_running_behavior() {
   return {
     [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
-      auto obj_storage_actor = spawn<caf::monitored>(object_storage_actor, batch_id);
+      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
       object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
       auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, new_gnids, src_gnids, dst_gnids);
       RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
     },
     [&](caf::init_atom, int batch_id) {
-      auto obj_storage_actor = spawn<caf::monitored>(object_storage_actor, batch_id);
+      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
       object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
       auto receiver = spawn(input_recv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
       request(receiver, caf::infinite, caf::get_atom_v).then(
@@ -100,7 +100,7 @@ caf::behavior executor_actor::make_running_behavior() {
         });
     },
     [&](caf::broadcast_init_atom, int batch_id, const NDArray& new_gnids, const NDArray& src_gnids, const NDArray& dst_gnids) {
-      auto obj_storage_actor = spawn<caf::monitored>(object_storage_actor, batch_id);
+      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
       object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
       auto broadcaster = spawn(input_bsend_fn, mpi_actor_, new_gnids, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
       request(broadcaster, caf::infinite, caf::get_atom_v).then(
@@ -114,7 +114,7 @@ caf::behavior executor_actor::make_running_behavior() {
         });
     },
     [&](caf::broadcast_init_atom, int batch_id) {
-      auto obj_storage_actor = spawn<caf::monitored>(object_storage_actor, batch_id);
+      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
       object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
       auto receiver = spawn(input_brecv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
       request(receiver, caf::infinite, caf::get_atom_v).then(
@@ -149,6 +149,13 @@ caf::behavior executor_actor::make_running_behavior() {
           ComputeRemaining(batch_id, local_rank);
           break;
       }
+    },
+    [&](caf::direct_fetch_result_atom, int batch_id, int local_rank) {
+      auto rp = make_response_promise<NDArray>();
+      DirectFetchResult(batch_id, local_rank, rp);
+    },
+    [&](caf::fetch_result_atom, int batch_id, int local_rank) {
+      FetchResult(batch_id, local_rank);
     }
   };
 }

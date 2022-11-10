@@ -41,7 +41,7 @@ void cleanup_fn(caf::blocking_actor *self,
 
 enum gnn_executor_request_type {
   kComputeRequestType = 0,
-  kCleanupRequestType = 99999
+  kCleanupRequestType = DGL_INFER_CLEANUP_REQUEST_TYPE
 };
 
 void gnn_execute_fn(caf::blocking_actor *self,

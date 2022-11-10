@@ -9,7 +9,7 @@ class GraphServerProcess:
         self._num_devices_per_node = num_devices_per_node
 
         if parallel_type == ParallelizationType.DATA:
-            self._num_clients = num_devices_per_node * 3 * num_nodes
+            self._num_clients = num_devices_per_node * 2 * num_nodes
         elif parallel_type == ParallelizationType.DATA or parallel_type == ParallelizationType.P3:
             self._num_clients = num_devices_per_node * 2 * num_nodes
         else:

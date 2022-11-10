@@ -50,6 +50,7 @@ DataSchedulingPolicy::DataSchedulingPolicy(bool using_precomputed_aggs,
     }
   }
 }
+
 void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
   while (!input_queue_.empty()) {
     int min_allocated_num = std::numeric_limits<int>::max();
@@ -68,7 +69,9 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
 
     int batch_id = IssueBatchId();
     int node_rank = global_rank / num_devices_per_node_;
-    scheduler.LocalInitialize(batch_id, node_rank, input_queue_.front());
+    auto front = input_queue_.front();
+    batch_id_to_req_id_[batch_id] = front.req_id;
+    scheduler.LocalInitialize(batch_id, node_rank, front);
     input_queue_.pop();
  
     scheduled_batches_[global_rank].emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));
@@ -85,7 +88,7 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     for (auto it = scheduled_batches.begin(); it != scheduled_batches.end();) {
       int batch_id = it->first;
       auto& scheduled_batch = it->second;
-      bool batch_finished = false;
+      auto batch_finished = false;
 
       if (scheduled_batch->status == BatchStatus::kInitialized) {
         scheduled_batch->status = BatchStatus::kSampling;
@@ -111,17 +114,19 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
         scheduled_batch->status = BatchStatus::kComputeRemaining;
         scheduler.LocalExecute(TaskType::kComputeRemaining, batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kComputed) {
-        std::cerr << "[DONE] batch_id= " << batch_id << std::endl;
+        scheduled_batch->status = BatchStatus::kResultFetching;
+        scheduler.LocalFetchResult(batch_id, node_rank, local_rank);
+      } else if (scheduled_batch->status == BatchStatus::kFinished) {
         batch_finished = true;
       }
-
-      is_first_batch = false;
 
       if (batch_finished) {
         scheduled_batches.erase(it++);
       } else {
         ++it;
       }
+
+      is_first_batch = false;
     }
   }
 }
@@ -176,11 +181,27 @@ void DataSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
   TryScheduling(scheduler);
 }
 
+void DataSchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) {
+  auto req_id = batch_id_to_req_id_[batch_id];
+  scheduler.ReportResult(req_id, result);
+
+  auto global_rank = batch_id_to_global_rank_[batch_id];
+  auto it = scheduled_batches_[global_rank].find(batch_id);
+  assert(it != scheduled_batches_[global_rank].end());
+  assert(it->second->status == kResultFetching);
+  it->second->status = kFinished;
+
+  batch_id_to_global_rank_.erase(batch_id);
+  batch_id_to_req_id_.erase(batch_id);
+
+  TryScheduling(scheduler);
+}
+
 ////////////////////////
 // P3SchedulingPolicy //
 ////////////////////////
 void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) { 
-  
+
 }
 
 void P3SchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
@@ -188,6 +209,10 @@ void P3SchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType
 }
 
 void P3SchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
+  
+}
+
+void P3SchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) {
   
 }
 
@@ -208,6 +233,10 @@ void VertexCutSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, T
 
 void VertexCutSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
   scheduler.BroadcastExecute(TaskType::kTest, batch_id);
+}
+
+void VertexCutSchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) {
+  
 }
 
 }

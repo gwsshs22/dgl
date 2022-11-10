@@ -1,4 +1,5 @@
 #include "task_executors.h"
+#include "mem_utils.h"
 
 namespace dgl {
 namespace inference {
@@ -111,7 +112,6 @@ void cleanup_fn(caf::blocking_actor* self,
   receive_result<bool>(rh);
   self->receive([](caf::get_atom) { });
 }
-
 
 void gnn_execute_fn(caf::blocking_actor *self,
                     const caf::actor& gnn_executor_grp_actor,

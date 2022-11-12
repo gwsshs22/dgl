@@ -99,16 +99,18 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
 
   auto cpu_context = DLContext { kDLCPU, 0 };
 
-  NDArray new_features = NDArray::Empty({4, 256}, DLDataType{kDLFloat, 32, 1}, cpu_context);
+  int num_inputs = 10;
+  int feature_size = 256;
+  NDArray new_features = NDArray::Empty({num_inputs, feature_size}, DLDataType{kDLFloat, 32, 1}, cpu_context);
   float* ptr = (float*)new_features->data;
-  for (int i = 0; i < 4 * 256; i++) {
-    *ptr++ = (float)(i + 1) / 256.0;
+  for (int i = 0; i < num_inputs * feature_size; i++) {
+    *ptr++ = (float)(i + 1) / (float)feature_size;
   }
 
-  NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13 }, cpu_context);
+  NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }, cpu_context);
   
-  NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4, 0, 7, 9 }, cpu_context);
-  NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10 }, cpu_context);
+  NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4,  0,  7,  9,  0, 12, 13, 14, 15, 9  }, cpu_context);
+  NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10, 14, 15, 16, 17, 18, 19 }, cpu_context);
 
   for (int j = 0; j < 64; j++) {
     for (int i = 0; i < 4; i++) {

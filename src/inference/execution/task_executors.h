@@ -7,9 +7,10 @@ namespace inference {
 
 void input_bsend_fn(caf::blocking_actor* self,
                     const caf::actor& mpi_actor,
-                    const NDArray& new_ngids,
-                    const NDArray& src_ngids,
-                    const NDArray& dst_ngids,
+                    const NDArray& new_gnids,
+                    const NDArray& new_features,
+                    const NDArray& src_gnids,
+                    const NDArray& dst_gnids,
                     const uint32_t tag);
 
 void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag);
@@ -17,18 +18,20 @@ void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, cons
 void input_send_fn(caf::blocking_actor *self,
                    const caf::actor& mpi_actor,
                    int node_rank,
-                   const NDArray& new_ngids,
-                   const NDArray& src_ngids,
-                   const NDArray& dst_ngids,
+                   const NDArray& new_gnids,
+                   const NDArray& new_features,
+                   const NDArray& src_gnids,
+                   const NDArray& dst_gnids,
                    const uint32_t tag);
 
 void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag);
 
 void move_input_to_shared_mem_fn(caf::blocking_actor *self,
                                  const caf::actor& object_storage_actor,
-                                 const NDArray& new_ngids,
-                                 const NDArray& src_ngids,
-                                 const NDArray& dst_ngids);
+                                 const NDArray& new_gnids,
+                                 const NDArray& new_features,
+                                 const NDArray& src_gnids,
+                                 const NDArray& dst_gnids);
 
 // sampler
 void sampling_fn(caf::blocking_actor *self,

@@ -17,7 +17,7 @@ scheduler_actor::scheduler_actor(caf::actor_config& config,
 
 void scheduler_actor::LocalInitialize(int batch_id, int node_rank, const BatchInput& batch_input) {
   send(exec_ctl_actor_, caf::init_atom_v, batch_id, node_rank,
-       batch_input.new_gnids, batch_input.src_gnids, batch_input.dst_gnids);
+       batch_input.new_gnids, batch_input.new_features, batch_input.src_gnids, batch_input.dst_gnids);
 }
 
 void scheduler_actor::LocalExecute(TaskType task_type, int batch_id, int node_rank, int local_rank) {
@@ -30,7 +30,7 @@ void scheduler_actor::LocalFetchResult(int batch_id, int node_rank, int local_ra
 
 void scheduler_actor::BroadcastInitialize(int batch_id, const BatchInput& batch_input) {
   send(exec_ctl_actor_, caf::broadcast_init_atom_v, batch_id, 
-       batch_input.new_gnids, batch_input.src_gnids, batch_input.dst_gnids);
+       batch_input.new_gnids, batch_input.new_features, batch_input.src_gnids, batch_input.dst_gnids);
 }
 
 void scheduler_actor::BroadcastExecute(TaskType task_type, int batch_id) {
@@ -50,10 +50,11 @@ caf::behavior scheduler_actor::make_behavior() {
   return {
     [&](caf::enqueue_atom,
         const NDArray& new_gnids,
+        const NDArray& new_features,
         const NDArray& src_gnids,
         const NDArray& dst_gnids) {
       int request_id = request_id_counter_++;
-      policy_->OnNewBatch(*this, BatchInput { request_id, new_gnids, src_gnids, dst_gnids });
+      policy_->OnNewBatch(*this, BatchInput { request_id, new_gnids, new_features, src_gnids, dst_gnids });
       return request_id;
     },
     [&](caf::initialized_atom, int batch_id) {

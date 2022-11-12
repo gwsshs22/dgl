@@ -95,12 +95,13 @@ caf::behavior executor_control_actor::running() {
         int batch_id, 
         int node_rank,
         const NDArray& new_gnids,
+        const NDArray& new_features,
         const NDArray& src_gnids,
         const NDArray& dst_gnids) {
       if (node_rank == 0) {
-        send(executors_[node_rank], caf::init_atom_v, batch_id, new_gnids, src_gnids, dst_gnids);  
+        send(executors_[node_rank], caf::init_atom_v, batch_id, new_gnids, new_features, src_gnids, dst_gnids);  
       } else {
-        spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
+        spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
         send(executors_[node_rank], caf::init_atom_v, batch_id);
       }
 
@@ -122,9 +123,10 @@ caf::behavior executor_control_actor::running() {
     [&](caf::broadcast_init_atom,
         int batch_id,
         const NDArray& new_gnids,
+        const NDArray& new_features,
         const NDArray& src_gnids,
         const NDArray& dst_gnids) {
-      send(executors_[0], caf::broadcast_init_atom_v, batch_id, new_gnids, src_gnids, dst_gnids);
+      send(executors_[0], caf::broadcast_init_atom_v, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
       
       for (int i = 1; i < num_nodes_; i++) {
         send(executors_[i], caf::broadcast_init_atom_v, batch_id);

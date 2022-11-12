@@ -29,6 +29,7 @@ class GraphServerProcess:
         from ..distributed.dist_graph import DistGraphServer
 
         rpc.reset()
+
         serv = DistGraphServer(self._node_rank,
                                self._ip_config_path,
                                self._num_servers,

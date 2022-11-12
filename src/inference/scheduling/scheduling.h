@@ -8,6 +8,7 @@ namespace inference {
 struct BatchInput {
   int req_id;
   NDArray new_gnids;
+  NDArray new_features;
   NDArray src_gnids;
   NDArray dst_gnids;
 };

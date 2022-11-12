@@ -19,7 +19,7 @@ namespace inference {
 
 caf::behavior result_collector_fn(caf::event_based_actor* self) {
   return [&](caf::done_atom, int req_id, const NDArray& result){
-    std::cout << "req_id=" << req_id << ", ret=" << result << std::endl;
+    std::cout << "req_id=" << req_id << ", ret(" << result->shape[0] << ", " << result->shape[1] << ")=" << result << std::endl;
   };
 }
 
@@ -98,18 +98,23 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   std::cerr << "All services initialized." << std::endl;
 
   auto cpu_context = DLContext { kDLCPU, 0 };
-  NDArray new_gnids = NDArray::FromVector(std::vector<int32_t>{ 0, 1, 2, 3 }, cpu_context);
-  NDArray src_gnids = NDArray::FromVector(std::vector<int32_t>{ 1, 1, 2, 0, 3 }, cpu_context);
-  NDArray dst_gnids = NDArray::FromVector(std::vector<int32_t>{ 0, 1, 3, 3, 0 }, cpu_context);
 
-  for (int j = 0; j < 32; j++) {
-  for (int i = 0; i < 4; i++) {
-    anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
+  NDArray new_features = NDArray::Empty({4, 256}, DLDataType{kDLFloat, 32, 1}, cpu_context);
+  float* ptr = (float*)new_features->data;
+  for (int i = 0; i < 4 * 256; i++) {
+    *ptr++ = (float)(i + 1) / 256.0;
   }
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13 }, cpu_context);
+  
+  NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4, 0, 7, 9 }, cpu_context);
+  NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10 }, cpu_context);
+
+  for (int j = 0; j < 64; j++) {
+    for (int i = 0; i < 4; i++) {
+      anon_send(scheduler, caf::enqueue_atom_v, new_gnids, new_features, src_gnids, dst_gnids);
+    }
   }
-  // anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
-  // anon_send(scheduler, caf::enqueue_atom_v, new_gnids, src_gnids, dst_gnids);
 
   std::cerr << "Quit to enter:" << std::endl;
   std::string dummy;

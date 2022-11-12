@@ -1,3 +1,4 @@
+import dgl
 import torch # Can implement with NDArrays, but we stick to pytorch now
 
 from .envs import ParallelizationType
@@ -6,16 +7,21 @@ from .api import *
 class GnnExecutorProcess:
     COMPUTE_REQUEST_TYPE = 0
 
-    def __init__(self, channel, num_nodes, ip_config_path, parallel_type, local_rank):
+    def __init__(self, channel, num_nodes, ip_config_path, parallel_type, graph_name, graph_config_path, local_rank, model):
         self._channel = channel
         self._num_nodes = num_nodes
         self._num_servers = 1 # Number of servers for one machin including backup servers
         self._parallel_type = parallel_type
         self._ip_config_path = ip_config_path
-        self._net_type = "socket"
-        self._group_id = 0
+        self._graph_name = graph_name
+        self._graph_config_path = graph_config_path
         self._local_rank = local_rank
         self._device = torch.device(f"cuda:{local_rank}")
+        self._model = model.to(self._device)
+        self._model.eval()
+
+        self._net_type = "socket"
+        self._group_id = 0
 
     def run(self):
         # From dgl.distributed.initialize
@@ -29,6 +35,8 @@ class GnnExecutorProcess:
         init_role('default')
         init_kvstore(self._ip_config_path, self._num_servers, 'default')
 
+        self._dist_graph = dgl.distributed.DistGraph(self._graph_name, part_config=self._graph_config_path)
+
         self._channel.notify_initialized()
         while True:
             req = self._channel.fetch_request()
@@ -41,19 +49,30 @@ class GnnExecutorProcess:
                 exit(-1)
 
     def compute(self, req):
-        if self._parallel_type == ParallelizationType.DATA:
-            self.data_parallel_compute(req)
-        elif self._parallel_type == ParallelizationType.P3:
-            req.done()
-        elif self._parallel_type == ParallelizationType.VERTEX_CUT:
-            req.done()
-
-    def data_parallel_compute(self, req):
         batch_id = req.batch_id
-        test_shared_tensor_1_cpu = load_tensor(batch_id, "test_shared_tensor_1_cpu")
-        test_shared_tensor_1_gpu = test_shared_tensor_1_cpu.to(self._device)
-        final_result = test_shared_tensor_1_gpu * 2
-
-        result = torch.rand(10, 10)
-        put_tensor(batch_id, "result", result)
+        if self._parallel_type == ParallelizationType.DATA:
+            self.data_parallel_compute(batch_id)
+        elif self._parallel_type == ParallelizationType.P3:
+            pass
+        elif self._parallel_type == ParallelizationType.VERTEX_CUT:
+            pass
         req.done()
+
+    def data_parallel_compute(self, batch_id):
+        new_features = load_tensor(batch_id, "new_features")
+
+        input_gnids = load_tensor(batch_id, "input_gnids")
+        b1_u = load_tensor(batch_id, "b1_u")
+        b1_v = load_tensor(batch_id, "b1_v")
+        b2_u = load_tensor(batch_id, "b2_u")
+        b2_v = load_tensor(batch_id, "b2_v")
+        
+        block1 = dgl.to_block(dgl.graph((b1_u, b1_v))).to(self._device)
+        block2 = dgl.to_block(dgl.graph((b2_u, b2_v))).to(self._device)
+
+        org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
+        h = torch.concat((new_features, org_features)).to(self._device)
+
+        with torch.no_grad():
+            result = self._model([block1, block2], h).to("cpu")
+        put_tensor(batch_id, "result", result)

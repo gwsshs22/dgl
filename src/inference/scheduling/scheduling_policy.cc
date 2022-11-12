@@ -90,17 +90,17 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
       auto& scheduled_batch = it->second;
       auto batch_finished = false;
 
-      if (scheduled_batch->status == BatchStatus::kInitialized) {
-        scheduled_batch->status = BatchStatus::kSampling;
+      if (scheduled_batch->status == BatchStatus::kInitializedStatus) {
+        scheduled_batch->status = BatchStatus::kSamplingStatus;
         scheduler.LocalExecute(TaskType::kSampling, batch_id, node_rank, local_rank);
-      } else if (scheduled_batch->status == BatchStatus::kSampled) {
-        scheduled_batch->status = BatchStatus::kComputing;
+      } else if (scheduled_batch->status == BatchStatus::kSampledStatus) {
+        scheduled_batch->status = BatchStatus::kComputingStatus;
 
         scheduler.LocalExecute(TaskType::kPrepareInput, batch_id, node_rank, local_rank);
         if (using_precomputed_aggs_) { 
           scheduler.LocalExecute(TaskType::kPrepareAggregations, batch_id, node_rank, local_rank);
         }
-      } else if (scheduled_batch->status == BatchStatus::kComputing && is_first_batch) { // Only the first batch can proceed computation
+      } else if (scheduled_batch->status == BatchStatus::kComputingStatus && is_first_batch) { // Only the first batch can proceed computation
         if (scheduled_batch->input_prepared && !scheduled_batch->input_computing) {
           scheduled_batch->input_computing = true;
           scheduler.LocalExecute(TaskType::kCompute, batch_id, node_rank, local_rank);
@@ -110,13 +110,13 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
           scheduled_batch->aggregation_recomputing = true;
           scheduler.LocalExecute(TaskType::kRecomputeAggregations, batch_id, node_rank, local_rank);
         }
-      } else if (scheduled_batch->status == BatchStatus::kFirstLayerComputed) { // Only for precomputed aggregations
-        scheduled_batch->status = BatchStatus::kComputeRemaining;
+      } else if (scheduled_batch->status == BatchStatus::kFirstLayerComputedStatus) { // Only for precomputed aggregations
+        scheduled_batch->status = BatchStatus::kComputeRemainingStatus;
         scheduler.LocalExecute(TaskType::kComputeRemaining, batch_id, node_rank, local_rank);
-      } else if (scheduled_batch->status == BatchStatus::kComputed) {
-        scheduled_batch->status = BatchStatus::kResultFetching;
+      } else if (scheduled_batch->status == BatchStatus::kComputedStatus) {
+        scheduled_batch->status = BatchStatus::kResultFetchingStatus;
         scheduler.LocalFetchResult(batch_id, node_rank, local_rank);
-      } else if (scheduled_batch->status == BatchStatus::kFinished) {
+      } else if (scheduled_batch->status == BatchStatus::kFinishedStatus) {
         batch_finished = true;
       }
 
@@ -137,7 +137,7 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
   auto& scheduled_batch = it->second;
 
   if (task_type == TaskType::kSampling) {
-    scheduled_batch->status = kSampled;
+    scheduled_batch->status = kSampledStatus;
     TryScheduling(scheduler);
     return;
   }
@@ -154,17 +154,17 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
     scheduled_batch->aggregation_recomputed = true;
   } else if (task_type == TaskType::kComputeRemaining) {
     assert(using_precomputed_aggs_);
-    scheduled_batch->status = BatchStatus::kComputed;
+    scheduled_batch->status = BatchStatus::kComputedStatus;
   }
 
   if (using_precomputed_aggs_) {
     if (scheduled_batch->input_computed && scheduled_batch->aggregation_recomputed &&
-        scheduled_batch->status == BatchStatus::kComputing) {
-      scheduled_batch->status = BatchStatus::kFirstLayerComputed;
+        scheduled_batch->status == BatchStatus::kComputingStatus) {
+      scheduled_batch->status = BatchStatus::kFirstLayerComputedStatus;
     }
   } else {
     if (scheduled_batch->input_computed) {
-      scheduled_batch->status = BatchStatus::kComputed;
+      scheduled_batch->status = BatchStatus::kComputedStatus;
     }
   }
 
@@ -175,8 +175,8 @@ void DataSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
   assert(it != scheduled_batches_[global_rank].end());
-  assert(it->second->status == kInitializing);
-  it->second->status = kInitialized;
+  assert(it->second->status == kInitializingStatus);
+  it->second->status = kInitializedStatus;
 
   TryScheduling(scheduler);
 }
@@ -188,8 +188,8 @@ void DataSchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const 
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
   assert(it != scheduled_batches_[global_rank].end());
-  assert(it->second->status == kResultFetching);
-  it->second->status = kFinished;
+  assert(it->second->status == kResultFetchingStatus);
+  it->second->status = kFinishedStatus;
 
   batch_id_to_global_rank_.erase(batch_id);
   batch_id_to_req_id_.erase(batch_id);

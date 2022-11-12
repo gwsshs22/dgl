@@ -5,7 +5,6 @@
 #include <dgl/inference/common.h>
 
 #include "scheduling.h"
-#include "scheduled_batch.h"
 
 namespace dgl {
 namespace inference {

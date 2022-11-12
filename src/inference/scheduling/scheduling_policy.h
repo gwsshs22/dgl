@@ -33,34 +33,34 @@ class BaseSchedulingPolicy : public SchedulingPolicy {
   
 };
 
+
+enum BatchStatus {
+  kInitializingStatus,
+  kInitializedStatus,
+  kSamplingStatus,
+  kSampledStatus,
+  kComputingStatus,
+  kFirstLayerComputedStatus, // Only used with cache
+  kComputeRemainingStatus,
+  kComputedStatus,
+  kResultFetchingStatus,
+  kFinishedStatus
+};
+
+struct ScheduledBatch {
+  int batch_id;
+  BatchStatus status = BatchStatus::kInitializingStatus;
+  bool input_prepared = false;
+  bool input_computing = false;
+  bool input_computed = false;
+  bool aggregation_prepared = false;
+  bool aggregation_recomputing = false;
+  bool aggregation_recomputed = false;
+  ScheduledBatch(int bid): batch_id(bid) {
+  }
+};
+
 class DataSchedulingPolicy : public BaseSchedulingPolicy {
-
-  enum BatchStatus {
-    kInitializing,
-    kInitialized,
-    kSampling,
-    kSampled,
-    kComputing,
-    kFirstLayerComputed, // Only used with cache
-    kComputeRemaining,
-    kComputed,
-    kResultFetching,
-    kFinished
-  };
-
-  struct ScheduledBatch {
-    int batch_id;
-    BatchStatus status = BatchStatus::kInitializing;
-    bool input_prepared = false;
-    bool input_computing = false;
-    bool input_computed = false;
-    bool aggregation_prepared = false;
-    bool aggregation_recomputing = false;
-    bool aggregation_recomputed = false;
-
-    ScheduledBatch(int bid): batch_id(bid) {
-    }
-  };
 
  public:
   DataSchedulingPolicy(bool using_precomputed_aggs,

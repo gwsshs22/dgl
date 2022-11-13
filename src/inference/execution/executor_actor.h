@@ -155,6 +155,12 @@ class vertex_cut_executor : public executor_actor {
 
   void ComputeRemaining(int batch_id, int local_rank);
 
+  void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) override;
+
+  void FetchResult(int batch_id, int local_rank) override;
+
+  void Cleanup(int batch_id);
+
   const bool using_precomputed_aggs_;
 };
 

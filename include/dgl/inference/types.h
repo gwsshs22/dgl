@@ -33,8 +33,7 @@ enum TaskType {
   kPrepareAggregations = 5,
   kRecomputeAggregations = 6,
   kComputeRemaining = 7,
-  kFetchResult = 99,
-  kTest = 100,
+  kFetchResult = 15,
 };
 
 }

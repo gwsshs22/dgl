@@ -110,6 +110,7 @@ class VertexCutSchedulingPolicy : public BaseSchedulingPolicy {
  private:
   void TryScheduling(Scheduler& scheduler) override;
 
+  std::map<int, std::shared_ptr<ScheduledBatch>> scheduled_batches_;
 };
 
 }

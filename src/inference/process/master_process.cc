@@ -18,8 +18,14 @@ namespace dgl {
 namespace inference {
 
 caf::behavior result_collector_fn(caf::event_based_actor* self) {
-  return [&](caf::done_atom, int req_id, const NDArray& result){
-    std::cout << "req_id=" << req_id << ", ret(" << result->shape[0] << ", " << result->shape[1] << ")=" << result << std::endl;
+  return [&](caf::done_atom, int req_id, const NDArray& result) {
+    const int num_inputs = 10;
+    std::cout << "req_id=" << req_id << ", shape=(";
+    for (int i = 0; i < result->ndim; i++) {
+      std::cout<<result->shape[i] << ", ";
+    }
+
+    std::cout << ") " << result << std::endl;
   };
 }
 

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <dgl/array.h>
+
 #include "task_executors.h"
 
 namespace dgl {
@@ -29,11 +31,29 @@ void fetch_result_fn(caf::blocking_actor* self,
 }
 
 void broadcast_fetch_result_fn(caf::blocking_actor* self,
-                               const caf::actor& scheduler_actor,
+                               const caf::actor& scheduler,
                                const std::vector<caf::actor>& executors,
                                const caf::actor& mpi_actor,
+                               const int num_nodes,
                                int batch_id) {
-  
+  // OPTIMIZATION TODO: Use GATHER.
+  auto rhs = std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>>();
+  auto results = std::vector<NDArray>();
+  for (int i = 0; i < num_nodes; i++) {
+    if (i == 0) {
+      rhs.push_back(self->request(executors[i], caf::infinite, caf::direct_fetch_result_atom_v, batch_id, -1));
+    } else {
+      self->send(executors[i], caf::fetch_result_atom_v, batch_id, -1);
+      rhs.push_back(self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, i, CreateMpiTag(batch_id, TaskType::kFetchResult, i)));
+    }
+  }
+
+  for (int i = 0; i < num_nodes; i++) {
+    results.push_back(receive_result<NDArray>(rhs[i]));
+  }
+
+  auto result = aten::Concat(results);
+  self->send(scheduler, caf::finished_atom_v, batch_id, result);
 }
 }
 
@@ -146,6 +166,7 @@ caf::behavior executor_control_actor::running() {
             scheduler_actor_,
             executors_,
             mpi_actor_,
+            num_nodes_,
             batch_id);
     },
     [&](caf::done_atom, TaskType task_type, int batch_id, int node_rank) {

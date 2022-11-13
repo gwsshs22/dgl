@@ -26,5 +26,19 @@ CAF_TEST(envs) {
   CAF_CHECK_EQUAL(GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false), true);
 }
 
+CAF_TEST(hash) {
+  constexpr int N = 4;
+  int counter[N] = {0, };
+
+  for (uint64_t i = 0; i < 1000000; i++) {
+    counter[hash(i) % N]++;
+  }
+
+  for (int i = 0; i < N; i++) {
+    std::cout << "[" << i << "] = " << counter[i] << ", ";
+  }
+  std::cout << std::endl;
+}
+
 }
 }

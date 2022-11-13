@@ -8,18 +8,27 @@ class SamplerProcess:
     SAMPLE_REQUEST_TYPE = 0
     DATA_PARALLEL_INPUT_FETCH = 1
 
-    def __init__(self, channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, parallel_type, graph_name, graph_config_path, local_rank):
+    def __init__(self,
+                 channel,
+                 num_nodes,
+                 node_rank,
+                 num_devices_per_node,
+                 local_rank,
+                 ip_config_path,
+                 parallel_type,
+                 graph_name,
+                 graph_config_path):
         self._channel = channel
         self._num_nodes = num_nodes
         self._node_rank = node_rank
         self._num_devices_per_node = num_devices_per_node
-        self._num_servers = 1 # Number of servers for one machin including backup servers
+        self._local_rank = local_rank
         self._ip_config_path = ip_config_path
         self._parallel_type = parallel_type
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
-        self._local_rank = local_rank
 
+        self._num_servers = 1 # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
         self._num_omp_threads = 1

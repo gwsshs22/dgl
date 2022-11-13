@@ -19,17 +19,15 @@ class DistGCN(nn.Module):
         super().__init__()
         self.activation = activation
         self.layers = nn.ModuleList()
-        self.layers.append(GraphConv(in_feats, n_hidden, norm='right', allow_zero_in_degree=True))
+        self.layers.append(GraphConv(in_feats, n_hidden, norm='right', allow_zero_in_degree=True, activation=activation))
         for i in range(1, n_layers - 1):
-            self.layers.append(GraphConv(n_hidden, n_hidden, norm='right', allow_zero_in_degree=True))
-        self.layers.append(GraphConv(n_hidden, n_outputs, norm='right', allow_zero_in_degree=True))
+            self.layers.append(GraphConv(n_hidden, n_hidden, norm='right', allow_zero_in_degree=True, activation=activation))
+        self.layers.append(GraphConv(n_hidden, n_outputs, norm='right', allow_zero_in_degree=True, activation=None))
 
     # Normal forward pass
     def forward(self, blocks, h):
         for l, (layer, block) in enumerate(zip(self.layers, blocks)):
             h = layer(block, h)
-            if l != len(self.layers) - 1:
-                h = self.activation(h)
 
         return h
 

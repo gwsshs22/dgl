@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--role", required=True, choices=["master", "worker"])
     parser.add_argument("--master-host", required=True)
     parser.add_argument("--master-port", type=int)
+    parser.add_argument("--master-torch-port", type=int)
     parser.add_argument("--node-rank", type=int, required=False, default=0)
     parser.add_argument("--num-nodes", type=int)
     parser.add_argument("--num-devices-per-node", type=int,  required=True)
@@ -56,6 +57,7 @@ def main():
     # TODO: parameter validation
     os.environ[envs.DGL_INFER_MASTER_HOST] = args.master_host
     os.environ[envs.DGL_INFER_MASTER_PORT] = str(args.master_port)
+    os.environ[envs.DGL_INFER_MASTER_TORCH_PORT] = str(args.master_torch_port)
     os.environ[envs.DGL_INFER_NODE_RANK] = str(node_rank)
     os.environ[envs.DGL_INFER_NUM_NODES] = str(args.num_nodes)
     os.environ[envs.DGL_INFER_NUM_DEVICES_PER_NODE] = str(args.num_devices_per_node)
@@ -97,6 +99,8 @@ def fork():
     num_nodes = int(os.environ[envs.DGL_INFER_NUM_NODES])
     node_rank = int(os.environ[envs.DGL_INFER_NODE_RANK])
     local_rank = int(os.environ[envs.DGL_INFER_LOCAL_RANK])
+    master_host = os.environ[envs.DGL_INFER_MASTER_HOST]
+    master_torch_port = int(os.environ[envs.DGL_INFER_MASTER_TORCH_PORT])
     num_devices_per_node = int(os.environ[envs.DGL_INFER_NUM_DEVICES_PER_NODE])
     ip_config_path = os.environ[envs.DGL_INFER_IP_CONFIG_PATH]
     graph_name = os.environ[envs.DGL_INFER_GRAPH_NAME]
@@ -135,11 +139,37 @@ def fork():
         else:
             print(f"Unknown model_type: {model_type}")
             exit(-1)
-        actor_process = GnnExecutorProcess(channel, num_nodes, ip_config_path, parallel_type, graph_name, graph_config_path, local_rank, model)
+        actor_process = GnnExecutorProcess(channel,
+                                           num_nodes,
+                                           node_rank,
+                                           num_devices_per_node,
+                                           local_rank,
+                                           master_host,
+                                           master_torch_port,
+                                           ip_config_path,
+                                           parallel_type,
+                                           graph_name,
+                                           graph_config_path,
+                                           model)
     elif actor_process_role == "graph_server":
-        actor_process = GraphServerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path, parallel_type)
+        actor_process = GraphServerProcess(channel,
+                                           num_nodes,
+                                           node_rank,
+                                           num_devices_per_node,
+                                           local_rank,
+                                           ip_config_path,
+                                           graph_config_path,
+                                           parallel_type)
     elif actor_process_role == "sampler":
-        actor_process = SamplerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, parallel_type, graph_name, graph_config_path, local_rank)
+        actor_process = SamplerProcess(channel,
+                                       num_nodes,
+                                       node_rank,
+                                       num_devices_per_node,
+                                       local_rank,
+                                       ip_config_path,
+                                       parallel_type,
+                                       graph_name,
+                                       graph_config_path)
     else:
         print(f"Unknown actor_process_role: {actor_process_role}")
         exit(-1)

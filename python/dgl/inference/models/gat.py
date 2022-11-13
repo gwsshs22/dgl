@@ -18,19 +18,14 @@ class DistGAT(nn.Module):
     def __init__(self, in_feats, n_hidden, n_outputs, num_layers, heads, activation=F.relu):
         super().__init__()
         self.activation = activation
-        self.gat_layers = nn.ModuleList()
+        self.layers = nn.ModuleList()
         # two-layer GAT
-        self.gat_layers.append(GATConv(in_feats, n_hidden // heads[0], heads[0], feat_drop=0.6, attn_drop=0.6, activation=None, allow_zero_in_degree=True))
-        self.gat_layers.append(GATConv(n_hidden, n_outputs, heads[1], feat_drop=0.6, attn_drop=0.6, activation=None, allow_zero_in_degree=True))
+        self.layers.append(GATConv(in_feats, n_hidden // heads[0], heads[0], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='flatten', activation=activation))
+        self.layers.append(GATConv(n_hidden, n_outputs, heads[1], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='mean', activation=None))
         
     def forward(self, blocks, h):
-        for i, (layer, block) in enumerate(zip(self.gat_layers, blocks)):
+        for i, (layer, block) in enumerate(zip(self.layers, blocks)):
             h = layer(block, h)
-            if i == len(self.gat_layers) - 1:  # last layer 
-                h = h.mean(1)
-            else:       # other layer(s)
-                h = h.flatten(1)
-                h = self.activation(h)
 
         return h
 
@@ -44,6 +39,7 @@ class GATConv(nn.Module):
                  feat_drop=0.,
                  attn_drop=0.,
                  negative_slope=0.2,
+                 heads_aggregation=None, # 'flatten' or 'mean
                  activation=None,
                  allow_zero_in_degree=False,
                  bias=True):
@@ -71,6 +67,7 @@ class GATConv(nn.Module):
             self.register_buffer('bias', None)
 
         self.reset_parameters()
+        self.heads_aggregation = heads_aggregation
         self.activation = activation
 
     def reset_parameters(self):
@@ -155,6 +152,12 @@ class GATConv(nn.Module):
             if self.bias is not None:
                 rst = rst + self.bias.view(
                     *((1,) * len(dst_prefix_shape)), self._num_heads, self._out_feats)
+            
+            if self.heads_aggregation == "flatten":
+                rst = rst.flatten(1)
+            elif self.heads_aggregation == "mean":
+                rst = rst.mean(1)
+
             # activation
             if self.activation:
                 rst = self.activation(rst)

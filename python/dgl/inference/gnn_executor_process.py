@@ -1,5 +1,6 @@
 import dgl
 import torch # Can implement with NDArrays, but we stick to pytorch now
+import torch.distributed as dist
 
 from .envs import ParallelizationType
 from .api import *
@@ -7,19 +8,37 @@ from .api import *
 class GnnExecutorProcess:
     COMPUTE_REQUEST_TYPE = 0
 
-    def __init__(self, channel, num_nodes, ip_config_path, parallel_type, graph_name, graph_config_path, local_rank, model):
+    def __init__(self,
+                 channel,
+                 num_nodes,
+                 node_rank,
+                 num_devices_per_node,
+                 local_rank,
+                 master_host,
+                 master_torch_port,
+                 ip_config_path,
+                 parallel_type,
+                 graph_name,
+                 graph_config_path,
+                 model):
         self._channel = channel
         self._num_nodes = num_nodes
-        self._num_servers = 1 # Number of servers for one machin including backup servers
-        self._parallel_type = parallel_type
+        self._node_rank = node_rank
+        self._num_devices_per_node = num_devices_per_node
+        self._local_rank = local_rank
+        self._master_host = master_host
+        self._master_torch_port = master_torch_port
         self._ip_config_path = ip_config_path
+        self._parallel_type = parallel_type
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
-        self._local_rank = local_rank
+        
         self._device = torch.device(f"cuda:{local_rank}")
+        self._cpu_device = torch.device("cpu")
         self._model = model.to(self._device)
         self._model.eval()
 
+        self._num_servers = 1 # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
 
@@ -36,6 +55,14 @@ class GnnExecutorProcess:
         init_kvstore(self._ip_config_path, self._num_servers, 'default')
 
         self._dist_graph = dgl.distributed.DistGraph(self._graph_name, part_config=self._graph_config_path)
+
+        global_rank = self._node_rank * self._num_devices_per_node + self._local_rank
+        dist.init_process_group(
+            backend='nccl',
+            init_method=f'tcp://{self._master_host}:{self._master_torch_port}',
+            rank=global_rank,
+            world_size=self._num_nodes * self._num_devices_per_node)
+        self._group_gloo = dist.new_group(backend="gloo")
 
         self._channel.notify_initialized()
         while True:

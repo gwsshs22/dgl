@@ -280,7 +280,6 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
 }
 
 void VertexCutSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
-  std::cerr << "[batchid=" << batch_id << "] OnExecuted task_type= " << task_type << std::endl;
   auto it = scheduled_batches_.find(batch_id);
   auto& scheduled_batch = it->second;
 

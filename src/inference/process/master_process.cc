@@ -118,8 +118,8 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4,  0,  7,  9,  0, 12, 13, 14, 15, 9  }, cpu_context);
   NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10, 14, 15, 16, 17, 18, 19 }, cpu_context);
 
-  for (int j = 0; j < 64; j++) {
-    for (int i = 0; i < 4; i++) {
+  for (int j = 0; j < 1; j++) {
+    for (int i = 0; i < 1; i++) {
       anon_send(scheduler, caf::enqueue_atom_v, new_gnids, new_features, src_gnids, dst_gnids);
     }
   }

@@ -162,6 +162,8 @@ class vertex_cut_executor : public executor_actor {
   void Cleanup(int batch_id);
 
   const bool using_precomputed_aggs_;
+
+  caf::actor sampler_;
 };
 
 caf::actor spawn_executor_actor(caf::actor_system& system,

@@ -55,7 +55,7 @@ class GnnExecutorProcess:
         elif self._parallel_type == ParallelizationType.P3:
             pass
         elif self._parallel_type == ParallelizationType.VERTEX_CUT:
-            pass
+            self.vertex_cut_compute(batch_id)
         req.done()
 
     def data_parallel_compute(self, batch_id):
@@ -76,3 +76,16 @@ class GnnExecutorProcess:
         with torch.no_grad():
             result = self._model([block1, block2], h).to("cpu")
         put_tensor(batch_id, "result", result)
+
+    def vertex_cut_compute(self, batch_id):
+        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+
+        num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
+        input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
+        b1_u = load_tensor(batch_id, f"g{self._local_rank}_b1_u")
+        b1_v = load_tensor(batch_id, f"g{self._local_rank}_b1_v")
+        b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
+        b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
+
+        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
+        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False).to(self._device)

@@ -1,5 +1,8 @@
 #include "executor_actor.h"
 
+#include "./sampling/sampling_actor.h"
+#include "../process/process_control_actor.h"
+
 #include "mem_utils.h"
 
 namespace dgl {
@@ -12,7 +15,6 @@ NDArray create_test_result() {
   NDArray test_result = NDArray::FromVector(std::vector<float>({ 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 }));
   return test_result;
 }
-
 
 void direct_fetch_result_fn(caf::blocking_actor* self,
                             int batch_id,
@@ -53,12 +55,16 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
                      node_rank,
                      num_nodes,
                      num_devices_per_node,
-                     0),
+                     1),
       using_precomputed_aggs_(using_precomputed_aggs) {
+  auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
+  sampler_ = spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, -1);
 }
 
 void vertex_cut_executor::Sampling(int batch_id, int local_rank) {
-  ReportTaskDone(TaskType::kSampling, batch_id);
+  // OPTIMIZATION TODO: Sampling in c++.
+  auto sampling_task = spawn(sampling_fn, sampler_, batch_id);
+  RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
 }
 
 void vertex_cut_executor::PrepareInput(int batch_id, int local_rank) {
@@ -66,7 +72,8 @@ void vertex_cut_executor::PrepareInput(int batch_id, int local_rank) {
 }
 
 void vertex_cut_executor::Compute(int batch_id, int local_rank) {
-  ReportTaskDone(TaskType::kCompute, batch_id);
+  auto compute_task = spawn(gnn_broadcast_execute_fn, gnn_executor_group_, batch_id, gnn_executor_request_type::kComputeRequestType);
+  RequestAndReportTaskDone(compute_task, TaskType::kCompute, batch_id);
 }
 
 void vertex_cut_executor::PrepareAggregations(int batch_id, int local_rank) {

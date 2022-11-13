@@ -139,7 +139,7 @@ def fork():
     elif actor_process_role == "graph_server":
         actor_process = GraphServerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, graph_config_path, parallel_type)
     elif actor_process_role == "sampler":
-        actor_process = SamplerProcess(channel, num_nodes, ip_config_path, graph_name, graph_config_path, local_rank)
+        actor_process = SamplerProcess(channel, num_nodes, node_rank, num_devices_per_node, ip_config_path, parallel_type, graph_name, graph_config_path, local_rank)
     else:
         print(f"Unknown actor_process_role: {actor_process_role}")
         exit(-1)

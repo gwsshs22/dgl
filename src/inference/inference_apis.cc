@@ -4,12 +4,14 @@
  * \brief DGL inference APIs
  */
 #include <dgl/packed_func_ext.h>
+#include <dgl/runtime/container.h>
 
 #include "../c_api_common.h"
 
 #include "execution/mem_utils.h"
 #include "process/object_storage.h"
 #include "entrypoint.h"
+#include "graph_api.h"
 
 using dgl::runtime::DGLArgs;
 using dgl::runtime::DGLRetValue;
@@ -95,10 +97,51 @@ DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferencePutTensor")
     inference::ObjectStorage::GetInstance()->CopyToSharedMemory(batch_id, name, src_arr);
   });
 
-DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceTensorCleanup")
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSplitBlocks")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
-    int batch_id = args[0];
-    inference::ObjectStorage::GetInstance()->Cleanup(batch_id);
+    HeteroGraphRef hg = args[0];
+    IdArray src_gnids = args[1];
+    int num_splits = args[2];
+     
   });
+
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSortDstIds")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    int num_nodes = args[0];
+    int num_devices_per_node = args[1];
+    int batch_size = args[2];
+    IdArray org_ids = args[3];
+    IdArray part_ids = args[4];
+    IdArray part_id_counts = args[5];
+    
+    auto ret = inference::SortDstIds(num_nodes, num_devices_per_node, batch_size, org_ids, part_ids, part_id_counts);
+
+    runtime::List<runtime::Value> ret_list;
+    ret_list.push_back(runtime::Value(MakeValue(ret.first)));
+    ret_list.push_back(runtime::Value(MakeValue(ret.second)));
+
+    *rv = ret_list;
+  });
+
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceExtractSrcIds")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    int num_nodes = args[0];
+    int num_devices_per_node = args[1];
+    int node_rank = args[2];
+    int batch_size = args[3];
+    IdArray org_ids = args[4];
+    IdArray part_ids = args[5];
+    IdArray part_id_counts = args[6];
+    
+    auto ret = inference::ExtractSrcIds(num_nodes, num_devices_per_node, node_rank, batch_size, org_ids, part_ids, part_id_counts);
+
+    runtime::List<runtime::Value> ret_list;
+    for (const auto& r : ret) {
+      ret_list.push_back(runtime::Value(MakeValue(r)));
+    }
+
+    *rv = ret_list;
+  });
+
 
 }  // namespace dgl

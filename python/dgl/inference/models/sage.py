@@ -20,21 +20,18 @@ class DistSAGE(nn.Module):
         self.n_hidden = n_hidden
         self.n_classes = n_classes
         self.layers = nn.ModuleList()
-        self.layers.append(SAGEConv(in_feats, n_hidden, 'mean'))
+        self.layers.append(SAGEConv(in_feats, n_hidden, 'mean', activation=activation))
         for i in range(1, n_layers - 1):
-            self.layers.append(SAGEConv(n_hidden, n_hidden, 'mean'))
-        self.layers.append(SAGEConv(n_hidden, n_classes, 'mean'))
+            self.layers.append(SAGEConv(n_hidden, n_hidden, 'mean', activation=activation))
+        self.layers.append(SAGEConv(n_hidden, n_classes, 'mean', activation=None))
         self.activation = activation
 
     # Normal forward pass
     def forward(self, blocks, h):
         for l, (layer, block) in enumerate(zip(self.layers, blocks)):
             h = layer(block, h)
-            if l != len(self.layers) - 1:
-                h = self.activation(h)
 
         return h
-
 
 class SAGEConv(nn.Module):
     def __init__(self,
@@ -141,12 +138,9 @@ class SAGEConv(nn.Module):
             else:
                 raise KeyError('Aggregator type {} not recognized.'.format(self._aggre_type))
 
-            # GraphSAGE GCN does not require fc_self.
-            if self._aggre_type == 'gcn':
-                rst = h_neigh
-            else:
-                h_self = self.fc_self(h_self)
-                rst = h_self + h_neigh
+            # We don't use GraphSAGE GCN.
+            h_self = self.fc_self(h_self)
+            rst = h_self + h_neigh
 
             # bias term
             if self.bias is not None:
@@ -160,3 +154,50 @@ class SAGEConv(nn.Module):
                 rst = self.norm(rst)
 
             return rst
+
+
+    def compute_dst_init_values(self, dst_feats):
+        return None
+
+    def compute_aggregations(self, block, src_feats, dst_init_values):
+        with block.local_scope():
+            msg_fn = fn.copy_src('h', 'm')
+
+            # Determine whether to apply linear transformation before message passing A(XW)
+            lin_before_mp = self._in_src_feats > self._out_feats
+
+            # Message Passing
+            if self._aggre_type == 'mean':
+                block.srcdata['h'] = self.fc_neigh(src_feats) if lin_before_mp else src_feats
+                block.update_all(msg_fn, fn.sum('m', 'neigh_sum'))
+                h_neigh_sum = block.dstdata['neigh_sum']
+                if not lin_before_mp:
+                    h_neigh_sum = self.fc_neigh(h_neigh_sum)
+            else:
+                raise KeyError('Aggregator type {} not recognized.'.format(self._aggre_type))
+
+            return {
+                "neigh_counts": block.in_degrees().float(),
+                "neigh_sums": h_neigh_sum
+            }
+
+    def merge(self, dst_feats, aggr_map):
+        h_neigh_counts = aggr_map["neigh_counts"].sum(0).clamp(min=1)
+        h_neigh_sums = aggr_map["neigh_sums"].sum(0)
+        h_neigh = h_neigh_sums / h_neigh_counts.reshape(-1, 1)
+
+        h_self = self.fc_self(dst_feats)
+        rst = h_self + h_neigh
+
+        # bias term
+        if self.bias is not None:
+            rst = rst + self.bias
+
+        # activation
+        if self.activation is not None:
+            rst = self.activation(rst)
+        # normalization
+        if self.norm is not None:
+            rst = self.norm(rst)
+
+        return rst

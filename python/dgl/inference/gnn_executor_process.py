@@ -1,6 +1,7 @@
 import dgl
 import torch # Can implement with NDArrays, but we stick to pytorch now
 import torch.distributed as dist
+import numpy as np
 
 from .envs import ParallelizationType
 from .api import *
@@ -38,6 +39,8 @@ class GnnExecutorProcess:
         self._model = model.to(self._device)
         self._model.eval()
 
+        self._num_total_gpus = num_nodes * num_devices_per_node
+        self._gpu_global_rank = num_devices_per_node * node_rank + local_rank
         self._num_servers = 1 # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
@@ -76,14 +79,15 @@ class GnnExecutorProcess:
                 exit(-1)
 
     def compute(self, req):
-        batch_id = req.batch_id
-        if self._parallel_type == ParallelizationType.DATA:
-            self.data_parallel_compute(batch_id)
-        elif self._parallel_type == ParallelizationType.P3:
-            pass
-        elif self._parallel_type == ParallelizationType.VERTEX_CUT:
-            self.vertex_cut_compute(batch_id)
-        req.done()
+        with torch.no_grad():
+            batch_id = req.batch_id
+            if self._parallel_type == ParallelizationType.DATA:
+                self.data_parallel_compute(batch_id)
+            elif self._parallel_type == ParallelizationType.P3:
+                pass
+            elif self._parallel_type == ParallelizationType.VERTEX_CUT:
+                self.vertex_cut_compute(batch_id)
+            req.done()
 
     def data_parallel_compute(self, batch_id):
         new_features = load_tensor(batch_id, "new_features")
@@ -100,12 +104,18 @@ class GnnExecutorProcess:
         org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
         h = torch.concat((new_features, org_features)).to(self._device)
 
-        with torch.no_grad():
-            result = self._model([block1, block2], h).to("cpu")
+        result = self._model([block1, block2], h).to("cpu")
         put_tensor(batch_id, "result", result)
 
     def vertex_cut_compute(self, batch_id):
-        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+        # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
+        new_gnids = load_tensor(batch_id, "new_gnids")
+        new_features = load_tensor(batch_id, "new_features")
+        batch_size = new_gnids.shape[0]
+        batch_split = self._get_split_to_gpus(batch_size)
+        batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
+
+        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")        
 
         num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
         input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
@@ -116,3 +126,114 @@ class GnnExecutorProcess:
 
         block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
         block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False).to(self._device)
+
+        # Build source features
+        src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]].to(self._device)
+        existing_gnids = input_gnids[batch_split[self._gpu_global_rank]:]
+        src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
+
+        src_feats = torch.concat((src_new_feats, src_existing_feats))
+        assert(src_feats.shape[0] == block1.num_src_nodes())
+
+        h = src_feats
+        h = self.vertex_cut_compute_layer(self._model.layers[0], block1, h, self._get_dst_split(batch_size, batch_split, block1.num_dst_nodes()))
+        h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, self._get_dst_split(batch_size, batch_split, block2.num_dst_nodes()))
+
+        print(f"rank={self._gpu_global_rank}, result={h}")
+
+    def vertex_cut_compute_layer(self, layer, block, src_feats, dst_split):
+        dst_split = dst_split.tolist()
+        req_handles = []
+
+        # All gather dst init values
+        dst_feats = src_feats[:dst_split[self._gpu_global_rank]]
+        input_dst_init_values_map = layer.compute_dst_init_values(dst_feats)
+        output_dst_init_values_map = {}
+
+        if input_dst_init_values_map is not None:
+            for k, input_dst_init_values in input_dst_init_values_map.items():
+                output_dst_init_val, broadcast_req_handles = self.all_gather_dst_init_values(input_dst_init_values, dst_split)
+                for r in broadcast_req_handles:
+                    req_handles.append(r)
+                output_dst_init_values_map[k] = output_dst_init_val
+
+        for handle in req_handles:
+            handle.wait()
+
+        req_handles = []
+        # Compute Aggregation
+        input_aggs_map = layer.compute_aggregations(block, src_feats, output_dst_init_values_map)
+        output_aggs_map = {}
+
+        # All-to-all Aggregation
+        for k, input_aggr in input_aggs_map.items():
+            output_aggr, req_handle = self.all_to_all_aggregation(input_aggr, dst_split)
+            req_handles.append(req_handle)
+            output_aggs_map[k] = output_aggr
+
+        for handle in req_handles:
+            handle.wait()
+
+        # Merge all
+        return layer.merge(dst_feats, output_aggs_map)
+
+    def all_gather_dst_init_values(self, input_tensor, dst_split):
+        # TODO OPTIMIZATION: check whether this multiple calls of broadcast underperform or not.
+        # We use multiple broadcasts because all_gather does not support the tensors with different lengths.
+        req_handles = []
+
+        output_tensor_dim = (np.sum(dst_split),)
+        for i in range(1, input_tensor.dim()):
+            output_tensor_dim += (input_tensor.shape[i],)
+        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=self._device)
+        outputs = list(output_tensor.split(dst_split))
+
+        for gpu_idx in range(self._num_total_gpus):
+            if gpu_idx == self._gpu_global_rank:
+                req_handles.append(dist.broadcast(input_tensor, gpu_idx, async_op=True))
+            else:
+                req_handles.append(dist.broadcast(outputs[gpu_idx], gpu_idx, async_op=True))
+
+        outputs[self._gpu_global_rank].copy_(input_tensor) # non_blocking=True does not work for device-device mem copy. Can we make it asynchronous?        
+
+        return output_tensor, req_handles
+
+    def all_to_all_aggregation(self, input_tensor, dst_split):
+        output_tensor_dim = (self._num_total_gpus, dst_split[self._gpu_global_rank],)
+        for i in range(1, input_tensor.dim()):
+            output_tensor_dim += (input_tensor.shape[i],)
+        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=self._device)
+
+        inputs = list(input_tensor.split(dst_split))
+        outputs = list(output_tensor.split([1] * self._num_total_gpus))
+
+        req_handle = dist.all_to_all(outputs, inputs, async_op=True)
+        return output_tensor, req_handle
+
+    def _get_split_to_gpus(self, total_count):
+        num_assigned_to_machines  = np.zeros(self._num_nodes) + (total_count // self._num_nodes)
+        for i in range(self._num_nodes):
+            if i < total_count % self._num_nodes:
+                num_assigned_to_machines[i] += 1
+            else:
+                break
+
+        split = []
+        for machine_idx in range(self._num_nodes):
+            num_assigned_to_machine = num_assigned_to_machines[machine_idx]
+            for gpu_idx in range(self._num_devices_per_node):
+                if gpu_idx < num_assigned_to_machine % self._num_devices_per_node:
+                    split.append(num_assigned_to_machine // self._num_devices_per_node + 1)
+                else:
+                    split.append(num_assigned_to_machine // self._num_devices_per_node)
+
+        return np.array(split, np.int64)
+    
+    def _get_dst_split(self, batch_size, batch_split, num_dst_nodes):
+        dst_split = self._get_split_to_gpus(num_dst_nodes - batch_size)
+        return dst_split + batch_split
+    
+    def _cumsum_start_with_zero(self, arr):
+        ret = np.zeros(arr.shape[0] + 1, np.int64)
+        np.cumsum(arr, out=ret[1:])
+        return ret

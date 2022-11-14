@@ -91,15 +91,18 @@ class GraphConv(nn.Module):
 
             # (BarclayII) For RGCN on heterogeneous graphs we need to support GCN on bipartite.
             feat_src, feat_dst = expand_as_pair(feat, graph)
-            if self._norm in ['left', 'both']:
-                degs = graph.out_degrees().float().clamp(min=1)
-                if self._norm == 'both':
-                    norm = th.pow(degs, -0.5)
-                else:
-                    norm = 1.0 / degs
-                shp = norm.shape + (1,) * (feat_src.dim() - 1)
-                norm = th.reshape(norm, shp)
-                feat_src = feat_src * norm
+            #
+            # We only use 'right' for this experiment
+            #
+            # if self._norm in ['left', 'both']:
+            #     degs = graph.out_degrees().float().clamp(min=1)
+            #     if self._norm == 'both':
+            #         norm = th.pow(degs, -0.5)
+            #     else:
+            #         norm = 1.0 / degs
+            #     shp = norm.shape + (1,) * (feat_src.dim() - 1)
+            #     norm = th.reshape(norm, shp)
+            #     feat_src = feat_src * norm
 
             weight = self.weight
 
@@ -135,3 +138,41 @@ class GraphConv(nn.Module):
                 rst = self._activation(rst)
 
             return rst
+
+    def compute_dst_init_values(self, dst_feats):
+        return None
+
+    def compute_aggregations(self, block, src_feats, dst_init_values):
+        with block.local_scope():
+            aggregate_fn = fn.copy_src('h', 'm')
+            weight = self.weight
+            if self._in_feats > self._out_feats:
+                # mult W first to reduce the feature size for aggregation.
+                src_feats = th.matmul(src_feats, weight)
+                block.srcdata['h'] = src_feats
+                block.update_all(aggregate_fn, fn.sum(msg='m', out='h'))
+                rst = block.dstdata['h']
+            else:
+                # aggregate first then mult W
+                block.srcdata['h'] = src_feats
+                block.update_all(aggregate_fn, fn.sum(msg='m', out='h'))
+                rst = block.dstdata['h']
+                rst = th.matmul(rst, weight)
+
+            return {
+                "sums": rst,
+                "counts": block.in_degrees().float()
+            }
+
+    def merge(self, dst_feats, aggr_map):
+        counts = aggr_map["counts"].sum(0).clamp(min=1)
+        sums = aggr_map["sums"].sum(0)
+        rst = sums / counts.reshape(-1, 1)
+
+        if self.bias is not None:
+            rst = rst + self.bias
+
+        if self._activation is not None:
+            rst = self._activation(rst)
+
+        return rst

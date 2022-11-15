@@ -19,10 +19,11 @@ class DistGAT(nn.Module):
         super().__init__()
         self.activation = activation
         self.layers = nn.ModuleList()
+        assert(num_layers == 2)
         # two-layer GAT
         self.layers.append(GATConv(in_feats, n_hidden // heads[0], heads[0], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='flatten', activation=activation))
         self.layers.append(GATConv(n_hidden, n_outputs, heads[1], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='mean', activation=None))
-        
+
     def forward(self, blocks, h):
         for i, (layer, block) in enumerate(zip(self.layers, blocks)):
             h = layer(block, h)
@@ -144,6 +145,7 @@ class GATConv(nn.Module):
 
             # compute softmax
             graph.edata['a'] = self.attn_drop(edge_softmax(graph, e))
+
             # message passing
             graph.update_all(fn.u_mul_e('ft', 'a', 'm'),
                              fn.sum('m', 'ft'))
@@ -163,3 +165,75 @@ class GATConv(nn.Module):
                 rst = self.activation(rst)
 
             return rst
+
+    def compute_dst_init_values(self, block, src_feats, num_local_dst_nodes):
+        src_prefix_shape = src_feats.shape[:-1]
+        feat_src = self.fc(src_feats).view(*src_prefix_shape, self._num_heads, self._out_feats)
+
+        block.srcdata["feat_src"] = feat_src
+
+        feat_dst = feat_src[:num_local_dst_nodes]
+        er = (feat_dst * self.attn_r).sum(dim=-1).unsqueeze(-1)
+        return { "er": er }
+
+    def compute_aggregations(self, block, src_feats, num_local_dst_nodes, dst_init_values):
+        with block.local_scope():
+            feat_src = block.srcdata["feat_src"]
+            el = (feat_src * self.attn_l).sum(dim=-1).unsqueeze(-1)
+            er = dst_init_values["er"]
+
+            block.srcdata.update({'ft': feat_src, 'el': el})
+            block.dstdata.update({'er': er})
+            # compute edge attention, el and er are a_l Wh_i and a_r Wh_j respectively.
+            block.apply_edges(fn.u_add_v('el', 'er', 'e'))
+            e = self.leaky_relu(block.edata.pop('e'))
+
+            block.edata["logits"] = e
+            block.update_all(fn.copy_e("logits", "h"), fn.max("h", "logits_max"))
+
+            block.apply_edges(fn.e_sub_v("logits", "logits_max", "logits_recalculated"))
+            block.edata["exp_logits"] = th.exp(block.edata.pop("logits_recalculated"))
+            block.update_all(fn.copy_e("exp_logits", "h2"),
+                             fn.sum("h2", "exp_logits_sum"))
+
+            # compute softmax
+            block.apply_edges(fn.e_div_v("exp_logits", "exp_logits_sum", "a"))
+            
+            # message passing
+            block.update_all(fn.u_mul_e('ft', 'a', 'm'),
+                             fn.sum('m', 'ft'))
+
+            return {
+                "logits_max": block.dstdata["logits_max"],
+                "exp_logits_sum": block.dstdata["exp_logits_sum"],
+                "ft": block.dstdata["ft"]
+            }
+
+    def merge(self, block, src_feats, num_local_dst_nodes, aggs_map):
+        logits_max_aggs = aggs_map["logits_max"]
+        exp_logits_sum_aggs = aggs_map["exp_logits_sum"]
+        ft_aggs = aggs_map["ft"]
+
+        logits_max_aggs[exp_logits_sum_aggs == 0] = -float('inf')
+        logits_max, _ = logits_max_aggs.max(0)
+
+        exp_max_logits_diff = th.exp(logits_max_aggs - logits_max)
+        exp_logits_sum_aggs = exp_logits_sum_aggs * exp_max_logits_diff
+
+        rst = ft_aggs * exp_logits_sum_aggs
+        rst = rst.sum(0) / exp_logits_sum_aggs.sum(0)
+
+        if self.bias is not None:
+            rst = rst + self.bias.view(
+                *((1,) * (rst.dim() - 2)), self._num_heads, self._out_feats)
+
+        if self.heads_aggregation == "flatten":
+            rst = rst.flatten(1)
+        elif self.heads_aggregation == "mean":
+            rst = rst.mean(1)
+
+        # activation
+        if self.activation:
+            rst = self.activation(rst)
+
+        return rst

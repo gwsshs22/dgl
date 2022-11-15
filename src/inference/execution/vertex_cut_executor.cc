@@ -1,5 +1,7 @@
 #include "executor_actor.h"
 
+#include <dgl/array.h>
+
 #include "./sampling/sampling_actor.h"
 #include "../process/process_control_actor.h"
 
@@ -10,32 +12,34 @@ namespace inference {
 
 namespace {
 
-
-NDArray create_test_result() {
-  NDArray test_result = NDArray::FromVector(std::vector<float>({ 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 }));
-  return test_result;
-}
-
 void direct_fetch_result_fn(caf::blocking_actor* self,
+                            int num_devices_per_node,
                             int batch_id,
-                            int local_rank,
                             caf::response_promise rp) {
-  // auto result = LoadFromSharedMemory(batch_id, "result");
-  auto result = create_test_result();
-  rp.deliver(result);
 
+  auto results = std::vector<NDArray>();
+  for (int local_rank = 0; local_rank < num_devices_per_node; local_rank++) {
+    results.push_back(LoadFromSharedMemory(batch_id, "g" + std::to_string(local_rank) + "_result"));
+  }
+
+  rp.deliver(results);
   self->receive([](caf::get_atom) { });
 };
 
 void fetch_result_fn(caf::blocking_actor* self,
                      const caf::actor& mpi_actor,
                      const int node_rank,
-                     int batch_id,
-                     int local_rank) {
-  // auto result = LoadFromSharedMemory(batch_id, "result");
-  auto result = create_test_result();
-  auto rh2 = self->request(mpi_actor, caf::infinite, caf::mpi_send_atom_v, 0, result, CreateMpiTag(batch_id, TaskType::kFetchResult, node_rank));
-  receive_result<bool>(rh2);
+                     int num_devices_per_node,
+                     int batch_id) {
+  auto rhs = std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>>();
+  for (int local_rank = 0; local_rank < num_devices_per_node; local_rank++) {
+    auto result = LoadFromSharedMemory(batch_id, "g" + std::to_string(local_rank) + "_result");
+    rhs.push_back(self->request(mpi_actor, caf::infinite, caf::mpi_send_atom_v, 0, result, CreateMpiTag(batch_id, TaskType::kFetchResult, node_rank, local_rank)));
+  }
+
+  for (int local_rank = 0; local_rank < num_devices_per_node; local_rank++) {
+    receive_result<bool>(rhs[local_rank]);
+  }
 
   self->receive([](caf::get_atom) { });
 }
@@ -61,35 +65,35 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
   sampler_ = spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, -1);
 }
 
-void vertex_cut_executor::Sampling(int batch_id, int local_rank) {
+void vertex_cut_executor::Sampling(int batch_id, int) {
   // OPTIMIZATION TODO: Sampling in c++.
   auto sampling_task = spawn(sampling_fn, sampler_, batch_id);
   RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
 }
 
-void vertex_cut_executor::PrepareInput(int batch_id, int local_rank) {
+void vertex_cut_executor::PrepareInput(int batch_id, int) {
   ReportTaskDone(TaskType::kPrepareInput, batch_id);
 }
 
-void vertex_cut_executor::Compute(int batch_id, int local_rank) {
+void vertex_cut_executor::Compute(int batch_id, int) {
   auto compute_task = spawn(gnn_broadcast_execute_fn, gnn_executor_group_, batch_id, gnn_executor_request_type::kComputeRequestType);
   RequestAndReportTaskDone(compute_task, TaskType::kCompute, batch_id);
 }
 
-void vertex_cut_executor::PrepareAggregations(int batch_id, int local_rank) {
+void vertex_cut_executor::PrepareAggregations(int batch_id, int) {
   ReportTaskDone(TaskType::kPrepareAggregations, batch_id);
 }
 
-void vertex_cut_executor::RecomputeAggregations(int batch_id, int local_rank) {
+void vertex_cut_executor::RecomputeAggregations(int batch_id, int) {
   ReportTaskDone(TaskType::kRecomputeAggregations, batch_id);
 }
 
-void vertex_cut_executor::ComputeRemaining(int batch_id, int local_rank) {
+void vertex_cut_executor::ComputeRemaining(int batch_id, int) {
   ReportTaskDone(TaskType::kComputeRemaining, batch_id);
 }
 
-void vertex_cut_executor::DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) {
-  auto task = spawn(direct_fetch_result_fn, batch_id, local_rank, rp);
+void vertex_cut_executor::DirectFetchResult(int batch_id, int, caf::response_promise rp) {
+  auto task = spawn(direct_fetch_result_fn, num_devices_per_node_, batch_id, rp);
   request(task, caf::infinite, caf::get_atom_v).then(
     [=]() { this->Cleanup(batch_id); },
     [&](caf::error& err) {
@@ -98,8 +102,8 @@ void vertex_cut_executor::DirectFetchResult(int batch_id, int local_rank, caf::r
     });
 }
 
-void vertex_cut_executor::FetchResult(int batch_id, int local_rank) {
-  auto task = spawn(fetch_result_fn, mpi_actor_, node_rank_, batch_id, local_rank);
+void vertex_cut_executor::FetchResult(int batch_id, int) {
+  auto task = spawn(fetch_result_fn, mpi_actor_, node_rank_, num_devices_per_node_, batch_id);
   request(task, caf::infinite, caf::get_atom_v).then(
     [=]() { this->Cleanup(batch_id); },
     [&](caf::error& err) {

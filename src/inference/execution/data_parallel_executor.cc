@@ -14,8 +14,7 @@ void direct_fetch_result_fn(caf::blocking_actor* self,
                             int batch_id,
                             int local_rank,
                             caf::response_promise rp) {
-  auto result = LoadFromSharedMemory(batch_id, "result");
-  rp.deliver(result);
+  rp.deliver(std::vector<NDArray>({ LoadFromSharedMemory(batch_id, "result") }));
 
   self->receive([](caf::get_atom) { });
 };

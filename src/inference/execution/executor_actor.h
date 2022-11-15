@@ -75,6 +75,7 @@ class executor_actor : public caf::event_based_actor {
   int num_initialized_components_ = 0;
   int node_rank_;
   int num_nodes_;
+  int num_devices_per_node_;
 
   std::unordered_map<int, caf::actor> object_storages_;
 

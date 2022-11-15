@@ -9,11 +9,13 @@ class executor_control_actor : public caf::event_based_actor {
 
  public:
   executor_control_actor(caf::actor_config& config,
-                         caf::strong_actor_ptr mpi_actor_ptr);
+                         caf::strong_actor_ptr mpi_actor_ptr,
+                         int num_devices_per_node);
 
  protected:
   caf::actor scheduler_actor_;
   int num_nodes_ = -1;
+  int num_devices_per_node_;
   std::vector<caf::actor> executors_;
 
  private:

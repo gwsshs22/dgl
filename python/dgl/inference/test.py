@@ -74,5 +74,40 @@ def test_split_blocks():
 
     pass
 
+def test_softmax_approximation():
+    n = 150
+    m = 100
+
+    x = torch.rand(n)
+    e = torch.rand(n)
+    y = torch.rand(m)
+    l = torch.rand(m)
+
+    e_max = e.max()
+    l_max = l.max()
+
+    exp_e = torch.exp(e - e_max)
+    exp_l = torch.exp(l - l_max)
+
+    exp_e_sum = exp_e.sum(0)
+    exp_l_sum = exp_l.sum(0)
+    avg_x = (exp_e * x / exp_e_sum).sum(0)
+    avg_y = (exp_l * y / exp_l_sum).sum(0)
+
+    global_max = torch.maximum(e_max, l_max)
+    approximation = (avg_x * exp_e_sum * torch.exp((e_max - global_max)) + avg_y * exp_l_sum * torch.exp((l_max - global_max))) / (exp_e_sum * torch.exp((e_max - global_max)) + exp_l_sum * torch.exp((l_max - global_max)))
+
+
+    x_real = torch.concat((x, y))
+    e_real = torch.concat((e, l))
+    max_real = e_real.max()
+    exp_e_real = torch.exp(e_real - max_real)
+    correct = (x_real * exp_e_real / exp_e_real.sum(0)).sum(0)
+
+    print(correct)
+    print(approximation)
+
+
 if __name__ == "__main__":
-    test_split_blocks()
+    # test_split_blocks()
+    test_softmax_approximation()

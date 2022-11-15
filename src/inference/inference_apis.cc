@@ -102,7 +102,6 @@ DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSplitBlocks")
     HeteroGraphRef hg = args[0];
     IdArray src_gnids = args[1];
     int num_splits = args[2];
-     
   });
 
 DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSortDstIds")
@@ -113,12 +112,13 @@ DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSortDstIds")
     IdArray org_ids = args[3];
     IdArray part_ids = args[4];
     IdArray part_id_counts = args[5];
-    
+
     auto ret = inference::SortDstIds(num_nodes, num_devices_per_node, batch_size, org_ids, part_ids, part_id_counts);
 
     runtime::List<runtime::Value> ret_list;
-    ret_list.push_back(runtime::Value(MakeValue(ret.first)));
-    ret_list.push_back(runtime::Value(MakeValue(ret.second)));
+    ret_list.push_back(runtime::Value(MakeValue(std::get<0>(ret))));
+    ret_list.push_back(runtime::Value(MakeValue(std::get<1>(ret))));
+    ret_list.push_back(runtime::Value(MakeValue(std::get<2>(ret))));
 
     *rv = ret_list;
   });

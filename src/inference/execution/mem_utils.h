@@ -78,6 +78,10 @@ inline std::shared_ptr<runtime::SharedMemory> CreateMetadata(int batch_id, const
 }
 
 inline NDArray CopyToSharedMem(int batch_id, const std::string& name, const NDArray& src_arr) {
+  if (src_arr.NumElements() == 0) {
+    return src_arr;
+  }
+
   NDArray copied = NDArray::EmptyShared(
       GetArrayDataName(batch_id, name),
       std::vector<int64_t>(src_arr->shape, src_arr->shape + src_arr->ndim),
@@ -136,15 +140,21 @@ inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
     }
   }
 
+  int64_t num_elems = 1;
   auto shape_vector = std::vector<int64_t>();
   for (auto itr = shape; itr != shape + ndim; itr++) {
+    num_elems *= *itr;
     shape_vector.push_back(*itr);
   }
 
   delete shape;
 
   if (device_type == kDLCPU) {
-    return NDArray::EmptyShared(GetArrayDataName(batch_id, name), shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0}, false);
+    if (num_elems == 0) {
+      return NDArray::Empty(shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0});
+    } else {
+      return NDArray::EmptyShared(GetArrayDataName(batch_id, name), shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0}, false);
+    }
   } else {
     // It turns out that it is impossible to share device memory between processes.
     CHECK(false);

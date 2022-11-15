@@ -112,15 +112,19 @@ class GnnExecutorProcess:
         new_gnids = load_tensor(batch_id, "new_gnids")
         new_features = load_tensor(batch_id, "new_features")
         batch_size = new_gnids.shape[0]
-        batch_split = self._get_split_to_gpus(batch_size)
+        batch_split = self._get_batch_split_to_gpus(batch_size)
         batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
 
-        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")        
+        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
 
         num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
         input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
+
+        dst_split_1 = load_tensor(batch_id, "dst_split_1")
         b1_u = load_tensor(batch_id, f"g{self._local_rank}_b1_u")
         b1_v = load_tensor(batch_id, f"g{self._local_rank}_b1_v")
+
+        dst_split_2 = load_tensor(batch_id, f"dst_split_2")
         b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
         b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
 
@@ -136,18 +140,19 @@ class GnnExecutorProcess:
         assert(src_feats.shape[0] == block1.num_src_nodes())
 
         h = src_feats
-        h = self.vertex_cut_compute_layer(self._model.layers[0], block1, h, self._get_dst_split(batch_size, batch_split, block1.num_dst_nodes()))
-        h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, self._get_dst_split(batch_size, batch_split, block2.num_dst_nodes()))
+        h = self.vertex_cut_compute_layer(self._model.layers[0], block1, h, dst_split_1)
+        h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2)
 
-        print(f"rank={self._gpu_global_rank}, result={h}")
+        put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
 
     def vertex_cut_compute_layer(self, layer, block, src_feats, dst_split):
         dst_split = dst_split.tolist()
+        num_local_dst_nodes = dst_split[self._gpu_global_rank]
         req_handles = []
 
         # All gather dst init values
-        dst_feats = src_feats[:dst_split[self._gpu_global_rank]]
-        input_dst_init_values_map = layer.compute_dst_init_values(dst_feats)
+        dst_feats = src_feats[:num_local_dst_nodes]
+        input_dst_init_values_map = layer.compute_dst_init_values(block, src_feats, num_local_dst_nodes)
         output_dst_init_values_map = {}
 
         if input_dst_init_values_map is not None:
@@ -159,10 +164,9 @@ class GnnExecutorProcess:
 
         for handle in req_handles:
             handle.wait()
-
         req_handles = []
         # Compute Aggregation
-        input_aggs_map = layer.compute_aggregations(block, src_feats, output_dst_init_values_map)
+        input_aggs_map = layer.compute_aggregations(block, src_feats, num_local_dst_nodes, output_dst_init_values_map)
         output_aggs_map = {}
 
         # All-to-all Aggregation
@@ -174,8 +178,8 @@ class GnnExecutorProcess:
         for handle in req_handles:
             handle.wait()
 
-        # Merge all
-        return layer.merge(dst_feats, output_aggs_map)
+        # # Merge all
+        return layer.merge(block, src_feats, num_local_dst_nodes, output_aggs_map)
 
     def all_gather_dst_init_values(self, input_tensor, dst_split):
         # TODO OPTIMIZATION: check whether this multiple calls of broadcast underperform or not.
@@ -185,7 +189,7 @@ class GnnExecutorProcess:
         output_tensor_dim = (np.sum(dst_split),)
         for i in range(1, input_tensor.dim()):
             output_tensor_dim += (input_tensor.shape[i],)
-        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=self._device)
+        output_tensor = torch.zeros(output_tensor_dim, dtype=input_tensor.dtype, device=self._device)
         outputs = list(output_tensor.split(dst_split))
 
         for gpu_idx in range(self._num_total_gpus):
@@ -210,7 +214,7 @@ class GnnExecutorProcess:
         req_handle = dist.all_to_all(outputs, inputs, async_op=True)
         return output_tensor, req_handle
 
-    def _get_split_to_gpus(self, total_count):
+    def _get_batch_split_to_gpus(self, total_count):
         num_assigned_to_machines  = np.zeros(self._num_nodes) + (total_count // self._num_nodes)
         for i in range(self._num_nodes):
             if i < total_count % self._num_nodes:
@@ -228,10 +232,6 @@ class GnnExecutorProcess:
                     split.append(num_assigned_to_machine // self._num_devices_per_node)
 
         return np.array(split, np.int64)
-    
-    def _get_dst_split(self, batch_size, batch_split, num_dst_nodes):
-        dst_split = self._get_split_to_gpus(num_dst_nodes - batch_size)
-        return dst_split + batch_split
     
     def _cumsum_start_with_zero(self, arr):
         ret = np.zeros(arr.shape[0] + 1, np.int64)

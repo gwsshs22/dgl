@@ -156,10 +156,10 @@ class SAGEConv(nn.Module):
             return rst
 
 
-    def compute_dst_init_values(self, dst_feats):
+    def compute_dst_init_values(self, block, src_feats, num_local_dst_nodes):
         return None
 
-    def compute_aggregations(self, block, src_feats, dst_init_values):
+    def compute_aggregations(self, block, src_feats, num_local_dst_nodes, dst_init_values):
         with block.local_scope():
             msg_fn = fn.copy_src('h', 'm')
 
@@ -181,9 +181,11 @@ class SAGEConv(nn.Module):
                 "neigh_sums": h_neigh_sum
             }
 
-    def merge(self, dst_feats, aggr_map):
-        h_neigh_counts = aggr_map["neigh_counts"].sum(0).clamp(min=1)
-        h_neigh_sums = aggr_map["neigh_sums"].sum(0)
+    def merge(self, block, src_feats, num_local_dst_nodes, aggs_map):
+        dst_feats = src_feats[:num_local_dst_nodes]
+
+        h_neigh_counts = aggs_map["neigh_counts"].sum(0).clamp(min=1)
+        h_neigh_sums = aggs_map["neigh_sums"].sum(0)
         h_neigh = h_neigh_sums / h_neigh_counts.reshape(-1, 1)
 
         h_self = self.fc_self(dst_feats)

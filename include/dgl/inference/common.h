@@ -132,21 +132,17 @@ inline void receive_result(caf::response_handle<caf::blocking_actor, caf::messag
   return;
 }
 
-inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int id) {
-  return (((uint32_t) batch_id) << 10) + ((uint32_t)(task_type) << 5) + id;
+inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank, int local_rank) {
+  return ((((uint32_t) batch_id) & 0xFF) << 24) + ((((uint32_t) task_type) & 0xFF) << 16) +
+      ((((uint32_t) node_rank) & 0xFF) << 8) + (((uint32_t)local_rank) & 0xFF);
+}
+
+inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank) {
+  return CreateMpiTag(batch_id, task_type, node_rank, 0);
 }
 
 inline uint32_t CreateMpiTag(int batch_id, TaskType task_type) {
   return CreateMpiTag(batch_id, task_type, 0);
-}
-
-inline uint64_t hash(uint64_t h) {
-  h ^= h >> 33;
-  h *= 0xff51afd7ed558ccdL;
-  h ^= h >> 33;
-  h *= 0xc4ceb9fe1a85ec53L;
-  h ^= h >> 33;
-  return h;
 }
 
 }

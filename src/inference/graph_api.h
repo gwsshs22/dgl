@@ -7,12 +7,12 @@
 namespace dgl {
 namespace inference {
 
-std::pair<IdArray, IdArray> SortDstIds(int num_nodes,
-                                       int num_devices_per_node,
-                                       int batch_size,
-                                       const IdArray& org_ids,
-                                       const IdArray& part_ids,
-                                       const IdArray& part_id_counts);
+std::tuple<IdArray, IdArray, IdArray> SortDstIds(int num_nodes,
+                                                 int num_devices_per_node,
+                                                 int batch_size,
+                                                 const IdArray& org_ids,
+                                                 const IdArray& part_ids,
+                                                 const IdArray& part_id_counts);
 
 std::vector<IdArray> ExtractSrcIds(int num_nodes,
                                    int num_devices_per_node,

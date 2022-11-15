@@ -18,6 +18,7 @@ executor_actor::executor_actor(caf::actor_config& config,
     : event_based_actor(config),
       node_rank_(node_rank),
       num_nodes_(num_nodes),
+      num_devices_per_node_(num_devices_per_node),
       required_init_count_(required_init_count + 2) { // Include the common graph_server_actor and gnn_executor_group
   exec_ctl_actor_ = caf::actor_cast<caf::actor>(exec_ctl_actor_ptr);
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
@@ -151,7 +152,7 @@ caf::behavior executor_actor::make_running_behavior() {
       }
     },
     [&](caf::direct_fetch_result_atom, int batch_id, int local_rank) {
-      auto rp = make_response_promise<NDArray>();
+      auto rp = make_response_promise<std::vector<NDArray>>();
       DirectFetchResult(batch_id, local_rank, rp);
     },
     [&](caf::fetch_result_atom, int batch_id, int local_rank) {

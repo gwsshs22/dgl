@@ -104,7 +104,8 @@ class SamplerProcess:
         u = torch.concat((base_u, org_u + num_shift))
         v = torch.concat((base_v, org_v + num_shift))
 
-        merged_block = dgl.to_block(dgl.graph((u, v)))
+        merged_block = dgl.to_block(dgl.graph((u, v)), torch.arange(num_shift + org_block.num_dst_nodes()))
+
         merged_block.srcdata[dgl.NID] = torch.concat((base_block.srcdata[dgl.NID][:num_shift], org_block.srcdata[dgl.NID]))
         merged_block.dstdata[dgl.NID] = torch.concat((base_block.dstdata[dgl.NID][:num_shift], org_block.dstdata[dgl.NID]))
 
@@ -131,14 +132,15 @@ class SamplerProcess:
 
         first_block = self.merge_blocks(base_block, first_org_block, batch_size)
 
-        first_blocks = split_blocks(first_block,
+        first_blocks, first_dst_split = split_blocks(first_block,
                                     self._gpb.nid2partid(first_block.srcdata[dgl.NID]),
                                     self._gpb.nid2partid(first_block.dstdata[dgl.NID]),
                                     self._num_nodes,
                                     self._num_devices_per_node,
                                     self._node_rank,
                                     batch_size)
-        second_blocks = split_blocks(second_block,
+
+        second_blocks, second_dst_split = split_blocks(second_block,
                                      self._gpb.nid2partid(second_block.srcdata[dgl.NID]),
                                      self._gpb.nid2partid(second_block.dstdata[dgl.NID]),
                                      self._num_nodes,
@@ -149,6 +151,8 @@ class SamplerProcess:
         num_dst_nodes_list = torch.tensor((first_blocks[0].num_dst_nodes(), second_blocks[0].num_dst_nodes()))
 
         put_tensor(batch_id, "num_dst_nodes_list", num_dst_nodes_list)
+        put_tensor(batch_id, "dst_split_1", first_dst_split)
+        put_tensor(batch_id, "dst_split_2", second_dst_split)
 
         for i in range(self._num_devices_per_node):
             fb = first_blocks[i]

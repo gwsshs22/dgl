@@ -19,8 +19,9 @@ void fetch_result_fn(caf::blocking_actor* self,
                      int local_rank) {
   if (node_rank == 0) {
     auto rh = self->request(executor, caf::infinite, caf::direct_fetch_result_atom_v, batch_id, local_rank);
-    auto result = receive_result<NDArray>(rh);
-    self->send(scheduler, caf::finished_atom_v, batch_id, result);
+    auto result = receive_result<std::vector<NDArray>>(rh);
+    assert(result.size() == 1);
+    self->send(scheduler, caf::finished_atom_v, batch_id, result[0]);
     return;
   }
 
@@ -30,36 +31,107 @@ void fetch_result_fn(caf::blocking_actor* self,
   self->send(scheduler, caf::finished_atom_v, batch_id, result);
 }
 
+void copy_fn_(caf::blocking_actor* self,
+              const caf::actor& parent,
+              const NDArray& dst,
+              const NDArray& src,
+              int feature_size,
+              int pos) {
+
+  if (src->shape[0] == 0) {
+    self->send(parent, caf::done_atom_v);
+    return;
+  }
+
+  size_t bytes_per_item = ((dst->dtype.bits * dst->dtype.lanes + 7) / 8) * feature_size;
+  size_t total_copy_bytes = bytes_per_item * src->shape[0];
+  assert(total_copy_bytes == src.GetSize());
+
+  size_t offset = pos * bytes_per_item;
+  void* dst_addr = (((u_int8_t*)dst->data) + offset);
+
+  memcpy(dst_addr, src->data, total_copy_bytes);
+  self->send(parent, caf::done_atom_v);
+}
+
 void broadcast_fetch_result_fn(caf::blocking_actor* self,
                                const caf::actor& scheduler,
                                const std::vector<caf::actor>& executors,
                                const caf::actor& mpi_actor,
                                const int num_nodes,
+                               const int num_devices_per_node,
                                int batch_id) {
-  // OPTIMIZATION TODO: Use GATHER.
+
   auto rhs = std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>>();
-  auto results = std::vector<NDArray>();
   for (int i = 0; i < num_nodes; i++) {
     if (i == 0) {
       rhs.push_back(self->request(executors[i], caf::infinite, caf::direct_fetch_result_atom_v, batch_id, -1));
     } else {
       self->send(executors[i], caf::fetch_result_atom_v, batch_id, -1);
-      rhs.push_back(self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, i, CreateMpiTag(batch_id, TaskType::kFetchResult, i)));
+      for (int j = 0; j < num_devices_per_node; j++) {
+        rhs.push_back(self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, i, CreateMpiTag(batch_id, TaskType::kFetchResult, i, j)));
+      }
     }
   }
 
-  for (int i = 0; i < num_nodes; i++) {
-    results.push_back(receive_result<NDArray>(rhs[i]));
+  auto local_results = receive_result<std::vector<NDArray>>(rhs[0]);
+
+  int rhs_idx = 1;
+  for (int i = 1; i < num_nodes; i++) {
+    for (int j = 0; j < num_devices_per_node; j++) {
+      local_results.push_back(receive_result<NDArray>(rhs[rhs_idx++]));
+    }
   }
 
-  auto result = aten::Concat(results);
+  int batch_size = 0;
+  int feature_size = -1;
+  bool found_non_zero = false;
+  uint8_t code = -1;
+  uint8_t bits = -1;
+  uint16_t lanes = -1;
+  auto pos_list = std::vector<int64_t>();
+  for (const auto& local_result : local_results) {
+    assert(local_result->ndim == 2);
+
+    pos_list.push_back(batch_size);
+    int64_t local_batch_size = *local_result->shape;
+    batch_size += local_batch_size;
+
+    if (local_batch_size == 0) {
+      continue;
+    }
+
+    if (!found_non_zero) {
+      found_non_zero = true;
+      feature_size = *(local_result->shape + 1);
+      code = local_result->dtype.code;
+      bits = local_result->dtype.bits;
+      lanes = local_result->dtype.lanes;
+    } else {
+      assert(feature_size == *(local_result->shape + 1));
+      assert(code == local_result->dtype.code);
+      assert(bits == local_result->dtype.bits);
+      assert(lanes == local_result->dtype.lanes);
+    }
+  }
+
+  assert(feature_size > 0);
+  auto result = NDArray::Empty(std::vector<int64_t>({ batch_size, feature_size }), DLDataType { code, bits, lanes }, DLContext { kDLCPU, 0 });
+  auto self_ref = caf::actor_cast<caf::actor>(self->address());
+  for (int i = 0; i < num_nodes * num_devices_per_node; i++) {
+    self->spawn(copy_fn_, self_ref, result, local_results[i], feature_size, pos_list[i]); 
+  }
+
+  int loop_idx = 0;
+  self->receive_for(loop_idx, num_nodes * num_devices_per_node) ([&](caf::done_atom) {});
   self->send(scheduler, caf::finished_atom_v, batch_id, result);
 }
 }
 
 executor_control_actor::executor_control_actor(caf::actor_config& config,
-                                               caf::strong_actor_ptr mpi_actor_ptr)
-    : event_based_actor(config) {
+                                               caf::strong_actor_ptr mpi_actor_ptr,
+                                               int num_devices_per_node)
+    : event_based_actor(config), num_devices_per_node_(num_devices_per_node) {
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
 }
 
@@ -167,6 +239,7 @@ caf::behavior executor_control_actor::running() {
             executors_,
             mpi_actor_,
             num_nodes_,
+            num_devices_per_node_,
             batch_id);
     },
     [&](caf::done_atom, TaskType task_type, int batch_id, int node_rank) {

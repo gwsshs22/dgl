@@ -3,12 +3,12 @@
 namespace dgl {
 namespace inference {
 
-std::pair<IdArray, IdArray> SortDstIds(int num_nodes,
-                                       int num_devices_per_node,
-                                       int batch_size,
-                                       const IdArray& org_ids,
-                                       const IdArray& part_ids,
-                                       const IdArray& part_id_counts) {
+std::tuple<IdArray, IdArray, IdArray> SortDstIds(int num_nodes,
+                                                 int num_devices_per_node,
+                                                 int batch_size,
+                                                 const IdArray& org_ids,
+                                                 const IdArray& part_ids,
+                                                 const IdArray& part_id_counts) {
   CHECK(org_ids.NumElements() == part_ids.NumElements());
   const size_t num_dst_nodes = org_ids->shape[0];
   auto sorted_bids = aten::NewIdArray(num_dst_nodes); // sorted ids in block
@@ -20,6 +20,7 @@ std::pair<IdArray, IdArray> SortDstIds(int num_nodes,
   }
 
   std::vector<int64_t> num_assigned_batch_inputs_per_gpus;
+  std::vector<int64_t> num_assigned_inputs_per_gpus;
   for (int i = 0; i < num_nodes; i++) {
     int64_t num_assigned_to_machine = batch_size / num_nodes;
     if (i < batch_size % num_nodes) {
@@ -53,6 +54,7 @@ std::pair<IdArray, IdArray> SortDstIds(int num_nodes,
       sorted_bid_ptrs[gpu_idx] = ((int64_t*)sorted_bids->data) + cumsum;
       sorted_org_ids_ptrs[gpu_idx] = ((int64_t*)sorted_org_ids->data) + cumsum;
 
+      num_assigned_inputs_per_gpus.push_back(num_assigned_to_gpu);
       cumsum += num_assigned_to_gpu;
       gpu_idx++;
     }
@@ -94,7 +96,7 @@ std::pair<IdArray, IdArray> SortDstIds(int num_nodes,
   free(sorted_bid_ptrs);
   free(sorted_org_ids_ptrs);
   delete target_gpu_per_machine;
-  return std::make_pair(sorted_bids, sorted_org_ids);
+  return std::make_tuple(std::move(sorted_bids), std::move(sorted_org_ids), NDArray::FromVector(num_assigned_inputs_per_gpus));
 }
 
 std::vector<IdArray> ExtractSrcIds(int num_nodes,

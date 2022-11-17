@@ -51,33 +51,6 @@ void executor_actor::ReportTaskDone(TaskType task_type, int batch_id) {
   send(exec_ctl_actor_, caf::done_atom_v, task_type, batch_id, node_rank_);
 }
 
-template <typename T, typename F>
-void executor_actor::RequestAndReportTaskDone(caf::actor& task_executor,
-                                              TaskType task_type,
-                                              int batch_id,
-                                              F&& callback) {
-  request(task_executor, caf::infinite, caf::get_atom_v).then(
-    [=](const T& ret) {
-      callback(ret);
-      ReportTaskDone(task_type, batch_id);
-    },
-    [&](caf::error& err) {
-      // TODO: error handling
-      caf::aout(this) << caf::to_string(err) << std::endl;
-    });
-}
-
-inline void executor_actor::RequestAndReportTaskDone(caf::actor& task_executor,
-                                              TaskType task_type,
-                                              int batch_id) {
-  request(task_executor, caf::infinite, caf::get_atom_v).then(
-    [=]{ ReportTaskDone(task_type, batch_id); },
-    [&](caf::error& err) {
-      // TODO: error handling
-      caf::aout(this) << caf::to_string(err) << std::endl;
-    });
-}
-
 caf::behavior executor_actor::make_running_behavior() {
   return {
     [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& new_features, const NDArray& src_gnids, const NDArray& dst_gnids) {

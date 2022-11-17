@@ -87,6 +87,33 @@ class executor_actor : public caf::event_based_actor {
   int required_init_count_;
 };
 
+template <typename T, typename F>
+void executor_actor::RequestAndReportTaskDone(caf::actor& task_executor,
+                                              TaskType task_type,
+                                              int batch_id,
+                                              F&& callback) {
+  request(task_executor, caf::infinite, caf::get_atom_v).then(
+    [=](const T& ret) {
+      callback(ret);
+      ReportTaskDone(task_type, batch_id);
+    },
+    [&](caf::error& err) {
+      // TODO: error handling
+      caf::aout(this) << caf::to_string(err) << std::endl;
+    });
+}
+
+inline void executor_actor::RequestAndReportTaskDone(caf::actor& task_executor,
+                                                     TaskType task_type,
+                                                     int batch_id) {
+  request(task_executor, caf::infinite, caf::get_atom_v).then(
+    [=]{ ReportTaskDone(task_type, batch_id); },
+    [&](caf::error& err) {
+      // TODO: error handling
+      caf::aout(this) << caf::to_string(err) << std::endl;
+    });
+}
+
 class data_parallel_executor : public executor_actor {
 
  public:

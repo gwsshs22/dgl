@@ -10,7 +10,9 @@ class GraphServerProcess:
                  local_rank,
                  ip_config_path,
                  graph_config_path,
-                 parallel_type):
+                 parallel_type,
+                 using_precomputed_aggregations,
+                 precom_filename):
         self._channel = channel
         self._num_nodes = num_nodes
         self._node_rank = node_rank
@@ -25,7 +27,8 @@ class GraphServerProcess:
             self._num_clients = num_devices_per_node * 2 * num_nodes
         else:
             self._num_clients = num_devices_per_node * num_nodes + num_nodes
-
+        self._using_precomputed_aggregations = using_precomputed_aggregations
+        self._precom_filename = precom_filename
         self._num_servers = 1 # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
@@ -46,6 +49,8 @@ class GraphServerProcess:
                                self._graph_config_path,
                                graph_format=self._formats,
                                keep_alive=self._keep_alive,
-                               net_type=self._net_type)
+                               net_type=self._net_type,
+                               using_precomputed_aggregations=self._using_precomputed_aggregations,
+                               precom_filename=self._precom_filename)
 
         serv.start(start_callback=lambda: self._channel.notify_initialized())

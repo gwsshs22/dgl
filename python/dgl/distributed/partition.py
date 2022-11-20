@@ -172,6 +172,19 @@ def load_partition_feats(part_config, part_id):
 
     return node_feats, edge_feats
 
+def load_precomputed_aggrs(part_config, part_id, file_name):
+    config_path = os.path.dirname(part_config)
+    precom_data = load_tensors(os.path.join(config_path, 'part{}'.format(part_id), file_name))
+    precom_data1 = {}
+    for name in precom_data:
+        feat = precom_data[name]
+        if name.find('/') == -1:
+            name = '_N/' + name
+        precom_data1[name] = feat
+
+    precom_data = precom_data1
+    return precom_data
+
 def load_partition_book(part_config, part_id, graph=None):
     '''Load a graph partition book from the partition config file.
 

@@ -139,10 +139,16 @@ class GraphConv(nn.Module):
 
             return rst
 
-    def compute_dst_init_values(self, block, src_feats, num_local_dst_nodes):
-        return None
+    def div_names(self):
+        return []
 
-    def compute_aggregations(self, block, src_feats, num_local_dst_nodes, dst_init_values):
+    def compute_dst_init_values(self, block, src_feats, num_local_dst_nodes):
+        return {}
+
+    def aggr_names(self):
+        return ["sums", "counts"]
+
+    def compute_aggregations(self, block, src_feats, dst_init_values):
         with block.local_scope():
             aggregate_fn = fn.copy_src('h', 'm')
             weight = self.weight
@@ -164,7 +170,7 @@ class GraphConv(nn.Module):
                 "counts": block.in_degrees().float()
             }
 
-    def merge(self, block, src_feats, num_local_dst_nodes, aggs_map):
+    def merge(self, block, dst_feats, aggs_map):
         counts = aggs_map["counts"].sum(0).clamp(min=1)
         sums = aggs_map["sums"].sum(0)
         rst = sums / counts.reshape(-1, 1)

@@ -16,6 +16,7 @@ class SamplerProcess:
                  local_rank,
                  ip_config_path,
                  parallel_type,
+                 using_precomputed_aggregations,
                  graph_name,
                  graph_config_path):
         self._channel = channel
@@ -25,6 +26,7 @@ class SamplerProcess:
         self._local_rank = local_rank
         self._ip_config_path = ip_config_path
         self._parallel_type = parallel_type
+        self._using_precomputed_aggregations = using_precomputed_aggregations
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
 
@@ -59,7 +61,10 @@ class SamplerProcess:
                 if self._parallel_type == ParallelizationType.DATA or self._parallel_type == ParallelizationType.P3:
                     self.sample(batch_id)
                 else:
-                    self.vcut_sample(batch_id)
+                    if self._using_precomputed_aggregations:
+                        self.vcut_sample_with_precomputed_aggrs(batch_id)
+                    else:
+                        self.vcut_sample(batch_id)
             elif request_type == SamplerProcess.DATA_PARALLEL_INPUT_FETCH:
                 self.data_parallel_input_fetch(batch_id)
             else:
@@ -168,6 +173,47 @@ class SamplerProcess:
             put_tensor(batch_id, f"g{i}_b1_v", b1_v)
             put_tensor(batch_id, f"g{i}_b2_u", b2_u)
             put_tensor(batch_id, f"g{i}_b2_v", b2_v)
+
+    def vcut_sample_with_precomputed_aggrs(self, batch_id):
+        new_gnids = load_tensor(batch_id, "new_gnids")
+        src_gnids = load_tensor(batch_id, "src_gnids")
+        dst_gnids = load_tensor(batch_id, "dst_gnids")
+
+        batch_size = new_gnids.shape[0]
+
+        input_graph = dgl.graph((src_gnids, dst_gnids))
+        second_block_eids = input_graph.in_edges(new_gnids, 'eid')
+        second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
+
+        second_blocks, second_dst_split = split_blocks(second_block,
+                                     self._gpb.nid2partid(second_block.srcdata[dgl.NID]),
+                                     self._gpb.nid2partid(second_block.dstdata[dgl.NID]),
+                                     self._num_nodes,
+                                     self._num_devices_per_node,
+                                     self._node_rank,
+                                     batch_size)
+        put_tensor(batch_id, "dst_split_2", second_dst_split)
+
+        for i in range(self._num_devices_per_node):
+            sb = second_blocks[i]
+
+            inc_comp_dst_gnids = sb.srcdata[dgl.NID][second_dst_split[i]:]
+            inc_comp_eids = input_graph.in_edges(inc_comp_dst_gnids, 'eid')
+            inc_comp_block = dgl.to_block(input_graph.edge_subgraph(inc_comp_eids, relabel_nodes=False), inc_comp_dst_gnids, src_nodes=new_gnids)
+
+            b2_u, b2_v = sb.edges()
+            inc_u, inc_v = inc_comp_block.edges()
+
+            num_src_nodes_list = torch.tensor([sb.num_src_nodes()])
+
+            put_tensor(batch_id, f"g{i}_num_src_nodes_list", num_src_nodes_list)
+            put_tensor(batch_id, f"g{i}_b2_input_gnids", sb.srcdata[dgl.NID])
+            put_tensor(batch_id, f"g{i}_b2_u", b2_u)
+            put_tensor(batch_id, f"g{i}_b2_v", b2_v)
+
+            put_tensor(batch_id, f"g{i}_inc_u", inc_u)
+            put_tensor(batch_id, f"g{i}_inc_v", inc_v)
+
 
     def data_parallel_input_fetch(self, batch_id):
         # It will not be called.

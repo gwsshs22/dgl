@@ -17,7 +17,7 @@ from .kvstore import KVServer, get_kvstore
 from .._ffi.ndarray import empty_shared_mem
 from ..ndarray import exist_shared_mem_array
 from ..frame import infer_scheme
-from .partition import load_partition, load_partition_feats, load_partition_book
+from .partition import load_partition, load_partition_feats, load_precomputed_aggrs, load_partition_book
 from .graph_partition_book import PartitionPolicy, get_shared_mem_partition_book
 from .graph_partition_book import HeteroDataName, parse_hetero_data_name
 from .graph_partition_book import NodePartitionPolicy, EdgePartitionPolicy
@@ -317,7 +317,9 @@ class DistGraphServer(KVServer):
     def __init__(self, server_id, ip_config, num_servers,
                  num_clients, part_config, disable_shared_mem=False,
                  graph_format=('csc', 'coo'), keep_alive=False,
-                 net_type='socket'):
+                 net_type='socket',
+                 using_precomputed_aggregations=False,
+                 precom_filename=None):
         super(DistGraphServer, self).__init__(server_id=server_id,
                                               ip_config=ip_config,
                                               num_servers=num_servers,
@@ -389,6 +391,17 @@ class DistGraphServer(KVServer):
                 self.init_data(name=str(data_name), policy_str=data_name.policy_str,
                                data_tensor=edge_feats[name])
                 self.orig_data.add(str(data_name))
+            
+            if using_precomputed_aggregations:
+                precomputed_data = load_precomputed_aggrs(part_config, self.part_id, precom_filename)
+                for name in precomputed_data:
+                    # The feature name has the following format: node_type + "/" + feature_name to avoid
+                    # feature name collision for different node types.
+                    ntype, feat_name = name.split('/')
+                    data_name = HeteroDataName(True, ntype, feat_name)
+                    self.init_data(name=str(data_name), policy_str=data_name.policy_str,
+                                   data_tensor=precomputed_data[name])
+                    self.orig_data.add(str(data_name))
 
     def start(self, start_callback=None):
         """ Start graph store server.

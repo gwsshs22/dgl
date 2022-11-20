@@ -18,6 +18,7 @@ DGL_INFER_GRAPH_CONFIG_PATH = "DGL_INFER_GRAPH_CONFIG_PATH"
 
 DGL_INFER_PARALLELIZATION_TYPE = "DGL_INFER_PARALLELIZATION_TYPE"
 DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS = "DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS"
+DGL_INFER_PRECOM_FILENAME = "DGL_INFER_PRECOM_FILENAME"
 DGL_INFER_MODEL_TYPE = "DGL_INFER_MODEL_TYPE"
 
 DGL_INFER_MODEL_TYPE = "DGL_INFER_MODEL_TYPE"
@@ -40,3 +41,12 @@ def get_parallelization_type():
         return ParallelizationType.P3
     else:
         return ParallelizationType.VERTEX_CUT
+
+def get_using_precomputed_aggregations():
+    s = os.environ[DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS]
+    if s == "0":
+        return False
+    elif s == "1":
+        return True
+    else:
+        print(f"Unknown DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS={DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS}. It should be 0 or 1")

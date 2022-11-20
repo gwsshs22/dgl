@@ -6,9 +6,7 @@ import numpy as np
 import torch
 
 import dgl.inference.envs as envs
-from .models.gcn import DistGCN
-from .models.sage import DistSAGE
-from .models.gat import DistGAT
+from .models.factory import load_model
 from .graph_server_process import GraphServerProcess
 from .gnn_executor_process import GnnExecutorProcess
 from .sampler_process import SamplerProcess
@@ -32,6 +30,7 @@ def main():
 
     parser.add_argument("--parallelization-type", type=str, required=True, choices=["data", "p3", "vcut"])
     parser.add_argument("--using-precomputed-aggregations", action="store_true")
+    parser.add_argument("--precom-filename", type=str, default="")
 
     # Model parameters
     parser.add_argument("--model", type=str, required=True, choices=["gcn", "sage", "gat"])
@@ -53,6 +52,8 @@ def main():
             print(f"Invalid node_rank {args.node_rank} for a worker.")
             exit(-1)
         node_rank = args.node_rank
+    
+    assert(not args.using_precomputed_aggregations or args.precom_filename != "")
 
     # TODO: parameter validation
     os.environ[envs.DGL_INFER_MASTER_HOST] = args.master_host
@@ -85,6 +86,7 @@ def main():
         exit(-1)
 
     os.environ[envs.DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS] = "1" if args.using_precomputed_aggregations else "0"
+    os.environ[envs.DGL_INFER_PRECOM_FILENAME] = args.precom_filename
 
     if args.role == "master":
         _CAPI_DGLInferenceExecMasterProcess()
@@ -116,6 +118,9 @@ def fork():
     num_outputs = int(os.environ[envs.DGL_INFER_NUM_OUTPUTS])
     heads = os.environ[envs.DGL_INFER_HEADS]
 
+    using_precomputed_aggregations = envs.get_using_precomputed_aggregations()
+    precom_filename = os.environ[envs.DGL_INFER_PRECOM_FILENAME]
+
     channel = ActorProcessChannel()
 
     random.seed(random_seed)
@@ -129,16 +134,7 @@ def fork():
     os.environ["DGL_DIST_MODE"] = "distributed"
 
     if actor_process_role == "gnn_executor":
-        if model_type == 'gcn':
-            model = DistGCN(num_inputs, num_hiddens, num_outputs, num_layers)
-        elif model_type == 'sage':
-            model = DistSAGE(num_inputs, num_hiddens, num_outputs, num_layers)
-        elif model_type == 'gat':
-            heads = list(map(lambda x: int(x), heads.split(",")))
-            model = DistGAT(num_inputs, num_hiddens, num_outputs, num_layers, heads)
-        else:
-            print(f"Unknown model_type: {model_type}")
-            exit(-1)
+        model = load_model(model_type, num_inputs, num_hiddens, num_outputs, num_layers, heads)
         actor_process = GnnExecutorProcess(channel,
                                            num_nodes,
                                            node_rank,
@@ -148,6 +144,7 @@ def fork():
                                            master_torch_port,
                                            ip_config_path,
                                            parallel_type,
+                                           using_precomputed_aggregations,
                                            graph_name,
                                            graph_config_path,
                                            model)
@@ -159,7 +156,9 @@ def fork():
                                            local_rank,
                                            ip_config_path,
                                            graph_config_path,
-                                           parallel_type)
+                                           parallel_type,
+                                           using_precomputed_aggregations,
+                                           precom_filename)
     elif actor_process_role == "sampler":
         actor_process = SamplerProcess(channel,
                                        num_nodes,
@@ -168,6 +167,7 @@ def fork():
                                        local_rank,
                                        ip_config_path,
                                        parallel_type,
+                                       using_precomputed_aggregations,
                                        graph_name,
                                        graph_config_path)
     else:

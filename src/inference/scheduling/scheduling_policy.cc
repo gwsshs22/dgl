@@ -9,12 +9,13 @@ std::shared_ptr<SchedulingPolicy> CreatePolicy(ParallelizationType type,
                                                bool using_precomputed_aggs,
                                                int num_nodes,
                                                int num_devices_per_node) {
+  bool using_precomputed_aggs_tmp = false; // Revisit here after implementing P^3 and vcut with precomputed aggrs.
   if (type == ParallelizationType::kData) {
-    return std::make_shared<DataSchedulingPolicy>(using_precomputed_aggs, num_nodes, num_devices_per_node);
+    return std::make_shared<DataSchedulingPolicy>(using_precomputed_aggs_tmp, num_nodes, num_devices_per_node);
   } else if (type == ParallelizationType::kP3) {
-    return std::make_shared<P3SchedulingPolicy>(using_precomputed_aggs, num_nodes, num_devices_per_node);
+    return std::make_shared<P3SchedulingPolicy>(using_precomputed_aggs_tmp, num_nodes, num_devices_per_node);
   } else {
-    return std::make_shared<VertexCutSchedulingPolicy>(using_precomputed_aggs, num_nodes, num_devices_per_node);
+    return std::make_shared<VertexCutSchedulingPolicy>(using_precomputed_aggs_tmp, num_nodes, num_devices_per_node);
   }
 }
 

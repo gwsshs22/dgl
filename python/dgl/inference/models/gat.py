@@ -166,6 +166,9 @@ class GATConv(nn.Module):
 
             return rst
 
+    def div_names(self):
+        return ["er"]
+
     def compute_dst_init_values(self, block, src_feats, num_local_dst_nodes):
         src_prefix_shape = src_feats.shape[:-1]
         feat_src = self.fc(src_feats).view(*src_prefix_shape, self._num_heads, self._out_feats)
@@ -176,9 +179,17 @@ class GATConv(nn.Module):
         er = (feat_dst * self.attn_r).sum(dim=-1).unsqueeze(-1)
         return { "er": er }
 
-    def compute_aggregations(self, block, src_feats, num_local_dst_nodes, dst_init_values):
+    def aggr_names(self):
+        return ["logits_max", "exp_logits_sum", "ft"]
+
+    def compute_aggregations(self, block, src_feats, dst_init_values):
         with block.local_scope():
-            feat_src = block.srcdata["feat_src"]
+            if "feat_src" in block.srcdata:
+                feat_src = block.srcdata["feat_src"]
+            else:
+                src_prefix_shape = src_feats.shape[:-1]
+                feat_src = self.fc(src_feats).view(*src_prefix_shape, self._num_heads, self._out_feats)
+
             el = (feat_src * self.attn_l).sum(dim=-1).unsqueeze(-1)
             er = dst_init_values["er"]
 
@@ -209,7 +220,7 @@ class GATConv(nn.Module):
                 "ft": block.dstdata["ft"]
             }
 
-    def merge(self, block, src_feats, num_local_dst_nodes, aggs_map):
+    def merge(self, block, dst_feats, aggs_map):
         logits_max_aggs = aggs_map["logits_max"]
         exp_logits_sum_aggs = aggs_map["exp_logits_sum"]
         ft_aggs = aggs_map["ft"]

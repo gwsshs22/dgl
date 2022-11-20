@@ -19,6 +19,7 @@ class GnnExecutorProcess:
                  master_torch_port,
                  ip_config_path,
                  parallel_type,
+                 using_precomputed_aggregations,
                  graph_name,
                  graph_config_path,
                  model):
@@ -31,6 +32,7 @@ class GnnExecutorProcess:
         self._master_torch_port = master_torch_port
         self._ip_config_path = ip_config_path
         self._parallel_type = parallel_type
+        self._using_precomputed_aggregations = using_precomputed_aggregations
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
         
@@ -86,7 +88,10 @@ class GnnExecutorProcess:
             elif self._parallel_type == ParallelizationType.P3:
                 pass
             elif self._parallel_type == ParallelizationType.VERTEX_CUT:
-                self.vertex_cut_compute(batch_id)
+                if self._using_precomputed_aggregations:
+                    self.vertex_cut_compute_with_precomputed_aggrs(batch_id)
+                else:
+                    self.vertex_cut_compute(batch_id)
             req.done()
 
     def data_parallel_compute(self, batch_id):
@@ -155,7 +160,7 @@ class GnnExecutorProcess:
         input_dst_init_values_map = layer.compute_dst_init_values(block, src_feats, num_local_dst_nodes)
         output_dst_init_values_map = {}
 
-        if input_dst_init_values_map is not None:
+        if len(input_dst_init_values_map) != 0:
             for k, input_dst_init_values in input_dst_init_values_map.items():
                 output_dst_init_val, broadcast_req_handles = self.all_gather_dst_init_values(input_dst_init_values, dst_split)
                 for r in broadcast_req_handles:
@@ -166,7 +171,7 @@ class GnnExecutorProcess:
             handle.wait()
         req_handles = []
         # Compute Aggregation
-        input_aggs_map = layer.compute_aggregations(block, src_feats, num_local_dst_nodes, output_dst_init_values_map)
+        input_aggs_map = layer.compute_aggregations(block, src_feats, output_dst_init_values_map)
         output_aggs_map = {}
 
         # All-to-all Aggregation
@@ -179,7 +184,7 @@ class GnnExecutorProcess:
             handle.wait()
 
         # # Merge all
-        return layer.merge(block, src_feats, num_local_dst_nodes, output_aggs_map)
+        return layer.merge(block, src_feats[:num_local_dst_nodes], output_aggs_map)
 
     def all_gather_dst_init_values(self, input_tensor, dst_split):
         # TODO OPTIMIZATION: check whether this multiple calls of broadcast underperform or not.
@@ -237,3 +242,56 @@ class GnnExecutorProcess:
         ret = np.zeros(arr.shape[0] + 1, np.int64)
         np.cumsum(arr, out=ret[1:])
         return ret
+
+    def vertex_cut_compute_with_precomputed_aggrs(self, batch_id):
+        # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
+        new_gnids = load_tensor(batch_id, "new_gnids")
+        new_features = load_tensor(batch_id, "new_features").to(self._device)
+        batch_size = new_gnids.shape[0]
+        batch_split = self._get_batch_split_to_gpus(batch_size)
+        batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
+
+        num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
+
+        b2_input_gnids = load_tensor(batch_id, f"g{self._local_rank}_b2_input_gnids")
+        dst_split_2 = load_tensor(batch_id, f"dst_split_2")
+        b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
+        b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
+
+        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(batch_size), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
+
+        inc_u = load_tensor(batch_id, f"g{self._local_rank}_inc_u")
+        inc_v = load_tensor(batch_id, f"g{self._local_rank}_inc_v")
+
+        inc_dst_gnids = b2_input_gnids[dst_split_2[self._gpu_global_rank]:]
+        inc_block = dgl.to_block(dgl.graph((inc_u, inc_v)), torch.arange(inc_dst_gnids.shape[0]), src_nodes=torch.arange(batch_size), include_dst_in_src=False).to(self._device)
+
+        # Build source features
+        src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]]
+        existing_gnids = b2_input_gnids[batch_split[self._gpu_global_rank]:]
+        src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
+
+        src_feats = torch.concat((src_new_feats, src_existing_feats))
+        assert(src_feats.shape[0] == block2.num_src_nodes())
+
+        new_nodes_h = self.vertex_cut_compute_layer(self._model.layers[0], block2, src_feats, dst_split_2)
+        inc_computed_h = self.inc_compute(self._model.layers[0], batch_id, inc_block, inc_dst_gnids, new_features)
+
+        h = torch.concat((new_nodes_h, inc_computed_h))
+        h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2)
+        put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
+
+    def inc_compute(self, first_layer, batch_id, inc_block, inc_dst_gnids, new_features):
+        # TODO OPTIMIZATION: precompute some dst value computation for SAGE to remove below dst_features
+        dst_features = self._dist_graph.ndata['features'][inc_dst_gnids].to(self._device)
+        dst_init_values = {}
+        for div_name in first_layer.div_names():
+            dst_init_values[div_name] = self._dist_graph.ndata[f"div_{div_name}"][inc_dst_gnids].to(self._device)
+
+        new_nodes_aggregations = first_layer.compute_aggregations(inc_block, new_features, dst_init_values)
+
+        aggrs = {}
+        for aggr_name in first_layer.aggr_names():
+            aggrs[aggr_name] = torch.stack((new_nodes_aggregations[aggr_name], self._dist_graph.ndata[f"agg_{aggr_name}"][inc_dst_gnids].to(self._device)))
+
+        return first_layer.merge(inc_block, dst_features, aggrs)

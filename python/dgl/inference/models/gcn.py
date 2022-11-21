@@ -139,6 +139,68 @@ class GraphConv(nn.Module):
 
             return rst
 
+    # P3
+    def p3_first_layer_mp(self, graph, feat):
+        with graph.local_scope():
+            if not self._allow_zero_in_degree:
+                if (graph.in_degrees() == 0).any():
+                    raise DGLError('There are 0-in-degree nodes in the graph, '
+                                   'output for those nodes will be invalid. '
+                                   'This is harmful for some applications, '
+                                   'causing silent performance regression. '
+                                   'Adding self-loop on the input graph by '
+                                   'calling `g = dgl.add_self_loop(g)` will resolve '
+                                   'the issue. Setting ``allow_zero_in_degree`` '
+                                   'to be `True` when constructing this module will '
+                                   'suppress the check and let the code run.')
+            aggregate_fn = fn.copy_src('h', 'm')
+            feat_src, feat_dst = expand_as_pair(feat, graph)
+            weight = self.weight
+
+            if self._in_feats > self._out_feats:
+                # mult W first to reduce the feature size for aggregation.
+                if weight is not None:
+                    feat_src = th.matmul(feat_src, weight)
+                graph.srcdata['h'] = feat_src
+                graph.update_all(aggregate_fn, fn.sum(msg='m', out='h'))
+                rst = graph.dstdata['h']
+            else:
+                # aggregate first then mult W
+                graph.srcdata['h'] = feat_src
+                graph.update_all(aggregate_fn, fn.sum(msg='m', out='h'))
+                rst = graph.dstdata['h']
+                if weight is not None:
+                    rst = th.matmul(rst, weight)
+
+            if self._norm in ['right', 'both']:
+                degs = graph.in_degrees().float().clamp(min=1)
+                if self._norm == 'both':
+                    norm = th.pow(degs, -0.5)
+                else:
+                    norm = 1.0 / degs
+                shp = norm.shape + (1,) * (feat_dst.dim() - 1)
+                norm = th.reshape(norm, shp)
+                rst = rst * norm
+
+            return {
+                "rst": rst
+            }
+
+    def p3_first_layer_dp(self, block, mp_aggr):
+        rst = mp_aggr["rst"]
+
+        if self.bias is not None:
+            rst = rst + self.bias
+
+        if self._activation is not None:
+            rst = self._activation(rst)
+
+        return rst
+
+    def p3_split(self, start_idx, end_idx):
+        self.weight = nn.Parameter(self.weight[start_idx:end_idx])
+
+    # Vcut
     def div_names(self):
         return []
 

@@ -8,6 +8,8 @@ from .api import *
 
 class GnnExecutorProcess:
     COMPUTE_REQUEST_TYPE = 0
+    P3_OWNER_COMPUTE_REQUEST_TYPE = 1
+    P3_OTHER_COMPUTE_REQUEST_TYPE = 2
 
     def __init__(self,
                  channel,
@@ -22,7 +24,8 @@ class GnnExecutorProcess:
                  using_precomputed_aggregations,
                  graph_name,
                  graph_config_path,
-                 model):
+                 model,
+                 num_features):
         self._channel = channel
         self._num_nodes = num_nodes
         self._node_rank = node_rank
@@ -32,6 +35,7 @@ class GnnExecutorProcess:
         self._master_torch_port = master_torch_port
         self._ip_config_path = ip_config_path
         self._parallel_type = parallel_type
+        self._load_p3_feature = parallel_type==ParallelizationType.P3
         self._using_precomputed_aggregations = using_precomputed_aggregations
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
@@ -39,8 +43,10 @@ class GnnExecutorProcess:
         self._device = torch.device(f"cuda:{local_rank}")
         self._cpu_device = torch.device("cpu")
         self._model = model.to(self._device)
+        self._num_features = num_features
         self._model.eval()
 
+        self._num_devices_per_node = num_devices_per_node
         self._num_total_gpus = num_nodes * num_devices_per_node
         self._gpu_global_rank = num_devices_per_node * node_rank + local_rank
         self._num_servers = 1 # Number of servers for one machin including backup servers
@@ -57,9 +63,15 @@ class GnnExecutorProcess:
 
         connect_to_server(self._ip_config_path, self._num_servers, MAX_QUEUE_SIZE, self._net_type, group_id=self._group_id)
         init_role('default')
-        init_kvstore(self._ip_config_path, self._num_servers, 'default')
+        init_kvstore(self._ip_config_path, self._num_servers, 'default', load_p3_feature=self._load_p3_feature)
 
         self._dist_graph = dgl.distributed.DistGraph(self._graph_name, part_config=self._graph_config_path)
+
+        if self._load_p3_feature:
+            self._dist_graph.load_p3_features(self._num_devices_per_node)
+            self._p3_features = self._dist_graph.get_p3_features(self._local_rank)
+            self._p3_start_idx, self._p3_end_idx = self._get_p3_start_end_indices()
+            self._model.layers[0].p3_split(self._p3_start_idx, self._p3_end_idx)
 
         global_rank = self._node_rank * self._num_devices_per_node + self._local_rank
         dist.init_process_group(
@@ -76,23 +88,29 @@ class GnnExecutorProcess:
             request_type = req.request_type
             if request_type == GnnExecutorProcess.COMPUTE_REQUEST_TYPE:
                 self.compute(req)
+            elif request_type == GnnExecutorProcess.P3_OWNER_COMPUTE_REQUEST_TYPE:
+                with torch.no_grad():
+                    self.p3_owner_compute(req.batch_id, req.param0)
+            elif request_type == GnnExecutorProcess.P3_OTHER_COMPUTE_REQUEST_TYPE:
+                with torch.no_grad():
+                    self.p3_other_compute(req.batch_id, req.param0)
             else:
                 print(f"Unknown request_type={request_type}")
+                req.done()
                 exit(-1)
+            req.done()
 
     def compute(self, req):
         with torch.no_grad():
             batch_id = req.batch_id
             if self._parallel_type == ParallelizationType.DATA:
                 self.data_parallel_compute(batch_id)
-            elif self._parallel_type == ParallelizationType.P3:
-                pass
             elif self._parallel_type == ParallelizationType.VERTEX_CUT:
                 if self._using_precomputed_aggregations:
                     self.vertex_cut_compute_with_precomputed_aggrs(batch_id)
                 else:
                     self.vertex_cut_compute(batch_id)
-            req.done()
+
 
     def data_parallel_compute(self, batch_id):
         new_features = load_tensor(batch_id, "new_features")
@@ -108,9 +126,78 @@ class GnnExecutorProcess:
 
         org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
         h = torch.concat((new_features, org_features)).to(self._device)
-
-        result = self._model([block1, block2], h).to("cpu")
+        h = self._model.layers[0](block1, h)
+        h = self._model.layers[1](block2, h)
+        result = h.to("cpu")
         put_tensor(batch_id, "result", result)
+
+    def p3_owner_compute(self, batch_id, owner_gpu_global_rank):
+        assert(self._gpu_global_rank == owner_gpu_global_rank)
+
+        new_features = load_tensor(batch_id, "new_features")
+        new_features = new_features[:, self._p3_start_idx:self._p3_end_idx]
+
+        input_gnids = load_tensor(batch_id, "input_gnids")
+
+        b1_u = load_tensor(batch_id, "b1_u")
+        b1_v = load_tensor(batch_id, "b1_v")
+        b2_u = load_tensor(batch_id, "b2_u")
+        b2_v = load_tensor(batch_id, "b2_v")
+
+        block1 = dgl.to_block(dgl.graph((b1_u, b1_v))).to(self._device)
+        block2 = dgl.to_block(dgl.graph((b2_u, b2_v))).to(self._device)
+        
+        org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
+        h = torch.concat((new_features, org_features)).to(self._device)
+        mp_aggr = self._model.layers[0].p3_first_layer_mp(block1, h)
+        for k, v in mp_aggr.items():
+            dist.reduce(v, owner_gpu_global_rank)
+        h = self._model.layers[0].p3_first_layer_dp(block1, mp_aggr)
+        h = self._model.layers[1](block2, h)
+
+        result = h.to("cpu")
+        put_tensor(batch_id, "result", result)
+
+    def p3_other_compute(self, batch_id, owner_gpu_global_rank):
+        new_features = load_tensor(batch_id, "new_features")
+        new_features = new_features[:, self._p3_start_idx:self._p3_end_idx]
+
+        input_gnids = load_tensor(batch_id, "input_gnids")
+        b1_u = load_tensor(batch_id, "b1_u")
+        b1_v = load_tensor(batch_id, "b1_v")
+
+        block1 = dgl.to_block(dgl.graph((b1_u, b1_v))).to(self._device)
+
+        org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
+        h = torch.concat((new_features, org_features)).to(self._device)
+        mp_aggr = self._model.layers[0].p3_first_layer_mp(block1, h)
+        for k, v in mp_aggr.items():
+            dist.reduce(v, owner_gpu_global_rank)
+
+    def _get_p3_start_end_indices(self):
+        feature_split_in_machines = [self._num_features // self._num_nodes] * self._num_nodes
+        for j in range(self._num_features % self._num_nodes):
+            feature_split_in_machines[j] += 1
+        
+        num_features_in_machine = feature_split_in_machines[self._node_rank]
+        feature_split_in_gpus = [num_features_in_machine // self._num_devices_per_node] * self._num_devices_per_node
+        for j in range(num_features_in_machine % self._num_devices_per_node):
+            feature_split_in_gpus[j] += 1
+        
+        local_start_idx = 0
+        local_end_idx = feature_split_in_gpus[0]
+        for j in range(self._local_rank):
+            local_start_idx += feature_split_in_gpus[j]
+            local_end_idx += feature_split_in_gpus[j]
+        
+        global_start_idx = local_start_idx
+        global_end_idx = local_end_idx
+
+        for j in range(self._node_rank):
+            global_start_idx += feature_split_in_machines[j]
+            global_end_idx += feature_split_in_machines[j]
+
+        return global_start_idx, global_end_idx
 
     def vertex_cut_compute(self, batch_id):
         # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks

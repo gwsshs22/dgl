@@ -11,7 +11,7 @@ struct ActorRequest {
   ActorRequest(const ActorRequest& other) = default;
   ActorRequest(ActorRequest&& other) = default;
   ActorRequest& operator=(ActorRequest&& other) = default;
-  ActorRequest(uint64_t req_id, int request_type, int batch_id);
+  ActorRequest(uint64_t req_id, int request_type, int batch_id, int param0);
 
   inline uint64_t req_id() {
     return req_id_;
@@ -25,10 +25,15 @@ struct ActorRequest {
     return batch_id_;
   }
 
+  inline int param0() {
+    return param0_;
+  }
+
  private:
   uint64_t req_id_;
   int request_type_;
   int batch_id_;
+  int param0_;
 };
 
 void ActorProcessMain(caf::actor_system& system, const config& cfg);

@@ -31,7 +31,7 @@ class executor_actor : public caf::event_based_actor {
     throw std::runtime_error("PrepareInput not implemented");
   }
 
-  virtual void Compute(int batch_id, int local_rank) {
+  virtual void Compute(int batch_id, int local_rank, int param0, int param1) {
     throw std::runtime_error("Compute not implemented");
   }
 
@@ -129,7 +129,7 @@ class data_parallel_executor : public executor_actor {
 
   void PrepareInput(int batch_id, int local_rank);
 
-  void Compute(int batch_id, int local_rank);
+  void Compute(int batch_id, int local_rank, int param0, int param1);
 
   void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) override;
 
@@ -151,12 +151,19 @@ class p3_executor : public executor_actor {
               int num_devices_per_node);
 
  private:
-  void Sampling(int batch_id, int local_rank);
+  void Sampling(int batch_id, int local_rank) override;
 
-  void PrepareInput(int batch_id, int local_rank);
+  void PrepareInput(int batch_id, int local_rank) override;
 
-  void Compute(int batch_id, int local_rank);
+  void Compute(int batch_id, int local_rank, int param0, int param1) override;
 
+  void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) override;
+
+  void FetchResult(int batch_id, int local_rank) override;
+
+  void Cleanup(int batch_id, int local_rank);
+
+  std::vector<caf::actor> samplers_;
 };
 
 class vertex_cut_executor : public executor_actor {
@@ -175,7 +182,7 @@ class vertex_cut_executor : public executor_actor {
 
   void PrepareInput(int batch_id, int local_rank);
 
-  void Compute(int batch_id, int local_rank);
+  void Compute(int batch_id, int local_rank, int param0, int param1);
 
   void PrepareAggregations(int batch_id, int local_rank);
 

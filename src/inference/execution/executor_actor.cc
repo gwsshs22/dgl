@@ -102,7 +102,7 @@ caf::behavior executor_actor::make_running_behavior() {
         });
     },
     // batch task execution
-    [&](caf::exec_atom, TaskType task_type, int batch_id, int local_rank) {
+    [&](caf::exec_atom, TaskType task_type, int batch_id, int local_rank, int param0, int param1) {
       switch (task_type) {
         case TaskType::kSampling:
           Sampling(batch_id, local_rank);
@@ -111,7 +111,7 @@ caf::behavior executor_actor::make_running_behavior() {
           PrepareInput(batch_id, local_rank);
           break;
         case TaskType::kCompute:
-          Compute(batch_id, local_rank);
+          Compute(batch_id, local_rank, param0, param1);
           break;
         case TaskType::kPrepareAggregations:
           PrepareAggregations(batch_id, local_rank);

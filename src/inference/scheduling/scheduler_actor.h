@@ -31,7 +31,7 @@ class scheduler_actor : public caf::event_based_actor, Scheduler {
 
   void BroadcastInitialize(int batch_id, const BatchInput& batch_input) override;
 
-  void BroadcastExecute(TaskType task_type, int batch_id) override;
+  void BroadcastExecute(TaskType task_type, int batch_id, int param0, int param1) override;
 
   void BroadcastFetchResult(int batch_id) override;
 

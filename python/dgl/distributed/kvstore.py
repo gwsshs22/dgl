@@ -765,6 +765,19 @@ class KVServer(object):
         """
         self._policy_set.add(policy)
 
+    def init_p3_data(self, p3_features):
+        data_type = F.reverse_data_type_dict[F.dtype(p3_features)]
+        p3_shared_data = empty_shared_mem("p3_features" + '-kvdata-', True, p3_features.shape, data_type)
+        p3_dlpack = p3_shared_data.to_dlpack()
+        self._p3_shared_features = F.zerocopy_from_dlpack(p3_dlpack)
+        rpc.copy_data_to_shared_memory(self._p3_shared_features, p3_features)
+
+        shape_data = F.tensor(p3_features.shape, dtype=F.data_type_dict["int64"])
+        p3_shared_metadata = empty_shared_mem("p3_features_meta" + '-kvdata-', True, shape_data.shape, 'int64')
+        p3_meta_dlpack = p3_shared_metadata.to_dlpack()
+        self._p3_shared_features_meta = F.zerocopy_from_dlpack(p3_meta_dlpack)
+        rpc.copy_data_to_shared_memory(self._p3_shared_features_meta, shape_data)
+
     def init_data(self, name, policy_str, data_tensor=None):
         """Init data tensor on kvserver.
 
@@ -849,7 +862,7 @@ class KVClient(object):
     role : str
         We can set different role for kvstore.
     """
-    def __init__(self, ip_config, num_servers, role='default'):
+    def __init__(self, ip_config, num_servers, role='default', load_p3_feature=False):
         assert rpc.get_rank() != -1, \
                 'Please invoke rpc.connect_to_server() before creating KVClient.'
         assert os.path.exists(ip_config), 'Cannot open file: %s' % ip_config
@@ -914,6 +927,7 @@ class KVClient(object):
         self._push_handlers = {}
         # register role on server-0
         self._role = role
+        self._load_p3_feature = load_p3_feature
 
     @property
     def all_possible_part_policy(self):
@@ -1387,14 +1401,14 @@ class KVClient(object):
 
 KVCLIENT = None
 
-def init_kvstore(ip_config, num_servers, role):
+def init_kvstore(ip_config, num_servers, role, load_p3_feature=False):
     """initialize KVStore"""
     global KVCLIENT
     if KVCLIENT is None:
         if os.environ.get('DGL_DIST_MODE', 'standalone') == 'standalone':
             KVCLIENT = SA_KVClient()
         else:
-            KVCLIENT = KVClient(ip_config, num_servers, role)
+            KVCLIENT = KVClient(ip_config, num_servers, role, load_p3_feature)
 
 def close_kvstore():
     """Close the current KVClient"""

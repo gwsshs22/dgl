@@ -185,6 +185,10 @@ def load_precomputed_aggrs(part_config, part_id, file_name):
     precom_data = precom_data1
     return precom_data
 
+def load_p3_features(part_config, part_id):
+    config_path = os.path.dirname(part_config)
+    return load_tensors(os.path.join(config_path, f"part{part_id}", "p3_features.dgl"))["features"]
+
 def load_partition_book(part_config, part_id, graph=None):
     '''Load a graph partition book from the partition config file.
 

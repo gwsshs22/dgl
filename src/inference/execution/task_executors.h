@@ -44,6 +44,8 @@ void cleanup_fn(caf::blocking_actor *self,
 
 enum gnn_executor_request_type {
   kComputeRequestType = 0,
+  kP3OwnerComputeRequest = 1,
+  kP3OtherComputeRequest = 2,
   kCleanupRequestType = DGL_INFER_CLEANUP_REQUEST_TYPE
 };
 
@@ -51,12 +53,14 @@ void gnn_execute_fn(caf::blocking_actor *self,
                     const caf::actor& gnn_executor_grp_actor,
                     int batch_id,
                     gnn_executor_request_type req_type,
-                    int local_rank);
+                    int local_rank,
+                    int param0);
 
 void gnn_broadcast_execute_fn(caf::blocking_actor *self,
                               const caf::actor& gnn_executor_grp_actor,
                               int batch_id,
-                              gnn_executor_request_type req_type);
+                              gnn_executor_request_type req_type,
+                              int param0);
 
 }
 }

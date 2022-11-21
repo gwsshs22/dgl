@@ -75,8 +75,8 @@ void vertex_cut_executor::PrepareInput(int batch_id, int) {
   ReportTaskDone(TaskType::kPrepareInput, batch_id);
 }
 
-void vertex_cut_executor::Compute(int batch_id, int) {
-  auto compute_task = spawn(gnn_broadcast_execute_fn, gnn_executor_group_, batch_id, gnn_executor_request_type::kComputeRequestType);
+void vertex_cut_executor::Compute(int batch_id, int, int, int) {
+  auto compute_task = spawn(gnn_broadcast_execute_fn, gnn_executor_group_, batch_id, gnn_executor_request_type::kComputeRequestType, /* param0 */ -1);
   RequestAndReportTaskDone(compute_task, TaskType::kCompute, batch_id);
 }
 
@@ -113,6 +113,13 @@ void vertex_cut_executor::FetchResult(int batch_id, int) {
 }
 
 void vertex_cut_executor::Cleanup(int batch_id) {
+  send(sampler_, caf::cleanup_atom_v, batch_id);
+  send(gnn_executor_group_,
+       caf::broadcast_exec_atom_v,
+       batch_id,
+       static_cast<int>(gnn_executor_request_type::kCleanupRequestType),
+       /* param0 */ -1);
+
   object_storages_.erase(batch_id);
 }
 

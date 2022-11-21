@@ -61,8 +61,8 @@ void data_parallel_executor::PrepareInput(int batch_id, int local_rank) {
   ReportTaskDone(TaskType::kPrepareInput, batch_id);
 }
 
-void data_parallel_executor::Compute(int batch_id, int local_rank) {
-  auto compute_task = spawn(gnn_execute_fn, gnn_executor_group_, batch_id, gnn_executor_request_type::kComputeRequestType, local_rank);
+void data_parallel_executor::Compute(int batch_id, int local_rank, int, int) {
+  auto compute_task = spawn(gnn_execute_fn, gnn_executor_group_, batch_id, gnn_executor_request_type::kComputeRequestType, local_rank, /* param0 */ -1);
   RequestAndReportTaskDone(compute_task, TaskType::kCompute, batch_id);
 }
 
@@ -94,7 +94,8 @@ void data_parallel_executor::Cleanup(int batch_id, int local_rank) {
        caf::exec_atom_v,
        batch_id,
        static_cast<int>(gnn_executor_request_type::kCleanupRequestType),
-       local_rank);
+       local_rank,
+       /* param0 */ -1);
 
   object_storages_.erase(batch_id);
 }

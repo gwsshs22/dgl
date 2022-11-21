@@ -127,13 +127,15 @@ void gnn_execute_fn(caf::blocking_actor *self,
                     const caf::actor& gnn_executor_grp_actor,
                     int batch_id,
                     gnn_executor_request_type req_type,
-                    int local_rank) {
+                    int local_rank,
+                    int param0) {
   auto rh = self->request(gnn_executor_grp_actor,
                           caf::infinite,
                           caf::exec_atom_v,
                           batch_id,
                           static_cast<int>(req_type),
-                          local_rank);
+                          local_rank,
+                          param0);
   receive_result<bool>(rh);
   self->receive([](caf::get_atom) { });
 }
@@ -141,12 +143,14 @@ void gnn_execute_fn(caf::blocking_actor *self,
 void gnn_broadcast_execute_fn(caf::blocking_actor *self,
                               const caf::actor& gnn_executor_grp_actor,
                               int batch_id,
-                              gnn_executor_request_type req_type) {
+                              gnn_executor_request_type req_type,
+                              int param0) {
   auto rh = self->request(gnn_executor_grp_actor,
                           caf::infinite,
                           caf::broadcast_exec_atom_v,
                           batch_id,
-                          static_cast<int>(req_type));
+                          static_cast<int>(req_type),
+                          param0);
   receive_result<bool>(rh);
   self->receive([](caf::get_atom) { });
 }

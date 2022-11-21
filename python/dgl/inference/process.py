@@ -147,7 +147,8 @@ def fork():
                                            using_precomputed_aggregations,
                                            graph_name,
                                            graph_config_path,
-                                           model)
+                                           model,
+                                           num_inputs)
     elif actor_process_role == "graph_server":
         actor_process = GraphServerProcess(channel,
                                            num_nodes,
@@ -195,6 +196,10 @@ class ActorRequest(ObjectBase):
     def batch_id(self):
         return _CAPI_DGLInferenceActorRequestGetBatchId(self)
     
+    @property
+    def param0(self):
+        return _CAPI_DGLInferenceActorRequestGetParam0(self)
+
     def done(self):
         _CAPI_DGLInferenceActorRequestDone(self)
 

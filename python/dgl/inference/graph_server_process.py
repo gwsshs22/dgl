@@ -28,6 +28,7 @@ class GraphServerProcess:
         else:
             self._num_clients = num_devices_per_node * num_nodes + num_nodes
         self._using_precomputed_aggregations = using_precomputed_aggregations
+        self._load_batch_partitioned_feats = parallel_type != ParallelizationType.P3
         self._precom_filename = precom_filename
         self._num_servers = 1 # Number of servers for one machin including backup servers
         self._net_type = "socket"
@@ -50,6 +51,7 @@ class GraphServerProcess:
                                graph_format=self._formats,
                                keep_alive=self._keep_alive,
                                net_type=self._net_type,
+                               load_batch_partitioned_feats=self._load_batch_partitioned_feats,
                                using_precomputed_aggregations=self._using_precomputed_aggregations,
                                precom_filename=self._precom_filename)
 

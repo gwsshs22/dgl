@@ -33,8 +33,8 @@ void scheduler_actor::BroadcastInitialize(int batch_id, const BatchInput& batch_
        batch_input.new_gnids, batch_input.new_features, batch_input.src_gnids, batch_input.dst_gnids);
 }
 
-void scheduler_actor::BroadcastExecute(TaskType task_type, int batch_id) {
-  send(exec_ctl_actor_, caf::broadcast_exec_atom_v, task_type, batch_id);
+void scheduler_actor::BroadcastExecute(TaskType task_type, int batch_id, int param0, int param1) {
+  send(exec_ctl_actor_, caf::broadcast_exec_atom_v, task_type, batch_id, param0, param1);
 }
 
 void scheduler_actor::BroadcastFetchResult(int batch_id) {

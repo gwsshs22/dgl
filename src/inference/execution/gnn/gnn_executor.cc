@@ -19,8 +19,8 @@ EnvSetter gnn_executor::MakeEnvSetter() {
 
 caf::behavior gnn_executor::make_running_behavior(const caf::actor& req_handler) {
   return {
-    [=](caf::exec_atom, uint64_t req_id, int request_type, int batch_id) {
-      send(req_handler, caf::request_atom_v, req_id, request_type, batch_id);
+    [=](caf::exec_atom, uint64_t req_id, int request_type, int batch_id, int param0) {
+      send(req_handler, caf::request_atom_v, req_id, request_type, batch_id, param0);
     },
     [=](caf::response_atom, uint64_t req_id) {
       send(group_actor_, caf::done_atom_v, req_id, local_rank());
@@ -47,20 +47,20 @@ caf::behavior gnn_executor_group(
         self->send(owner_actor, caf::initialized_atom_v, "gnn_executor_group", 0);
       }
     },
-    [=](caf::broadcast_exec_atom, int batch_id, int request_type) {
+    [=](caf::broadcast_exec_atom, int batch_id, int request_type, int param0) {
       uint64_t req_id = self->state.req_id_counter++;
       auto rp = self->make_response_promise<bool>();
       for (int i = 0; i < num_devices_per_node; i++) {
-        self->send(self->state.executors[i], caf::exec_atom_v, req_id, request_type, batch_id);
+        self->send(self->state.executors[i], caf::exec_atom_v, req_id, request_type, batch_id, param0);
       }
 
       self->state.done_req_counter.emplace(std::make_pair(req_id, std::make_pair(num_devices_per_node, rp)));
       return rp;
     },
-    [=](caf::exec_atom, int batch_id, int request_type, int local_rank) {
+    [=](caf::exec_atom, int batch_id, int request_type, int local_rank, int param0) {
       uint64_t req_id = self->state.req_id_counter++;
       auto rp = self->make_response_promise<bool>();
-      self->send(self->state.executors[local_rank], caf::exec_atom_v, req_id, request_type, batch_id);
+      self->send(self->state.executors[local_rank], caf::exec_atom_v, req_id, request_type, batch_id, param0);
       self->state.done_req_counter.emplace(std::make_pair(req_id, std::make_pair(1, rp)));
       return rp;
     },

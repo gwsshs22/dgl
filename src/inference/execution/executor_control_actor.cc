@@ -200,7 +200,7 @@ caf::behavior executor_control_actor::running() {
       done_task_counter_.emplace(std::make_pair(TaskType::kInitialize, batch_id), 1);
     },
     [&](caf::exec_atom, TaskType task_type, int batch_id, int node_rank, int local_rank) {
-      send(executors_[node_rank], caf::exec_atom_v, task_type, batch_id, local_rank);
+      send(executors_[node_rank], caf::exec_atom_v, task_type, batch_id, local_rank, /* param0 */ -1, /* param1 */ -1);
       done_task_counter_.emplace(std::make_pair(task_type, batch_id), 1);
     },
     [&](caf::fetch_result_atom, int batch_id, int node_rank, int local_rank) {
@@ -226,9 +226,9 @@ caf::behavior executor_control_actor::running() {
 
       done_task_counter_.emplace(std::make_pair(TaskType::kInitialize, batch_id), num_nodes_);
     },
-    [&](caf::broadcast_exec_atom, TaskType task_type, int batch_id) {
+    [&](caf::broadcast_exec_atom, TaskType task_type, int batch_id, int param0, int param1) {
       for (int i = 0; i < num_nodes_; i++) {
-        send(executors_[i], caf::exec_atom_v, task_type, batch_id, -1);
+        send(executors_[i], caf::exec_atom_v, task_type, batch_id, /* local_rank */ -1, param0, param1);
       }
 
       done_task_counter_.emplace(std::make_pair(task_type, batch_id), num_nodes_);

@@ -16,8 +16,8 @@ static dgl::runtime::Semaphore sem_;
 static dmlc::moodycamel::BlockingConcurrentQueue<ActorRequest> queue_;
 static caf::actor process_request_handler_;
 
-ActorRequest::ActorRequest(uint64_t req_id, int request_type, int batch_id)
-    : req_id_(req_id), request_type_(request_type), batch_id_(batch_id) {
+ActorRequest::ActorRequest(uint64_t req_id, int request_type, int batch_id, int param0)
+    : req_id_(req_id), request_type_(request_type), batch_id_(batch_id), param0_(param0) {
 }
 
 struct process_request_handler_state {
@@ -32,11 +32,11 @@ caf::behavior process_request_handler_fn(caf::stateful_actor<process_request_han
     [=](caf::connect_atom) {
       self->state.requester_actor = caf::actor_cast<caf::actor>(self->current_sender());
     },
-    [=](caf::request_atom, uint64_t req_id, int request_type, int batch_id) {
+    [=](caf::request_atom, uint64_t req_id, int request_type, int batch_id, int param0) {
       if (request_type == DGL_INFER_CLEANUP_REQUEST_TYPE) {
         ObjectStorage::GetInstance()->Cleanup(batch_id);
       } else {
-        queue_.enqueue(ActorRequest(req_id, request_type, batch_id));
+        queue_.enqueue(ActorRequest(req_id, request_type, batch_id, param0));
       }
       
     },

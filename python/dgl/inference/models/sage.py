@@ -80,18 +80,6 @@ class SAGEConv(nn.Module):
             nn.init.xavier_uniform_(self.fc_self.weight, gain=gain)
         nn.init.xavier_uniform_(self.fc_neigh.weight, gain=gain)
 
-    def _compatibility_check(self):
-        """Address the backward compatibility issue brought by #2747"""
-        if not hasattr(self, 'bias'):
-            dgl_warning("You are loading a GraphSAGE model trained from a old version of DGL, "
-                        "DGL automatically convert it to be compatible with latest version.")
-            bias = self.fc_neigh.bias
-            self.fc_neigh.bias = None
-            if hasattr(self, 'fc_self'):
-                if bias is not None:
-                    bias = bias + self.fc_self.bias
-                    self.fc_self.bias = None
-            self.bias = bias
 
     def _lstm_reducer(self, nodes):
         """LSTM reducer
@@ -106,8 +94,6 @@ class SAGEConv(nn.Module):
         return {'neigh': rst.squeeze(0)}
 
     def forward(self, graph, feat):
-        self._compatibility_check()
-
         with graph.local_scope():
             if isinstance(feat, tuple):
                 feat_src = self.feat_drop(feat[0])
@@ -155,7 +141,71 @@ class SAGEConv(nn.Module):
 
             return rst
 
+    # P3
+    def p3_first_layer_mp(self, graph, feat):
+        with graph.local_scope():
+            if isinstance(feat, tuple):
+                feat_src = self.feat_drop(feat[0])
+                feat_dst = self.feat_drop(feat[1])
+            else:
+                feat_src = feat_dst = self.feat_drop(feat)
+                if graph.is_block:
+                    feat_dst = feat_src[:graph.number_of_dst_nodes()]
+            msg_fn = fn.copy_src('h', 'm')
+            h_self = feat_dst
 
+            # Handle the case of graphs without edges
+            if graph.number_of_edges() == 0:
+                graph.dstdata['neigh'] = th.zeros(
+                    feat_dst.shape[0], self._in_src_feats).to(feat_dst)
+
+            # Determine whether to apply linear transformation before message passing A(XW)
+            lin_before_mp = self._in_src_feats > self._out_feats
+
+            # Message Passing
+            if self._aggre_type == 'mean':
+                graph.srcdata['h'] = self.fc_neigh(feat_src) if lin_before_mp else feat_src
+                graph.update_all(msg_fn, fn.mean('m', 'neigh'))
+                h_neigh = graph.dstdata['neigh']
+                if not lin_before_mp:
+                    h_neigh = self.fc_neigh(h_neigh)
+
+            else:
+                raise KeyError('Aggregator type {} not recognized.'.format(self._aggre_type))
+
+            # We don't use GraphSAGE GCN.
+            h_self = self.fc_self(h_self)
+            rst = h_self + h_neigh
+
+            return {
+                "rst": rst
+            }
+
+    def p3_first_layer_dp(self, block, mp_aggr):
+        rst = mp_aggr["rst"]
+        # bias term
+        if self.bias is not None:
+            rst = rst + self.bias
+
+        # activation
+        if self.activation is not None:
+            rst = self.activation(rst)
+        # normalization
+        if self.norm is not None:
+            rst = self.norm(rst)
+            
+        return rst
+
+    def p3_split(self, start_idx, end_idx):
+        fc_self_new_weight = nn.Parameter(self.fc_self.weight[:,start_idx:end_idx])
+        fc_neigh_new_weight = nn.Parameter(self.fc_neigh.weight[:,start_idx:end_idx])
+
+        self.fc_self = nn.Linear(fc_self_new_weight.shape[1], fc_self_new_weight.shape[0], bias=False)
+        self.fc_self.weight = fc_self_new_weight
+        self.fc_neigh = nn.Linear(fc_neigh_new_weight.shape[1], fc_neigh_new_weight.shape[0], bias=False)
+        self.fc_neigh.weight = fc_neigh_new_weight
+
+    # VCUT
     def div_names(self):
         return []
 

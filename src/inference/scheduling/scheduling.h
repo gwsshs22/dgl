@@ -24,7 +24,7 @@ class Scheduler {
 
   virtual void BroadcastInitialize(int batch_id, const BatchInput& batch_input) = 0;
   
-  virtual void BroadcastExecute(TaskType task_type, int batch_id) = 0;
+  virtual void BroadcastExecute(TaskType task_type, int batch_id, int param0=-1, int param1=-1) = 0;
 
   virtual void BroadcastFetchResult(int batch_id) = 0;
 

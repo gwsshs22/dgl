@@ -17,7 +17,7 @@ from .kvstore import KVServer, get_kvstore
 from .._ffi.ndarray import empty_shared_mem
 from ..ndarray import exist_shared_mem_array
 from ..frame import infer_scheme
-from .partition import load_partition, load_partition_feats, load_precomputed_aggrs, load_partition_book
+from .partition import load_partition, load_partition_feats, load_precomputed_aggrs, load_partition_book, load_p3_features
 from .graph_partition_book import PartitionPolicy, get_shared_mem_partition_book
 from .graph_partition_book import HeteroDataName, parse_hetero_data_name
 from .graph_partition_book import NodePartitionPolicy, EdgePartitionPolicy
@@ -319,6 +319,7 @@ class DistGraphServer(KVServer):
                  graph_format=('csc', 'coo'), keep_alive=False,
                  net_type='socket',
                  using_precomputed_aggregations=False,
+                 load_batch_partitioned_feats=True,
                  precom_filename=None):
         super(DistGraphServer, self).__init__(server_id=server_id,
                                               ip_config=ip_config,
@@ -373,7 +374,7 @@ class DistGraphServer(KVServer):
             edge_name = HeteroDataName(False, etype, None)
             self.add_part_policy(PartitionPolicy(edge_name.policy_str, self.gpb))
 
-        if not self.is_backup_server():
+        if not self.is_backup_server() and load_batch_partitioned_feats:
             node_feats, edge_feats = load_partition_feats(part_config, self.part_id)
             for name in node_feats:
                 # The feature name has the following format: node_type + "/" + feature_name to avoid
@@ -402,6 +403,9 @@ class DistGraphServer(KVServer):
                     self.init_data(name=str(data_name), policy_str=data_name.policy_str,
                                    data_tensor=precomputed_data[name])
                     self.orig_data.add(str(data_name))
+        if not self.is_backup_server() and not load_batch_partitioned_feats:
+            p3_features = load_p3_features(part_config, self.part_id)
+            self.init_p3_data(p3_features)
 
     def start(self, start_callback=None):
         """ Start graph store server.
@@ -1314,6 +1318,26 @@ class DistGraph:
             if name.is_edge() and right_type:
                 edata_names.append(name)
         return edata_names
+
+    def load_p3_features(self, num_devices_per_node):
+        p3_shared_meta = empty_shared_mem("p3_features_meta"+'-kvdata-', False, (2,), 'int64')
+        p3_meta_dlpack = p3_shared_meta.to_dlpack()
+
+        p3_shape = tuple(np.array(F.zerocopy_from_dlpack(p3_meta_dlpack)).tolist())
+
+        p3_shared = empty_shared_mem("p3_features" + '-kvdata-', False, p3_shape, 'float32')
+        p3_features = F.zerocopy_from_dlpack(p3_shared.to_dlpack())
+
+        self._p3_features = F.split(p3_features, self._get_split(p3_features.shape[1], num_devices_per_node), 1)
+
+    def _get_split(self, size, num_devices_per_node):
+        ret = [size // num_devices_per_node] * num_devices_per_node
+        for i in range(size % num_devices_per_node):
+            ret[i] += 1
+        return ret
+
+    def get_p3_features(self, local_rank):
+        return self._p3_features[local_rank]
 
 def _get_overlap(mask_arr, ids):
     """ Select the IDs given a boolean mask array.

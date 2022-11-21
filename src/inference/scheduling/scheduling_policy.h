@@ -83,8 +83,7 @@ class P3SchedulingPolicy : public BaseSchedulingPolicy {
  public:
   P3SchedulingPolicy(bool using_precomputed_aggs,
                      int num_nodes,
-                     int num_devices_per_node)
-    : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node) {}
+                     int num_devices_per_node);
 
   void OnInitialized(Scheduler& scheduler, int batch_id) override;
   void OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) override;
@@ -93,6 +92,9 @@ class P3SchedulingPolicy : public BaseSchedulingPolicy {
  private:
   void TryScheduling(Scheduler& scheduler) override;
 
+  std::vector<std::map<int, std::shared_ptr<ScheduledBatch>>> scheduled_batches_;
+  std::map<int, int> batch_id_to_global_rank_;
+  bool compute_running_;
 };
 
 class VertexCutSchedulingPolicy : public BaseSchedulingPolicy {

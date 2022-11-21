@@ -28,21 +28,21 @@ caf::behavior sampling_actor::make_running_behavior(const caf::actor& req_handle
     [=](caf::sampling_atom, int batch_id) {
       auto rp = make_response_promise<bool>();
       uint64_t req_id = req_id_counter_++;
-      send(req_handler, caf::request_atom_v, req_id, SAMPLING_REQUEST, batch_id);
+      send(req_handler, caf::request_atom_v, req_id, SAMPLING_REQUEST, batch_id, /* param0 */ -1);
       rp_map_.emplace(std::make_pair(req_id, rp));
       return rp;
     },
     [=](caf::data_parallel_input_fetch_atom, int batch_id) {
       auto rp = make_response_promise<bool>();
       uint64_t req_id = req_id_counter_++;
-      send(req_handler, caf::request_atom_v, req_id, DATA_PARALLEL_INPUT_FETCH_REQUEST, batch_id);
+      send(req_handler, caf::request_atom_v, req_id, DATA_PARALLEL_INPUT_FETCH_REQUEST, batch_id, /* param0 */ -1);
       rp_map_.emplace(std::make_pair(req_id, rp));
       return rp;
     },
     [=](caf::cleanup_atom, int batch_id) {
       auto rp = make_response_promise<bool>();
       uint64_t req_id = req_id_counter_++;
-      send(req_handler, caf::request_atom_v, req_id, CLEANUP_REQUEST, batch_id);
+      send(req_handler, caf::request_atom_v, req_id, CLEANUP_REQUEST, batch_id, /* param0 */ -1);
       rp_map_.emplace(std::make_pair(req_id, rp));
       return rp;
     },

@@ -166,6 +166,102 @@ class GATConv(nn.Module):
 
             return rst
 
+    # P3
+    def p3_first_layer_mp(self, graph, feat):
+        with graph.local_scope():
+            if not self._allow_zero_in_degree:
+                if (graph.in_degrees() == 0).any():
+                    raise DGLError('There are 0-in-degree nodes in the graph, '
+                                   'output for those nodes will be invalid. '
+                                   'This is harmful for some applications, '
+                                   'causing silent performance regression. '
+                                   'Adding self-loop on the input graph by '
+                                   'calling `g = dgl.add_self_loop(g)` will resolve '
+                                   'the issue. Setting ``allow_zero_in_degree`` '
+                                   'to be `True` when constructing this module will '
+                                   'suppress the check and let the code run.')
+
+            if isinstance(feat, tuple):
+                src_prefix_shape = feat[0].shape[:-1]
+                dst_prefix_shape = feat[1].shape[:-1]
+                h_src = self.feat_drop(feat[0])
+                h_dst = self.feat_drop(feat[1])
+                if not hasattr(self, 'fc_src'):
+                    feat_src = self.fc(h_src).view(
+                        *src_prefix_shape, self._num_heads, self._out_feats)
+                    feat_dst = self.fc(h_dst).view(
+                        *dst_prefix_shape, self._num_heads, self._out_feats)
+                else:
+                    feat_src = self.fc_src(h_src).view(
+                        *src_prefix_shape, self._num_heads, self._out_feats)
+                    feat_dst = self.fc_dst(h_dst).view(
+                        *dst_prefix_shape, self._num_heads, self._out_feats)
+            else:
+                src_prefix_shape = dst_prefix_shape = feat.shape[:-1]
+                h_src = h_dst = self.feat_drop(feat)
+                feat_src = feat_dst = self.fc(h_src).view(
+                    *src_prefix_shape, self._num_heads, self._out_feats)
+                if graph.is_block:
+                    feat_dst = feat_src[:graph.number_of_dst_nodes()]
+                    h_dst = h_dst[:graph.number_of_dst_nodes()]
+                    dst_prefix_shape = (graph.number_of_dst_nodes(),) + dst_prefix_shape[1:]
+            # NOTE: GAT paper uses "first concatenation then linear projection"
+            # to compute attention scores, while ours is "first projection then
+            # addition", the two approaches are mathematically equivalent:
+            # We decompose the weight vector a mentioned in the paper into
+            # [a_l || a_r], then
+            # a^T [Wh_i || Wh_j] = a_l Wh_i + a_r Wh_j
+            # Our implementation is much efficient because we do not need to
+            # save [Wh_i || Wh_j] on edges, which is not memory-efficient. Plus,
+            # addition could be optimized with DGL's built-in function u_add_v,
+            # which further speeds up computation and saves memory footprint.
+            el = (feat_src * self.attn_l).sum(dim=-1).unsqueeze(-1)
+            er = (feat_dst * self.attn_r).sum(dim=-1).unsqueeze(-1)
+
+            return {
+                "el": el,
+                "er": er,
+                "ft": feat_src
+            }
+
+    def p3_first_layer_dp(self, block, mp_aggr):
+        with block.local_scope():
+            block.srcdata.update({'ft': mp_aggr["ft"], 'el': mp_aggr["el"]})
+            block.dstdata.update({'er': mp_aggr["er"]})
+            # compute edge attention, el and er are a_l Wh_i and a_r Wh_j respectively.
+            block.apply_edges(fn.u_add_v('el', 'er', 'e'))
+            e = self.leaky_relu(block.edata.pop('e'))
+
+            # compute softmax
+            block.edata['a'] = self.attn_drop(edge_softmax(block, e))
+
+            # message passing
+            block.update_all(fn.u_mul_e('ft', 'a', 'm'),
+                             fn.sum('m', 'ft'))
+            rst = block.dstdata['ft']
+
+            if self.bias is not None:
+                rst = rst + self.bias.view(
+                    *((1,) * (rst.dim() - 2)), self._num_heads, self._out_feats)
+            
+            if self.heads_aggregation == "flatten":
+                rst = rst.flatten(1)
+            elif self.heads_aggregation == "mean":
+                rst = rst.mean(1)
+
+            # activation
+            if self.activation:
+                rst = self.activation(rst)
+
+            return rst
+
+    def p3_split(self, start_idx, end_idx):
+        fc_new_weight = nn.Parameter(self.fc.weight[:,start_idx:end_idx])
+
+        self.fc = nn.Linear(fc_new_weight.shape[1], fc_new_weight.shape[0], bias=False)
+        self.fc.weight = fc_new_weight
+
+    # Vcut
     def div_names(self):
         return ["er"]
 

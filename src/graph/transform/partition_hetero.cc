@@ -65,96 +65,99 @@ HaloHeteroSubgraph GetSubgraphWithHalo(std::shared_ptr<HeteroGraph> hg,
   // The old Ids of all nodes. We want to preserve the order of the nodes in the
   // vector. The first few nodes are the inner nodes in the subgraph.
   std::vector<dgl_id_t> old_node_ids(nid, nid + id_len);
-  std::vector<std::vector<dgl_id_t>> outer_nodes(num_hops);
+  // std::vector<std::vector<dgl_id_t>> outer_nodes(num_hops);
   for (int64_t i = 0; i < id_len; i++) all_nodes[nid[i]] = true;
   auto orig_nodes = all_nodes;
 
-  std::vector<dgl_id_t> edge_src, edge_dst, edge_eid;
+  std::vector<dgl_id_t> edge_src, edge_dst;
 
   // When we deal with in-edges, we need to do two things:
   // * find the edges inside the partition and the edges between partitions.
   // * find the nodes outside the partition that connect the partition.
-  EdgeArray in_edges = hg->InEdges(0, nodes);
-  auto src = in_edges.src;
-  auto dst = in_edges.dst;
-  auto eid = in_edges.id;
-  auto num_edges = eid->shape[0];
+  
+  IdArray src;
+  IdArray dst;
+  {
+    EdgeArray in_edges = hg->InEdges(0, nodes);
+    src = in_edges.src;
+    dst = in_edges.dst;
+  }
+
+  auto num_edges = src->shape[0];
   const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
   const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
-  const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
+
   for (int64_t i = 0; i < num_edges; i++) {
     // We check if the source node is in the original node.
     auto it1 = orig_nodes.find(src_data[i]);
     if (it1 != orig_nodes.end() || num_hops > 0) {
       edge_src.push_back(src_data[i]);
       edge_dst.push_back(dst_data[i]);
-      edge_eid.push_back(eid_data[i]);
+
     }
     // We need to expand only if the node hasn't been seen before.
     auto it = all_nodes.find(src_data[i]);
     if (it == all_nodes.end() && num_hops > 0) {
       all_nodes[src_data[i]] = false;
       old_node_ids.push_back(src_data[i]);
-      outer_nodes[0].push_back(src_data[i]);
+      // outer_nodes[0].push_back(src_data[i]);
     }
   }
 
   // Now we need to traverse the graph with the in-edges to access nodes
   // and edges more hops away.
-  for (int k = 1; k < num_hops; k++) {
-    const std::vector<dgl_id_t> &nodes = outer_nodes[k - 1];
-    EdgeArray in_edges = hg->InEdges(0, aten::VecToIdArray(nodes));
-    auto src = in_edges.src;
-    auto dst = in_edges.dst;
-    auto eid = in_edges.id;
-    auto num_edges = eid->shape[0];
-    const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
-    const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
-    const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
-    for (int64_t i = 0; i < num_edges; i++) {
-      auto it1 = orig_nodes.find(src_data[i]);
-      // If the source node is in the partition, we have got this edge when we iterate over
-      // the out-edges above.
-      if (it1 == orig_nodes.end()) {
-        edge_src.push_back(src_data[i]);
-        edge_dst.push_back(dst_data[i]);
-        edge_eid.push_back(eid_data[i]);
-      }
-      // If we haven't seen this node.
-      auto it = all_nodes.find(src_data[i]);
-      if (it == all_nodes.end()) {
-        all_nodes[src_data[i]] = false;
-        old_node_ids.push_back(src_data[i]);
-        outer_nodes[k].push_back(src_data[i]);
-      }
-    }
-  }
+  // for (int k = 1; k < num_hops; k++) {
+  //   const std::vector<dgl_id_t> &nodes = outer_nodes[k - 1];
+  //   EdgeArray in_edges = hg->InEdges(0, aten::VecToIdArray(nodes));
+  //   auto src = in_edges.src;
+  //   auto dst = in_edges.dst;
 
-  if (num_hops > 0) {
-    EdgeArray out_edges = hg->OutEdges(0, nodes);
-    auto src = out_edges.src;
-    auto dst = out_edges.dst;
-    auto eid = out_edges.id;
-    auto num_edges = eid->shape[0];
-    const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
-    const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
-    const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
-    for (int64_t i = 0; i < num_edges; i++) {
-      // If the outer edge isn't in the partition.
-      auto it1 = orig_nodes.find(dst_data[i]);
-      if (it1 == orig_nodes.end()) {
-        edge_src.push_back(src_data[i]);
-        edge_dst.push_back(dst_data[i]);
-        edge_eid.push_back(eid_data[i]);
-      }
-      // We don't expand along the out-edges.
-      auto it = all_nodes.find(dst_data[i]);
-      if (it == all_nodes.end()) {
-        all_nodes[dst_data[i]] = false;
-        old_node_ids.push_back(dst_data[i]);
-      }
-    }
-  }
+  //   auto num_edges = src->shape[0];
+  //   const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
+  //   const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
+
+  //   for (int64_t i = 0; i < num_edges; i++) {
+  //     auto it1 = orig_nodes.find(src_data[i]);
+  //     // If the source node is in the partition, we have got this edge when we iterate over
+  //     // the out-edges above.
+  //     if (it1 == orig_nodes.end()) {
+  //       edge_src.push_back(src_data[i]);
+  //       edge_dst.push_back(dst_data[i]);
+  //     }
+  //     // If we haven't seen this node.
+  //     auto it = all_nodes.find(src_data[i]);
+  //     if (it == all_nodes.end()) {
+  //       all_nodes[src_data[i]] = false;
+  //       old_node_ids.push_back(src_data[i]);
+  //       outer_nodes[k].push_back(src_data[i]);
+  //     }
+  //   }
+  // }
+
+  // if (num_hops > 0) {
+  //   EdgeArray out_edges = hg->OutEdges(0, nodes);
+  //   auto src = out_edges.src;
+  //   auto dst = out_edges.dst;
+
+  //   auto num_edges = src->shape[0];
+  //   const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
+  //   const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
+
+  //   for (int64_t i = 0; i < num_edges; i++) {
+  //     // If the outer edge isn't in the partition.
+  //     auto it1 = orig_nodes.find(dst_data[i]);
+  //     if (it1 == orig_nodes.end()) {
+  //       edge_src.push_back(src_data[i]);
+  //       edge_dst.push_back(dst_data[i]);
+  //     }
+  //     // We don't expand along the out-edges.
+  //     auto it = all_nodes.find(dst_data[i]);
+  //     if (it == all_nodes.end()) {
+  //       all_nodes[dst_data[i]] = false;
+  //       old_node_ids.push_back(dst_data[i]);
+  //     }
+  //   }
+  // }
 
   // We assign new Ids to the nodes in the subgraph. We ensure that the HALO
   // nodes are behind the input nodes.
@@ -187,7 +190,7 @@ HaloHeteroSubgraph GetSubgraphWithHalo(std::shared_ptr<HeteroGraph> hg,
   HaloHeteroSubgraph halo_subg;
   halo_subg.graph = subg;
   halo_subg.induced_vertices = {aten::VecToIdArray(old_node_ids)};
-  halo_subg.induced_edges = {aten::VecToIdArray(edge_eid)};
+
   // TODO(zhengda) we need to switch to 8 bytes afterwards.
   halo_subg.inner_nodes = {aten::VecToIdArray<int>(inner_nodes, 32)};
   return halo_subg;
@@ -249,20 +252,33 @@ DGL_REGISTER_GLOBAL("partition._CAPI_DGLPartitionWithHalo_Hetero")
     // We need to make sure the in-CSR and out-CSR exist. Otherwise, we'll
     // try to construct in-CSR and out-CSR in openmp for loop, which will lead
     // to some unexpected results.
+    std::cout << "Build InCSR" << std::endl;
     ugptr->GetInCSR();
-    ugptr->GetOutCSR();
+    // ugptr->GetOutCSR();
+    std::cout << "Build InCSR Done" << std::endl;
     std::vector<std::shared_ptr<HaloHeteroSubgraph>> subgs(max_part_id + 1);
     int num_partitions = part_nodes.size();
-    runtime::parallel_for(0, num_partitions, [&](int b, int e) {
-      for (auto i = b; i < e; i++) {
-        auto nodes = aten::VecToIdArray(part_nodes[i]);
-        HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
-        std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
-          new HaloHeteroSubgraph(subg));
-        int part_id = part_ids[i];
-        subgs[part_id] = subg_ptr;
-      }
-    });
+    // runtime::parallel_for(0, num_partitions, [&](int b, int e) {
+    //   for (auto i = b; i < e; i++) {
+    //     auto nodes = aten::VecToIdArray(part_nodes[i]);
+    //     HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
+    //     std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
+    //       new HaloHeteroSubgraph(subg));
+    //     int part_id = part_ids[i];
+    //     subgs[part_id] = subg_ptr;
+    //   }
+    // });
+
+    for (auto i = 0; i < num_partitions; i++) {
+      std::cout << "GetSubgraphWithHalo for part-" << i << " starts." << std::endl;
+      auto nodes = aten::VecToIdArray(part_nodes[i]);
+      HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
+      std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
+        new HaloHeteroSubgraph(subg));
+      int part_id = part_ids[i];
+      subgs[part_id] = subg_ptr;
+    }
+
     List<HeteroSubgraphRef> ret_list;
     for (size_t i = 0; i < subgs.size(); i++) {
       ret_list.push_back(HeteroSubgraphRef(subgs[i]));

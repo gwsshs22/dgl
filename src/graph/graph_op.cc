@@ -423,21 +423,26 @@ HaloSubgraph GraphOp::GetSubgraphWithHalo(GraphPtr g, IdArray nodes, int num_hop
   // When we deal with in-edges, we need to do two things:
   // * find the edges inside the partition and the edges between partitions.
   // * find the nodes outside the partition that connect the partition.
-  EdgeArray in_edges = g->InEdges(nodes);
-  auto src = in_edges.src;
-  auto dst = in_edges.dst;
-  auto eid = in_edges.id;
-  auto num_edges = eid->shape[0];
+  
+  IdArray src;
+  IdArray dst;
+  
+  {
+    EdgeArray in_edges = g->InEdges(nodes);
+    src = in_edges.src;
+    dst = in_edges.dst;
+  }
+
+  auto num_edges = src->shape[0];
   const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
   const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
-  const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
+
   for (int64_t i = 0; i < num_edges; i++) {
     // We check if the source node is in the original node.
     auto it1 = orig_nodes.find(src_data[i]);
     if (it1 != orig_nodes.end() || num_hops > 0) {
       edge_src.push_back(src_data[i]);
       edge_dst.push_back(dst_data[i]);
-      edge_eid.push_back(eid_data[i]);
     }
     // We need to expand only if the node hasn't been seen before.
     auto it = all_nodes.find(src_data[i]);
@@ -450,29 +455,29 @@ HaloSubgraph GraphOp::GetSubgraphWithHalo(GraphPtr g, IdArray nodes, int num_hop
 
   // Now we need to traverse the graph with the in-edges to access nodes
   // and edges more hops away.
-  for (int k = 1; k < num_hops; k++) {
-    const std::vector<dgl_id_t> &nodes = outer_nodes[k-1];
-    EdgeArray in_edges = g->InEdges(aten::VecToIdArray(nodes));
-    auto src = in_edges.src;
-    auto dst = in_edges.dst;
-    auto eid = in_edges.id;
-    auto num_edges = eid->shape[0];
-    const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
-    const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
-    const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
-    for (int64_t i = 0; i < num_edges; i++) {
-      edge_src.push_back(src_data[i]);
-      edge_dst.push_back(dst_data[i]);
-      edge_eid.push_back(eid_data[i]);
-      // If we haven't seen this node.
-      auto it = all_nodes.find(src_data[i]);
-      if (it == all_nodes.end()) {
-        all_nodes[src_data[i]] = false;
-        old_node_ids.push_back(src_data[i]);
-        outer_nodes[k].push_back(src_data[i]);
-      }
-    }
-  }
+  // for (int k = 1; k < num_hops; k++) {
+  //   const std::vector<dgl_id_t> &nodes = outer_nodes[k-1];
+  //   EdgeArray in_edges = g->InEdges(aten::VecToIdArray(nodes));
+  //   auto src = in_edges.src;
+  //   auto dst = in_edges.dst;
+  //   auto eid = in_edges.id;
+  //   auto num_edges = eid->shape[0];
+  //   const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
+  //   const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
+  //   const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
+  //   for (int64_t i = 0; i < num_edges; i++) {
+  //     edge_src.push_back(src_data[i]);
+  //     edge_dst.push_back(dst_data[i]);
+  //     edge_eid.push_back(eid_data[i]);
+  //     // If we haven't seen this node.
+  //     auto it = all_nodes.find(src_data[i]);
+  //     if (it == all_nodes.end()) {
+  //       all_nodes[src_data[i]] = false;
+  //       old_node_ids.push_back(src_data[i]);
+  //       outer_nodes[k].push_back(src_data[i]);
+  //     }
+  //   }
+  // }
 
   // We assign new Ids to the nodes in the subgraph. We ensure that the HALO
   // nodes are behind the input nodes.
@@ -501,7 +506,8 @@ HaloSubgraph GraphOp::GetSubgraphWithHalo(GraphPtr g, IdArray nodes, int num_hop
   HaloSubgraph halo_subg;
   halo_subg.graph = subg;
   halo_subg.induced_vertices = aten::VecToIdArray(old_node_ids);
-  halo_subg.induced_edges = aten::VecToIdArray(edge_eid);
+  // halo_subg.induced_edges = aten::VecToIdArray(edge_eid);
+
   // TODO(zhengda) we need to switch to 8 bytes afterwards.
   halo_subg.inner_nodes = aten::VecToIdArray<int>(inner_nodes, 32);
   return halo_subg;

@@ -119,6 +119,9 @@ def reshuffle_graph(g, node_part=None):
     print('Reshuffle nodes and edges: {:.3f} seconds'.format(time.time() - start))
     return g, node_part.tousertensor()
 
+def c_api_dgl_partition_with_halo_hetero(gidx, node_part, extra_cached_hops):
+    return _CAPI_DGLPartitionWithHalo_Hetero(gidx, node_part, extra_cached_hops)
+
 def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
     '''Partition a graph.
 

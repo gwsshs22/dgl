@@ -3,6 +3,28 @@
 namespace dgl {
 namespace inference {
 
+constexpr uint64_t kDGLSerialize_Tensors = 0xDD5A9FBE3FA2443F;
+typedef std::pair<std::string, NDArray> NamedTensor;
+
+std::map<std::string, NDArray> read_tensor_dict(const std::string& filename) {
+    auto fs = std::unique_ptr<dmlc::Stream>(
+      dmlc::Stream::Create(filename.c_str(), "r"));
+    CHECK(fs) << "Filename is invalid or file doesn't exists";
+    uint64_t magincNum, num_elements;
+    CHECK(fs->Read(&magincNum)) << "Invalid file";
+    CHECK_EQ(magincNum, kDGLSerialize_Tensors) << "Invalid DGL tensor file";
+    CHECK(fs->Read(&num_elements)) << "Invalid num of elements";
+    std::map<std::string, NDArray> nd_dict;
+    std::vector<NamedTensor> namedTensors;
+    fs->Read(&namedTensors);
+
+    for (auto kv : namedTensors) {
+      nd_dict[kv.first] = kv.second;
+    }
+    
+    return nd_dict;
+}
+
 void input_feader_fn(caf::blocking_actor* self,
                      const caf::actor& scheduler,
                      const std::string& input_trace_dir,
@@ -15,20 +37,28 @@ void input_feader_fn(caf::blocking_actor* self,
   auto src_gnids_vec = std::vector<NDArray>();
   auto dst_gnids_vec = std::vector<NDArray>();
 
-  auto cpu_context = DLContext { kDLCPU, 0 };
 
-  int num_inputs = 10;
-  int feature_size = 256;
-  NDArray new_features = NDArray::Empty({num_inputs, feature_size}, DLDataType{kDLFloat, 32, 1}, cpu_context);
-  float* ptr = (float*)new_features->data;
-  for (int i = 0; i < num_inputs * feature_size; i++) {
-    *ptr++ = (float)(i + 1) / (float)feature_size;
-  }
+  auto nd_dict = read_tensor_dict("/home/gwkim/dgl_input_trace/reddit/batch_size_16/0.dgl");
+  NDArray new_gnids = nd_dict["new_gnids"];
+  NDArray new_features = nd_dict["new_features"];
+  NDArray src_gnids = nd_dict["src_gnids"];
+  NDArray dst_gnids = nd_dict["dst_gnids"];
 
-  NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }, cpu_context);
+
+  // auto cpu_context = DLContext { kDLCPU, 0 };
+
+  // int num_inputs = 10;
+  // int feature_size = 602;
+  // NDArray new_features = NDArray::Empty({num_inputs, feature_size}, DLDataType{kDLFloat, 32, 1}, cpu_context);
+  // float* ptr = (float*)new_features->data;
+  // for (int i = 0; i < num_inputs * feature_size; i++) {
+  //   *ptr++ = (float)(i + 1) / (float)feature_size;
+  // }
+
+  // NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }, cpu_context);
   
-  NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4,  0,  7,  9,  0, 12, 13, 14, 15, 9  }, cpu_context);
-  NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10, 14, 15, 16, 17, 18, 19 }, cpu_context);
+  // NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4,  0,  7,  9,  0, 12, 13, 14, 15, 9  }, cpu_context);
+  // NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10, 14, 15, 16, 17, 18, 19 }, cpu_context);
 
   for (int i = 0; i < num_warmup_reqs; i++) {
     auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids, new_features, src_gnids, dst_gnids);
@@ -72,7 +102,7 @@ caf::behavior result_receiver_fn(caf::stateful_actor<result_receiver_state>* sel
         }
 
       } else {
-        std::cout << "req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << std::endl;
+        std::cout << "req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << ", result=" << result << std::endl;
         self->state.num_done_reqs++;
         if (self->state.num_done_reqs == self->state.num_reqs) {
           self->state.finished = true;

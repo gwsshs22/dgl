@@ -75,9 +75,10 @@ def _copy_graph_to_shared_mem(g, graph_name, graph_format):
                                                _get_ndata_path(graph_name, 'inner_node'))
     new_g.ndata[NID] = _to_shared_mem(g.ndata[NID], _get_ndata_path(graph_name, NID))
 
-    new_g.edata['inner_edge'] = _to_shared_mem(g.edata['inner_edge'],
-                                               _get_edata_path(graph_name, 'inner_edge'))
+    # new_g.edata['inner_edge'] = _to_shared_mem(g.edata['inner_edge'],
+    #                                            _get_edata_path(graph_name, 'inner_edge'))
     new_g.edata[EID] = _to_shared_mem(g.edata[EID], _get_edata_path(graph_name, EID))
+
     # for heterogeneous graph, we need to put ETYPE into KVStore
     # for homogeneous graph, ETYPE does not exist
     if ETYPE in g.edata:
@@ -135,7 +136,7 @@ def _get_graph_from_shared_mem(graph_name):
     g.ndata['inner_node'] = _get_shared_mem_ndata(g, graph_name, 'inner_node')
     g.ndata[NID] = _get_shared_mem_ndata(g, graph_name, NID)
 
-    g.edata['inner_edge'] = _get_shared_mem_edata(g, graph_name, 'inner_edge')
+    # g.edata['inner_edge'] = _get_shared_mem_edata(g, graph_name, 'inner_edge')
     g.edata[EID] = _get_shared_mem_edata(g, graph_name, EID)
 
     # heterogeneous graph has ETYPE
@@ -552,28 +553,28 @@ class DistGraph:
 
         # Get canonical edge types.
         # TODO(zhengda) this requires the server to store the graph with coo format.
-        eid = []
-        for etype in self.etypes:
-            type_eid = F.zeros((1,), F.int64, F.cpu())
-            eid.append(self._gpb.map_to_homo_eid(type_eid, etype))
-        eid = F.cat(eid, 0)
-        src, dst = dist_find_edges(self, eid)
-        src_tids, _ = self._gpb.map_to_per_ntype(src)
-        dst_tids, _ = self._gpb.map_to_per_ntype(dst)
-        self._canonical_etypes = []
-        etype_ids = F.arange(0, len(self.etypes))
-        for src_tid, etype_id, dst_tid in zip(src_tids, etype_ids, dst_tids):
-            src_tid = F.as_scalar(src_tid)
-            etype_id = F.as_scalar(etype_id)
-            dst_tid = F.as_scalar(dst_tid)
-            self._canonical_etypes.append((self.ntypes[src_tid], self.etypes[etype_id],
-                                           self.ntypes[dst_tid]))
-        self._etype2canonical = {}
-        for src_type, etype, dst_type in self._canonical_etypes:
-            if etype in self._etype2canonical:
-                self._etype2canonical[etype] = ()
-            else:
-                self._etype2canonical[etype] = (src_type, etype, dst_type)
+        # eid = []
+        # for etype in self.etypes:
+        #     type_eid = F.zeros((1,), F.int64, F.cpu())
+        #     eid.append(self._gpb.map_to_homo_eid(type_eid, etype))
+        # eid = F.cat(eid, 0)
+        # src, dst = dist_find_edges(self, eid)
+        # src_tids, _ = self._gpb.map_to_per_ntype(src)
+        # dst_tids, _ = self._gpb.map_to_per_ntype(dst)
+        # self._canonical_etypes = []
+        # etype_ids = F.arange(0, len(self.etypes))
+        # for src_tid, etype_id, dst_tid in zip(src_tids, etype_ids, dst_tids):
+        #     src_tid = F.as_scalar(src_tid)
+        #     etype_id = F.as_scalar(etype_id)
+        #     dst_tid = F.as_scalar(dst_tid)
+        #     self._canonical_etypes.append((self.ntypes[src_tid], self.etypes[etype_id],
+        #                                    self.ntypes[dst_tid]))
+        # self._etype2canonical = {}
+        # for src_type, etype, dst_type in self._canonical_etypes:
+        #     if etype in self._etype2canonical:
+        #         self._etype2canonical[etype] = ()
+        #     else:
+        #         self._etype2canonical[etype] = (src_type, etype, dst_type)
 
     def _init(self):
         self._client = get_kvstore()

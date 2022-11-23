@@ -107,16 +107,16 @@ def load_partition(part_config, part_id, load_feats=True):
         assert np.all(F.asnumpy(partids1 == part_id)), 'load a wrong partition'
         assert np.all(F.asnumpy(partids2 == part_id)), 'load a wrong partition'
         ntypes_list.append(ntype)
-    for etype in etypes:
-        etype_id = etypes[etype]
-        # graph.edata[EID] are global homogeneous edge IDs.
-        eids = F.boolean_mask(graph.edata[EID], _get_inner_edge_mask(graph, etype_id))
-        partids1 = gpb.eid2partid(eids)
-        _, per_type_eids = gpb.map_to_per_etype(eids)
-        partids2 = gpb.eid2partid(per_type_eids, etype)
-        assert np.all(F.asnumpy(partids1 == part_id)), 'load a wrong partition'
-        assert np.all(F.asnumpy(partids2 == part_id)), 'load a wrong partition'
-        etypes_list.append(etype)
+    # for etype in etypes:
+    #     etype_id = etypes[etype]
+    #     # graph.edata[EID] are global homogeneous edge IDs.
+    #     eids = F.boolean_mask(graph.edata[EID], _get_inner_edge_mask(graph, etype_id))
+    #     partids1 = gpb.eid2partid(eids)
+    #     _, per_type_eids = gpb.map_to_per_etype(eids)
+    #     partids2 = gpb.eid2partid(per_type_eids, etype)
+    #     assert np.all(F.asnumpy(partids1 == part_id)), 'load a wrong partition'
+    #     assert np.all(F.asnumpy(partids2 == part_id)), 'load a wrong partition'
+    #     etypes_list.append(etype)
 
     node_feats = {}
     edge_feats = {}

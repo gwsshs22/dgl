@@ -25,7 +25,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
 
   std::string input_trace_dir = "/home/gwkim/dgl_input_trace/reddit/batch_size_16";
-  int num_warmup_reqs = 128;
+  int num_warmup_reqs = 1;
   int num_reqs = 128;
 
   auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);

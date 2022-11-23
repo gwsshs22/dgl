@@ -12,6 +12,7 @@ from dgl.partition import reshuffle_graph, get_peak_mem, c_api_dgl_partition_wit
 from dgl.base import NID, EID, NTYPE, ETYPE, dgl_warning
 from dgl.random import choice as random_choice
 from dgl.data.utils import load_graphs, save_graphs, load_tensors, save_tensors
+from dgl.subgraph import edge_subgraph
 
 def _get_inner_node_mask(graph, ntype_id):
     if NTYPE in graph.ndata:
@@ -19,6 +20,13 @@ def _get_inner_node_mask(graph, ntype_id):
         return graph.ndata['inner_node'] * F.astype(graph.ndata[NTYPE] == ntype_id, dtype) == 1
     else:
         return graph.ndata['inner_node'] == 1
+
+def _get_inner_edge_mask(graph, etype_id):
+    if ETYPE in graph.edata:
+        dtype = F.dtype(graph.edata['inner_edge'])
+        return graph.edata['inner_edge'] * F.astype(graph.edata[ETYPE] == etype_id, dtype) == 1
+    else:
+        return graph.edata['inner_edge'] == 1
 
 def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
     assert len(node_part) == g.number_of_nodes()
@@ -38,22 +46,54 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
     node_part = node_part.tousertensor()
     start = time.time()
 
+    def get_inner_edge(subg, inner_node):
+        inner_edge = F.zeros((subg.number_of_edges(),), F.int8, F.cpu())
+        inner_nids = F.nonzero_1d(inner_node)
+        # TODO(zhengda) we need to fix utils.toindex() to avoid the dtype cast below.
+        inner_nids = F.astype(inner_nids, F.int64)
+        inner_eids = subg.in_edges(inner_nids, form='eid')
+        inner_edge = F.scatter_row(inner_edge, inner_eids,
+                                   F.ones((len(inner_eids),), F.dtype(inner_edge), F.cpu()))
+        return inner_edge
+
     # This creaets a subgraph from subgraphs returned from the CAPI above.
     def create_subgraph(subg, induced_nodes, induced_edges, inner_node):
         subg1 = DGLHeteroGraph(gidx=subg.graph, ntypes=['_N'], etypes=['_E'])
-        subg1.ndata[NID] = induced_nodes[0]
+        # If IDs are shuffled, we should shuffled edges. This will help us collect edge data
+        # from the distributed graph after training.
+        if reshuffle:
+            # When we shuffle edges, we need to make sure that the inner edges are assigned with
+            # contiguous edge IDs and their ID range starts with 0. In other words, we want to
+            # place these edge IDs in the front of the edge list. To ensure that, we add the IDs
+            # of outer edges with a large value, so we will get the sorted list as we want.
+            max_eid = F.max(induced_edges[0], 0) + 1
+            inner_edge = get_inner_edge(subg1, inner_node)
+            eid = F.astype(induced_edges[0], F.int64) + max_eid * F.astype(inner_edge == 0, F.int64)
+
+            _, index = F.sort_1d(eid)
+            subg1 = edge_subgraph(subg1, index, relabel_nodes=False)
+            subg1.ndata[NID] = induced_nodes[0]
+            subg1.edata[EID] = F.gather_row(induced_edges[0], index)
+        else:
+            subg1.ndata[NID] = induced_nodes[0]
+            subg1.edata[EID] = induced_edges[0]
         return subg1
 
     for i, subg in enumerate(subgs):
         inner_node = _get_halo_heterosubgraph_inner_node(subg)
         inner_node = F.zerocopy_from_dlpack(inner_node.to_dlpack())
-
         subg = create_subgraph(subg, subg.induced_nodes, subg.induced_edges, inner_node)
         subg.ndata['inner_node'] = inner_node
         subg.ndata['part_id'] = F.gather_row(node_part, subg.ndata[NID])
         if reshuffle:
             subg.ndata['orig_id'] = F.gather_row(orig_nids, subg.ndata[NID])
+            # subg.edata['orig_id'] = F.gather_row(orig_eids, subg.edata[EID])
 
+        # if extra_cached_hops >= 1:
+        #     inner_edge = get_inner_edge(subg, inner_node)
+        # else:
+        #     inner_edge = F.ones((subg.number_of_edges(),), F.int8, F.cpu())
+        # subg.edata['inner_edge'] = inner_edge
         subg_dict[i] = subg
     print('Construct subgraphs: {:.3f} seconds'.format(time.time() - start))
     if reshuffle:
@@ -192,7 +232,26 @@ def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, part_method=
         #             continue
         #         node_feats[ntype + '/' + name] = F.gather_row(g.nodes[ntype].data[name],
         #                                                       local_nodes)
+        # for etype, etype_id in etypes.items():
+        #     edata_name = 'orig_id' if reshuffle else EID
+        #     inner_edge_mask = _get_inner_edge_mask(part, etype_id)
+        #     # This is global edge IDs.
+        #     local_edges = F.boolean_mask(part.edata[edata_name], inner_edge_mask)
+        #     if not g.is_homogeneous:
+        #         local_edges = F.gather_row(sim_g.edata[EID], local_edges)
+        #         print('part {} has {} edges of type {} and {} are inside the partition'.format(
+        #             part_id, F.as_scalar(F.sum(part.edata[ETYPE] == etype_id, 0)),
+        #             etype, len(local_edges)))
+        #     else:
+        #         print('part {} has {} edges and {} are inside the partition'.format(
+        #             part_id, part.number_of_edges(), len(local_edges)))
+        #     tot_num_inner_edges += len(local_edges)
 
+        #     for name in g.edges[etype].data:
+        #         if name in [EID, 'inner_edge']:
+        #             continue
+        #         edge_feats[etype + '/' + name] = F.gather_row(g.edges[etype].data[name],
+        #                                                       local_edges)
         part_dir = os.path.join(out_path, "part" + str(part_id))
         node_feat_file = os.path.join(part_dir, "node_feat.dgl")
         edge_feat_file = os.path.join(part_dir, "edge_feat.dgl")

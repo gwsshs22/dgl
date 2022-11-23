@@ -8,6 +8,7 @@
 
 #include <dmlc/logging.h>
 
+#include <mutex>
 #include <utility>
 
 namespace dgl {
@@ -23,21 +24,27 @@ class ResourceManager {
 
  public:
   void Add(const std::string &key, std::shared_ptr<Resource> resource) {
+    std::lock_guard<std::mutex> guard(mtx_);
     auto it = resources.find(key);
     CHECK(it == resources.end()) << key << " already exists";
     resources.insert(std::pair<std::string, std::shared_ptr<Resource>>(key, resource));
   }
 
   void Erase(const std::string &key) {
+    std::lock_guard<std::mutex> guard(mtx_);
     resources.erase(key);
   }
 
   void Cleanup() {
+    std::lock_guard<std::mutex> guard(mtx_);
     for (auto it = resources.begin(); it != resources.end(); it++) {
       it->second->Destroy();
     }
     resources.clear();
   }
+
+ private:
+  std::mutex mtx_;
 };
 
 static ResourceManager manager;

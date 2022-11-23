@@ -71,6 +71,7 @@ class GnnExecutorProcess:
             self._dist_graph.load_p3_features(self._num_devices_per_node)
             self._p3_features = self._dist_graph.get_p3_features(self._local_rank)
             self._p3_start_idx, self._p3_end_idx = self._get_p3_start_end_indices()
+            print(f"local_rank={self._local_rank}, p3_features shape={self._p3_features.shape}, p3_start_idx={self._p3_start_idx}, p3_end_idx={self._p3_end_idx}")
             self._model.layers[0].p3_split(self._p3_start_idx, self._p3_end_idx)
 
         global_rank = self._node_rank * self._num_devices_per_node + self._local_rank
@@ -132,6 +133,7 @@ class GnnExecutorProcess:
         put_tensor(batch_id, "result", result)
 
     def p3_owner_compute(self, batch_id, owner_gpu_global_rank):
+        print(f"p3_owner_compute: self._gpu_global_rank={self._gpu_global_rank}, owner_gpu_global_rank={owner_gpu_global_rank}")
         assert(self._gpu_global_rank == owner_gpu_global_rank)
 
         new_features = load_tensor(batch_id, "new_features")
@@ -182,13 +184,13 @@ class GnnExecutorProcess:
         num_features_in_machine = feature_split_in_machines[self._node_rank]
         feature_split_in_gpus = [num_features_in_machine // self._num_devices_per_node] * self._num_devices_per_node
         for j in range(num_features_in_machine % self._num_devices_per_node):
-            feature_split_in_gpus[j] += 1
+            feature_split_in_gpus[j] += 1 
         
         local_start_idx = 0
         local_end_idx = feature_split_in_gpus[0]
         for j in range(self._local_rank):
-            local_start_idx += feature_split_in_gpus[j]
-            local_end_idx += feature_split_in_gpus[j]
+            local_start_idx = local_end_idx
+            local_end_idx = local_start_idx + feature_split_in_gpus[j+1]
         
         global_start_idx = local_start_idx
         global_end_idx = local_end_idx

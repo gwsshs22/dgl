@@ -14,16 +14,22 @@ namespace {
 
 void direct_fetch_result_fn(caf::blocking_actor* self,
                             int num_devices_per_node,
-                            int batch_id,
-                            caf::response_promise rp) {
-
+                            int batch_id) {
   auto results = std::vector<NDArray>();
   for (int local_rank = 0; local_rank < num_devices_per_node; local_rank++) {
-    results.push_back(LoadFromSharedMemory(batch_id, "g" + std::to_string(local_rank) + "_result"));
+    auto src_arr = LoadFromSharedMemory(batch_id, "g" + std::to_string(local_rank) + "_result");
+    NDArray copied = NDArray::Empty(
+        std::vector<int64_t>(src_arr->shape, src_arr->shape + src_arr->ndim),
+        src_arr->dtype,
+        DLContext{kDLCPU, 0});
+
+    copied.CopyFrom(src_arr);
+    results.push_back(copied);
   }
 
-  rp.deliver(results);
-  self->receive([](caf::get_atom) { });
+  self->receive([=](caf::get_atom) {
+    return results;
+  });
 };
 
 void fetch_result_fn(caf::blocking_actor* self,
@@ -93,12 +99,15 @@ void vertex_cut_executor::ComputeRemaining(int batch_id, int) {
 }
 
 void vertex_cut_executor::DirectFetchResult(int batch_id, int, caf::response_promise rp) {
-  auto task = spawn(direct_fetch_result_fn, num_devices_per_node_, batch_id, rp);
+  auto task = spawn(direct_fetch_result_fn, num_devices_per_node_, batch_id);
   request(task, caf::infinite, caf::get_atom_v).then(
-    [=]() { this->Cleanup(batch_id); },
-    [&](caf::error& err) {
+    [=](std::vector<NDArray> result) mutable {
+      rp.deliver(result);
+      this->Cleanup(batch_id);
+    },
+    [=](caf::error& err) {
       // TODO: error handling
-      caf::aout(this) << caf::to_string(err) << std::endl;
+      caf::aout(this) << "DirectFetchResult (batch_id=" << batch_id << "): " << caf::to_string(err) << std::endl;
     });
 }
 
@@ -106,9 +115,9 @@ void vertex_cut_executor::FetchResult(int batch_id, int) {
   auto task = spawn(fetch_result_fn, mpi_actor_, node_rank_, num_devices_per_node_, batch_id);
   request(task, caf::infinite, caf::get_atom_v).then(
     [=]() { this->Cleanup(batch_id); },
-    [&](caf::error& err) {
+    [=](caf::error& err) {
       // TODO: error handling
-      caf::aout(this) << caf::to_string(err) << std::endl;
+      caf::aout(this) << "FetchResult (batch_id=" << batch_id << "): " << caf::to_string(err) << std::endl;
     });
 }
 

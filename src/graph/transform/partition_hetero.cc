@@ -69,7 +69,7 @@ HaloHeteroSubgraph GetSubgraphWithHalo(std::shared_ptr<HeteroGraph> hg,
   for (int64_t i = 0; i < id_len; i++) all_nodes[nid[i]] = true;
   auto orig_nodes = all_nodes;
 
-  std::vector<dgl_id_t> edge_src, edge_dst;
+  std::vector<dgl_id_t> edge_src, edge_dst, edge_eid;
 
   // When we deal with in-edges, we need to do two things:
   // * find the edges inside the partition and the edges between partitions.
@@ -77,23 +77,25 @@ HaloHeteroSubgraph GetSubgraphWithHalo(std::shared_ptr<HeteroGraph> hg,
   
   IdArray src;
   IdArray dst;
+  IdArray eid;
   {
     EdgeArray in_edges = hg->InEdges(0, nodes);
     src = in_edges.src;
     dst = in_edges.dst;
+    eid = in_edges.id;
   }
 
   auto num_edges = src->shape[0];
   const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
   const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
-
+  const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
   for (int64_t i = 0; i < num_edges; i++) {
     // We check if the source node is in the original node.
     auto it1 = orig_nodes.find(src_data[i]);
     if (it1 != orig_nodes.end() || num_hops > 0) {
       edge_src.push_back(src_data[i]);
       edge_dst.push_back(dst_data[i]);
-
+      edge_eid.push_back(eid_data[i]);
     }
     // We need to expand only if the node hasn't been seen before.
     auto it = all_nodes.find(src_data[i]);
@@ -190,7 +192,7 @@ HaloHeteroSubgraph GetSubgraphWithHalo(std::shared_ptr<HeteroGraph> hg,
   HaloHeteroSubgraph halo_subg;
   halo_subg.graph = subg;
   halo_subg.induced_vertices = {aten::VecToIdArray(old_node_ids)};
-
+  halo_subg.induced_edges = {aten::VecToIdArray(edge_eid)};
   // TODO(zhengda) we need to switch to 8 bytes afterwards.
   halo_subg.inner_nodes = {aten::VecToIdArray<int>(inner_nodes, 32)};
   return halo_subg;

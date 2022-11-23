@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 import dgl.inference.envs as envs
+from dgl.distributed.rpc import register_sig_handler
 from .models.factory import load_model
 from .graph_server_process import GraphServerProcess
 from .gnn_executor_process import GnnExecutorProcess
@@ -14,6 +15,7 @@ from .._ffi.function import _init_api
 from .._ffi.object import register_object, ObjectBase
 
 def main():
+    register_sig_handler()
     parser = argparse.ArgumentParser()
     parser.add_argument("--role", required=True, choices=["master", "worker"])
     parser.add_argument("--master-host", required=True)
@@ -95,6 +97,7 @@ def main():
 
 # Called by a new child actor process
 def fork():
+    register_sig_handler()
     _CAPI_DGLInferenceStartActorProcessThread()
 
     actor_process_role = os.environ[envs.DGL_INFER_ACTOR_PROCESS_ROLE]

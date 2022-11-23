@@ -147,9 +147,9 @@ def get_shared_mem_partition_book(graph_name, graph_part):
         edge_map = {}
         etypes = {}
         edge_map_data = pickle.loads(bytes(F.asnumpy(edge_map_data).tolist()))
-        for i, (etype, eid_range) in enumerate(edge_map_data):
-            etypes[etype] = i
-            edge_map[etype] = eid_range
+        # for i, (etype, eid_range) in enumerate(edge_map_data):
+        #     etypes[etype] = i
+        #     edge_map[etype] = eid_range
         return RangePartitionBook(part_id, num_parts, node_map, edge_map, ntypes, etypes)
     else:
         return BasicPartitionBook(part_id, num_parts, node_map_data, edge_map_data, graph_part)
@@ -782,7 +782,7 @@ class RangePartitionBook(GraphPartitionBook):
 
         # These two are map functions that map node/edge IDs to node/edge type IDs.
         self._nid_map = IdMap(self._typed_nid_range)
-        self._eid_map = IdMap(self._typed_eid_range)
+        # self._eid_map = IdMap(self._typed_eid_range)
 
         # Get meta data of the partition book
         self._partition_meta_data = []
@@ -812,9 +812,9 @@ class RangePartitionBook(GraphPartitionBook):
         nid_range_pickle = list(pickle.dumps(nid_range))
 
         eid_range = [None] * len(self.etypes)
-        for i, etype in enumerate(self.etypes):
-            c_etype = self._to_canonical_etype(etype)
-            eid_range[i] = (c_etype, self._typed_eid_range[c_etype])
+        # for i, etype in enumerate(self.etypes):
+        #     c_etype = self._to_canonical_etype(etype)
+        #     eid_range[i] = (c_etype, self._typed_eid_range[c_etype])
         eid_range_pickle = list(pickle.dumps(eid_range))
 
         self._meta = _move_metadata_to_shared_mem(graph_name,

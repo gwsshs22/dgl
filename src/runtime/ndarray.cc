@@ -202,7 +202,25 @@ NDArray NDArray::EmptyShared(const std::string &name,
   size_t size = GetDataSize(ret.data_->dl_tensor);
   auto mem = std::make_shared<SharedMemory>(name);
   if (is_create) {
-    ret.data_->dl_tensor.data = mem->CreateNew(size);
+    ret.data_->dl_tensor.data = mem->CreateNew(size, true);
+  } else {
+    ret.data_->dl_tensor.data = mem->Open(size);
+  }
+
+  ret.data_->mem = mem;
+  return ret;
+}
+
+NDArray NDArray::EmptySharedUnmanaged(const std::string &name,
+                       std::vector<int64_t> shape,
+                       DLDataType dtype,
+                       DLContext ctx, bool is_create) {
+  NDArray ret = Internal::Create(shape, dtype, ctx);
+  // setup memory content
+  size_t size = GetDataSize(ret.data_->dl_tensor);
+  auto mem = std::make_shared<SharedMemory>(name);
+  if (is_create) {
+    ret.data_->dl_tensor.data = mem->CreateNew(size, false);
   } else {
     ret.data_->dl_tensor.data = mem->Open(size);
   }

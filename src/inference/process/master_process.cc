@@ -7,25 +7,14 @@
 #include "../execution/executor_actor.h"
 #include "../execution/mpi/mpi_actor.h"
 #include "../execution/mpi/gloo_rendezvous_actor.h"
+#include "../execution/gnn/gnn_executor.h"
 
 #include "init_monitor_actor.h"
 #include "process_control_actor.h"
-
-#include "../execution/gnn/gnn_executor.h"
+#include "experiments.h"
 
 namespace dgl {
 namespace inference {
-
-caf::behavior result_collector_fn(caf::event_based_actor* self) {
-  return [&](caf::done_atom, int req_id, const NDArray& result) {
-    std::cout << "req_id=" << req_id << ", shape=(";
-    for (int i = 0; i < result->ndim; i++) {
-      std::cout<<result->shape[i] << ", ";
-    }
-
-    std::cout << ") " << result << std::endl;
-  };
-}
 
 void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto master_host = GetEnv<std::string>(DGL_INFER_MASTER_HOST, "localhost");
@@ -35,12 +24,19 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
 
+  std::string input_trace_dir = "/home/gwkim/dgl_input_trace/reddit/batch_size_16";
+  int num_warmup_reqs = 128;
+  int num_reqs = 128;
+
   auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
   auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
   // TODO: env variables validation
 
   auto init_mon_actor = system.spawn<init_monitor_actor>();
   system.registry().put(caf::init_mon_atom_v, init_mon_actor);
+
+  auto fin_mon_actor = system.spawn(fin_monitor_fn);
+  system.registry().put(caf::fin_mon_atom_v, fin_mon_actor);
 
   auto process_mon_actor = system.spawn(process_monitor_fn);
   system.registry().put(caf::process_mon_atom_v, process_mon_actor);
@@ -86,59 +82,42 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
       using_precomputed_aggregations);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
-  auto result_collector = system.spawn(result_collector_fn);
+  auto result_receiver = system.spawn(result_receiver_fn, num_warmup_reqs, num_reqs);
 
   auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr,
-                                                 result_collector,
+                                                 result_receiver,
                                                  parallel_type,
                                                  using_precomputed_aggregations,
                                                  num_nodes,
                                                  num_devices_per_node);
-
   caf::scoped_actor self { system };
-  auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(60), caf::wait_atom_v, required_actors);
+  auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(120), caf::wait_atom_v, required_actors);
   receive_result<bool>(res_hdl);
 
   std::cerr << "All services initialized." << std::endl;
 
-  auto cpu_context = DLContext { kDLCPU, 0 };
+  auto input_feader = system.spawn(input_feader_fn, scheduler, input_trace_dir, num_warmup_reqs, num_reqs);
 
-  int num_inputs = 10;
-  int feature_size = 256;
-  NDArray new_features = NDArray::Empty({num_inputs, feature_size}, DLDataType{kDLFloat, 32, 1}, cpu_context);
-  float* ptr = (float*)new_features->data;
-  for (int i = 0; i < num_inputs * feature_size; i++) {
-    *ptr++ = (float)(i + 1) / (float)feature_size;
-  }
+  std::cout << "Wait for the warmup finished" << std::endl;
+  auto warmup_rh = self->request(result_receiver, std::chrono::minutes(10), caf::wait_warmup_atom_v);
+  receive_result<bool>(warmup_rh);
 
-  NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }, cpu_context);
-  
-  NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4,  0,  7,  9,  0, 12, 13, 14, 15, 9  }, cpu_context);
-  NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10, 14, 15, 16, 17, 18, 19 }, cpu_context);
+  std::cout << "Warmup done" << std::endl;
 
-  // int num_inputs = 4;
-  // int feature_size = 256;
-  // NDArray new_features = NDArray::Empty({num_inputs, feature_size}, DLDataType{kDLFloat, 32, 1}, cpu_context);
-  // float* ptr = (float*)new_features->data;
-  // for (int i = 0; i < num_inputs * feature_size; i++) {
-  //   *ptr++ = (float)(i + 1) / (float)feature_size;
-  // }
+  self->send(input_feader, caf::start_atom_v);
 
-  // NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13 }, cpu_context);
-  
-  // NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13, 0, 1, 2, 3   ,6,7 }, cpu_context);
-  // NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 2, 3, 10, 11, 12, 13, 10, 13 }, cpu_context);
+  std::cout << "Wait for the experiment finished" << std::endl;
+  auto exp_fin_rh = self->request(result_receiver, std::chrono::minutes(10), caf::wait_atom_v);
+  receive_result<bool>(exp_fin_rh);
 
-  for (int j = 0; j < 128; j++) {
-    for (int i = 0; i < 4; i++) {
-      anon_send(scheduler, caf::enqueue_atom_v, new_gnids, new_features, src_gnids, dst_gnids);
-    }
-  }
+  auto fin_rh = self->request(fin_mon_actor, caf::infinite, caf::done_atom_v);
+  receive_result<bool>(fin_rh);
 
-  std::cerr << "Quit to enter:" << std::endl;
-  std::string dummy;
-  std::getline(std::cin, dummy);
+  self->send(input_feader, caf::done_atom_v);
 
+  system.middleman().close(master_port);
+  system.middleman().stop();
+  // TODO: proper shutdown
   exit(0);
 }
 

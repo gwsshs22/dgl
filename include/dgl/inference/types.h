@@ -36,5 +36,15 @@ enum TaskType {
   kFetchResult = 15,
 };
 
+struct RequestStats {
+  std::chrono::time_point<std::chrono::steady_clock> enqueued_time;
+
+  RequestStats() : enqueued_time(std::chrono::steady_clock::now()) {}
+
+  int ElapsedTimeInMicros() const {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - enqueued_time).count();
+  }
+};
+
 }
 }

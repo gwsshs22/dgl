@@ -243,6 +243,11 @@ class NDArray {
                                      DLDataType dtype,
                                      DLContext ctx,
                                      bool is_create);
+  DGL_DLL static NDArray EmptySharedUnmanaged(const std::string &name,
+                                     std::vector<int64_t> shape,
+                                     DLDataType dtype,
+                                     DLContext ctx,
+                                     bool is_create);
   /*!
    * \brief Get the size of the array in the number of bytes.
    */

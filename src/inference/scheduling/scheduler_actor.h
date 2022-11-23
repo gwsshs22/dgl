@@ -35,7 +35,7 @@ class scheduler_actor : public caf::event_based_actor, Scheduler {
 
   void BroadcastFetchResult(int batch_id) override;
 
-  void ReportResult(int request_id, NDArray result) override;
+  void ReportResult(int request_id, NDArray result, RequestStats stats) override;
 
   caf::actor exec_ctl_actor_;
   caf::actor result_collect_actor_;

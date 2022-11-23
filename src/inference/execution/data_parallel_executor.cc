@@ -12,11 +12,18 @@ namespace {
 
 void direct_fetch_result_fn(caf::blocking_actor* self,
                             int batch_id,
-                            int local_rank,
-                            caf::response_promise rp) {
-  rp.deliver(std::vector<NDArray>({ LoadFromSharedMemory(batch_id, "result") }));
+                            int local_rank) {
+  
+  auto src_arr = LoadFromSharedMemory(batch_id, "result");
+  NDArray copied = NDArray::Empty(
+      std::vector<int64_t>(src_arr->shape, src_arr->shape + src_arr->ndim),
+      src_arr->dtype,
+      DLContext{kDLCPU, 0});
 
-  self->receive([](caf::get_atom) { });
+  copied.CopyFrom(src_arr);
+  self->receive([=](caf::get_atom) {
+    return copied;
+  });
 };
 
 void fetch_result_fn(caf::blocking_actor* self,
@@ -69,12 +76,15 @@ void data_parallel_executor::Compute(int batch_id, int local_rank, int, int) {
 void data_parallel_executor::DirectFetchResult(int batch_id,
                                                int local_rank,
                                                caf::response_promise rp) {
-  auto task = spawn(direct_fetch_result_fn, batch_id, local_rank, rp);
+  auto task = spawn(direct_fetch_result_fn, batch_id, local_rank);
   request(task, caf::infinite, caf::get_atom_v).then(
-    [=]() { this->Cleanup(batch_id, local_rank); },
+    [=](NDArray result) mutable {
+      rp.deliver(std::vector<NDArray>({result}));
+      this->Cleanup(batch_id, local_rank);
+    },
     [&](caf::error& err) {
       // TODO: error handling
-      caf::aout(this) << caf::to_string(err) << std::endl;
+      caf::aout(this) << "DirectFetchResult (batch_id=" << batch_id << "): " << caf::to_string(err) << std::endl;
     });
 }
 
@@ -84,7 +94,7 @@ void data_parallel_executor::FetchResult(int batch_id, int local_rank) {
     [=]() { this->Cleanup(batch_id, local_rank); },
     [&](caf::error& err) {
       // TODO: error handling
-      caf::aout(this) << caf::to_string(err) << std::endl;
+      caf::aout(this) << "FetchResult (batch_id=" << batch_id << "): " << caf::to_string(err) << std::endl;
     });
 }
 

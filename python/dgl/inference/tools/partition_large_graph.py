@@ -79,6 +79,7 @@ def save_infer_graph_and_partition(args, org_g):
 
 def fill_node_features_and_remove_infer_edges(args, org_g):
     fill_node_features(args, org_g)
+    save_infer_target_features(args, org_g)
     delete_infer_edges(args, org_g)
 
 def fill_node_features(args, org_g):
@@ -92,6 +93,16 @@ def fill_node_features(args, org_g):
 
         part_node_features = node_features[orig_ids]
         dgl.data.save_tensors(str(Path(args.output) / f"part{part_id}" / "node_feat.dgl"), { "_N/features": part_node_features })
+
+def save_infer_target_features(args, org_g):
+    output_path = Path(args.output)
+    node_features = org_g.ndata['features']
+
+    id_mappings = dgl.data.load_tensors(str(Path(args.output) / "id_mappings.dgl"))
+    infer_target_orig_ids = id_mappings["infer_target_orig_ids"]
+    infer_target_features = node_features[infer_target_orig_ids]
+    id_mappings["infer_target_features"] = infer_target_features
+    dgl.data.save_tensors(str(Path(args.output) / "id_mappings.dgl"), id_mappings)
 
 def delete_infer_edges(args, org_g):
     output_path = Path(args.output)

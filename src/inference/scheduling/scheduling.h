@@ -28,7 +28,7 @@ class Scheduler {
 
   virtual void BroadcastFetchResult(int batch_id) = 0;
 
-  virtual void ReportResult(int request_id, NDArray result) = 0;
+  virtual void ReportResult(int request_id, NDArray result, RequestStats stats) = 0;
 
 };
 

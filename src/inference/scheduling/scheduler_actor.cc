@@ -41,8 +41,8 @@ void scheduler_actor::BroadcastFetchResult(int batch_id) {
   send(exec_ctl_actor_, caf::broadcast_fetch_result_atom_v, batch_id);
 }
 
-void scheduler_actor::ReportResult(int request_id, NDArray result) {
-  send(result_collect_actor_, caf::done_atom_v, request_id, result);
+void scheduler_actor::ReportResult(int request_id, NDArray result, RequestStats stats) {
+  send(result_collect_actor_, caf::done_atom_v, request_id, result, stats);
 }
 
 caf::behavior scheduler_actor::make_behavior() {

@@ -76,7 +76,7 @@ SharedMemory::~SharedMemory() {
 #endif  // _WIN32
 }
 
-void *SharedMemory::CreateNew(size_t sz) {
+void *SharedMemory::CreateNew(size_t sz, bool managed) {
 #ifndef _WIN32
   this->own_ = true;
 
@@ -86,7 +86,10 @@ void *SharedMemory::CreateNew(size_t sz) {
   fd_ = shm_open(name.c_str(), flag, S_IRUSR | S_IWUSR);
   CHECK_NE(fd_, -1) << "fail to open " << name << ": " << strerror(errno);
   // Shared memory cannot be deleted if the process exits abnormally in Linux.
-  AddResource(name, std::shared_ptr<Resource>(new SharedMemoryResource(name)));
+  if (managed) {
+    AddResource(name, std::shared_ptr<Resource>(new SharedMemoryResource(name)));
+  }
+
   auto res = ftruncate(fd_, sz);
   CHECK_NE(res, -1)
       << "Failed to truncate the file. " << strerror(errno);

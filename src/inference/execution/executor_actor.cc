@@ -127,6 +127,7 @@ caf::behavior executor_actor::make_running_behavior() {
     [&](caf::direct_fetch_result_atom, int batch_id, int local_rank) {
       auto rp = make_response_promise<std::vector<NDArray>>();
       DirectFetchResult(batch_id, local_rank, rp);
+      return rp;
     },
     [&](caf::fetch_result_atom, int batch_id, int local_rank) {
       FetchResult(batch_id, local_rank);

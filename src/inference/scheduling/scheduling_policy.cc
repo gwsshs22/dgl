@@ -29,12 +29,23 @@ BaseSchedulingPolicy::BaseSchedulingPolicy(bool using_precomputed_aggs,
 
 void BaseSchedulingPolicy::OnNewBatch(Scheduler& scheduler, 
                                       BatchInput&& input) {
+  stats_.emplace(std::make_pair(input.req_id, RequestStats()));
   input_queue_.push(std::move(input));
   TryScheduling(scheduler);
 }
 
 int BaseSchedulingPolicy::IssueBatchId() {
   return batch_id_counter_++;
+}
+
+void BaseSchedulingPolicy::SetTaskDone(int req_id, TaskType task_type) {
+}
+  
+void BaseSchedulingPolicy::ReportRequestDone(Scheduler& scheduler, int req_id, const NDArray& result) {
+  auto it = stats_.find(req_id);
+  assert(it != stats_.end());
+  scheduler.ReportResult(req_id, result, it->second);
+  stats_.erase(it);
 }
 
 //////////////////////////
@@ -183,7 +194,7 @@ void DataSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
 
 void DataSchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) {
   auto req_id = batch_id_to_req_id_[batch_id];
-  scheduler.ReportResult(req_id, result);
+  ReportRequestDone(scheduler, req_id, result);
 
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
@@ -322,7 +333,7 @@ void P3SchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
 
 void P3SchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) {
   auto req_id = batch_id_to_req_id_[batch_id];
-  scheduler.ReportResult(req_id, result);
+  ReportRequestDone(scheduler, req_id, result);
 
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
@@ -450,7 +461,7 @@ void VertexCutSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id
 
 void VertexCutSchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) {
   auto req_id = batch_id_to_req_id_[batch_id];
-  scheduler.ReportResult(req_id, result);
+  ReportRequestDone(scheduler, req_id, result);
 
   auto it = scheduled_batches_.find(batch_id);
   assert(it != scheduled_batches_.end());

@@ -57,10 +57,6 @@ inline void WriteMetadata(dmlc::Stream& stream,
   stream.Write(data->dtype.lanes);
   stream.Write(data->ctx.device_type);
   stream.Write(data->ctx.device_id);
-
-  if (data->ctx.device_type == kDLGPU) {
-    stream.Write(data->data); // Address in GPU
-  }
 }
 
 inline std::shared_ptr<runtime::SharedMemory> CreateMetadataSharedMem(const std::string& name,
@@ -82,7 +78,7 @@ inline NDArray CopyToSharedMem(int batch_id, const std::string& name, const NDAr
     return src_arr;
   }
 
-  NDArray copied = NDArray::EmptyShared(
+  NDArray copied = NDArray::EmptySharedUnmanaged(
       GetArrayDataName(batch_id, name),
       std::vector<int64_t>(src_arr->shape, src_arr->shape + src_arr->ndim),
       src_arr->dtype,
@@ -121,8 +117,6 @@ inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
   DLDeviceType device_type;
   int device_id;
 
-  void* address_in_gpu;
-
   shape = new int64_t[ndim];
 
   {
@@ -134,10 +128,6 @@ inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
     stream.Read(&lanes);
     stream.Read(&device_type);
     stream.Read(&device_id);
-
-    if (device_type == kDLGPU) {
-      stream.Read(&address_in_gpu);
-    }
   }
 
   int64_t num_elems = 1;

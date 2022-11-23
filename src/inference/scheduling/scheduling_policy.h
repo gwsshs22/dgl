@@ -19,7 +19,13 @@ class BaseSchedulingPolicy : public SchedulingPolicy {
 
  protected:
   virtual void TryScheduling(Scheduler& scheduler) = 0;
+
   int IssueBatchId();
+
+  void SetTaskDone(int req_id, TaskType task_type);
+
+  void ReportRequestDone(Scheduler& scheduler, int req_id, const NDArray& result);
+  
 
   const bool using_precomputed_aggs_;
   const int num_nodes_;
@@ -30,9 +36,9 @@ class BaseSchedulingPolicy : public SchedulingPolicy {
 
  private:
   int batch_id_counter_ = 0;
+  std::unordered_map<int, RequestStats> stats_;
   
 };
-
 
 enum BatchStatus {
   kInitializingStatus,

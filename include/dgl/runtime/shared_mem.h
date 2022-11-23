@@ -70,7 +70,7 @@ class SharedMemory {
    * \param sz the size of the shared memory.
    * \return the address of the shared memory
    */
-  void *CreateNew(size_t sz);
+  void *CreateNew(size_t sz, bool managed=true);
   /*
    * \brief allocate shared memory that has been created.
    * \param sz the size of the shared memory.

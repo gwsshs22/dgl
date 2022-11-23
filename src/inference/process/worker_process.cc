@@ -39,6 +39,9 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto local_init_mon_proxy = system.spawn<init_monitor_proxy_actor>(global_init_mon_ptr);
   system.registry().put(caf::init_mon_atom_v, local_init_mon_proxy);
 
+  auto fin_mon_actor_ptr = system.middleman().remote_lookup(caf::fin_mon_atom_v, node.value());
+  auto fin_mon_actor = caf::actor_cast<caf::actor>(fin_mon_actor_ptr);
+
   auto process_mon_actor_ptr = system.middleman().remote_lookup(caf::process_mon_atom_v, node.value());
   system.registry().put(caf::process_mon_atom_v, process_mon_actor_ptr);
 
@@ -65,10 +68,13 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
       num_devices_per_node,
       using_precomputed_aggregations);
 
-  std::cerr << "Quit to enter:" << std::endl;
-  std::string dummy;
-  std::getline(std::cin, dummy);
+  caf::scoped_actor self { system };
+  std::cout << "Wait for the experiment is finished" << std::endl;
+  auto rh = self->request(fin_mon_actor, std::chrono::minutes(10), caf::wait_atom_v);
+  receive_result<bool>(rh);
 
+  system.middleman().stop();
+  // TODO: proper shutdown
   exit(0);
 }
 

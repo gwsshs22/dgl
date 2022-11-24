@@ -38,27 +38,11 @@ void input_feader_fn(caf::blocking_actor* self,
   auto dst_gnids_vec = std::vector<NDArray>();
 
 
-  auto nd_dict = read_tensor_dict("/home/gwkim/dgl_input_trace/reddit/batch_size_16/0.dgl");
+  auto nd_dict = read_tensor_dict("/home/gwkim/dgl_input_trace/ogbn-papers100M/batch_size_16/0.dgl");
   NDArray new_gnids = nd_dict["new_gnids"];
   NDArray new_features = nd_dict["new_features"];
   NDArray src_gnids = nd_dict["src_gnids"];
   NDArray dst_gnids = nd_dict["dst_gnids"];
-
-
-  // auto cpu_context = DLContext { kDLCPU, 0 };
-
-  // int num_inputs = 10;
-  // int feature_size = 602;
-  // NDArray new_features = NDArray::Empty({num_inputs, feature_size}, DLDataType{kDLFloat, 32, 1}, cpu_context);
-  // float* ptr = (float*)new_features->data;
-  // for (int i = 0; i < num_inputs * feature_size; i++) {
-  //   *ptr++ = (float)(i + 1) / (float)feature_size;
-  // }
-
-  // NDArray new_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }, cpu_context);
-  
-  // NDArray src_gnids = NDArray::FromVector(std::vector<int64_t>{ 10, 10, 10, 10, 10,  3,  4,  0,  7,  9,  0, 12, 13, 14, 15, 9  }, cpu_context);
-  // NDArray dst_gnids = NDArray::FromVector(std::vector<int64_t>{  0,  1, 12, 13, 11, 10, 12, 13, 10, 10, 14, 15, 16, 17, 18, 19 }, cpu_context);
 
   for (int i = 0; i < num_warmup_reqs; i++) {
     auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids, new_features, src_gnids, dst_gnids);

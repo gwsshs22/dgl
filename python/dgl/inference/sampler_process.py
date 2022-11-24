@@ -102,6 +102,8 @@ class SamplerProcess:
         put_tensor(batch_id, "b1_v", b1_v)
         put_tensor(batch_id, "b2_u", b2_u)
         put_tensor(batch_id, "b2_v", b2_v)
+        put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
+        put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
 
     def merge_blocks(self, base_block, org_block, num_shift):
         base_u, base_v = base_block.all_edges()

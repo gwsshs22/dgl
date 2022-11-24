@@ -121,9 +121,11 @@ class GnnExecutorProcess:
         b1_v = load_tensor(batch_id, "b1_v")
         b2_u = load_tensor(batch_id, "b2_u")
         b2_v = load_tensor(batch_id, "b2_v")
+        num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
+        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
         
-        block1 = dgl.to_block(dgl.graph((b1_u, b1_v))).to(self._device)
-        block2 = dgl.to_block(dgl.graph((b2_u, b2_v))).to(self._device)
+        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
+        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False).to(self._device)
 
         org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
         h = torch.concat((new_features, org_features)).to(self._device)
@@ -145,9 +147,11 @@ class GnnExecutorProcess:
         b1_v = load_tensor(batch_id, "b1_v")
         b2_u = load_tensor(batch_id, "b2_u")
         b2_v = load_tensor(batch_id, "b2_v")
-
-        block1 = dgl.to_block(dgl.graph((b1_u, b1_v))).to(self._device)
-        block2 = dgl.to_block(dgl.graph((b2_u, b2_v))).to(self._device)
+        num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
+        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+        
+        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
+        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False).to(self._device)
         
         org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
         h = torch.concat((new_features, org_features)).to(self._device)
@@ -168,7 +172,10 @@ class GnnExecutorProcess:
         b1_u = load_tensor(batch_id, "b1_u")
         b1_v = load_tensor(batch_id, "b1_v")
 
-        block1 = dgl.to_block(dgl.graph((b1_u, b1_v))).to(self._device)
+        num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
+        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+
+        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
 
         org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
         h = torch.concat((new_features, org_features)).to(self._device)

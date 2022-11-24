@@ -30,6 +30,10 @@ void p3_compute(caf::blocking_actor* self,
   std::shared_ptr<runtime::SharedMemory> b1_u_meta;
   NDArray b1_v;
   std::shared_ptr<runtime::SharedMemory> b1_v_meta;
+  NDArray num_src_nodes_list;
+  std::shared_ptr<runtime::SharedMemory> num_src_nodes_list_meta;
+  NDArray num_dst_nodes_list;
+  std::shared_ptr<runtime::SharedMemory> num_dst_nodes_list_meta;
 
   if (node_rank == owner_node_rank) {
     auto bsend_fn = [&](const NDArray& arr) {
@@ -41,11 +45,15 @@ void p3_compute(caf::blocking_actor* self,
     input_gnids = LoadFromSharedMemory(batch_id, "input_gnids");
     b1_u = LoadFromSharedMemory(batch_id, "b1_u");
     b1_v = LoadFromSharedMemory(batch_id, "b1_v");
+    num_src_nodes_list = LoadFromSharedMemory(batch_id, "num_src_nodes_list");
+    num_dst_nodes_list = LoadFromSharedMemory(batch_id, "num_dst_nodes_list");
 
     bsend_fn(new_features);
     bsend_fn(input_gnids);
     bsend_fn(b1_u);
     bsend_fn(b1_v);
+    bsend_fn(num_src_nodes_list);
+    bsend_fn(num_dst_nodes_list);
   } else {
     auto brecv_fn = [&](const std::string& name, NDArray& arr_holder, std::shared_ptr<runtime::SharedMemory>& meta_holder) {
       auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, owner_node_rank, tag);
@@ -62,6 +70,8 @@ void p3_compute(caf::blocking_actor* self,
     brecv_fn("input_gnids", input_gnids, input_gnids_meta);
     brecv_fn("b1_u", b1_u, b1_u_meta);
     brecv_fn("b1_v", b1_v, b1_v_meta);
+    brecv_fn("num_src_nodes_list", num_src_nodes_list, num_src_nodes_list_meta);
+    brecv_fn("num_dst_nodes_list", num_dst_nodes_list, num_dst_nodes_list_meta);
   }
 
   int owner_gpu_global_rank = num_devices_per_node * owner_node_rank + owner_local_rank;

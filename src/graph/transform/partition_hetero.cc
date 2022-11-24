@@ -224,6 +224,7 @@ DGL_REGISTER_GLOBAL("partition._CAPI_DGLPartitionWithHalo_Hetero")
 
     IdArray node_parts = args[1];
     int num_hops = args[2];
+    int target_part = args[3];
 
     CHECK_EQ(node_parts->dtype.bits, 64)
       << "Only supports 64bits tensor for now";
@@ -258,34 +259,54 @@ DGL_REGISTER_GLOBAL("partition._CAPI_DGLPartitionWithHalo_Hetero")
     ugptr->GetInCSR();
     // ugptr->GetOutCSR();
     std::cout << "Build InCSR Done" << std::endl;
-    std::vector<std::shared_ptr<HaloHeteroSubgraph>> subgs(max_part_id + 1);
-    int num_partitions = part_nodes.size();
-    // runtime::parallel_for(0, num_partitions, [&](int b, int e) {
-    //   for (auto i = b; i < e; i++) {
-    //     auto nodes = aten::VecToIdArray(part_nodes[i]);
-    //     HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
-    //     std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
-    //       new HaloHeteroSubgraph(subg));
-    //     int part_id = part_ids[i];
-    //     subgs[part_id] = subg_ptr;
-    //   }
-    // });
 
-    for (auto i = 0; i < num_partitions; i++) {
-      std::cout << "GetSubgraphWithHalo for part-" << i << " starts." << std::endl;
-      auto nodes = aten::VecToIdArray(part_nodes[i]);
-      HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
-      std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
-        new HaloHeteroSubgraph(subg));
-      int part_id = part_ids[i];
-      subgs[part_id] = subg_ptr;
-    }
 
-    List<HeteroSubgraphRef> ret_list;
-    for (size_t i = 0; i < subgs.size(); i++) {
-      ret_list.push_back(HeteroSubgraphRef(subgs[i]));
+
+    if (target_part == -1) {
+      std::vector<std::shared_ptr<HaloHeteroSubgraph>> subgs(max_part_id + 1);
+      int num_partitions = part_nodes.size();
+      // runtime::parallel_for(0, num_partitions, [&](int b, int e) {
+      //   for (auto i = b; i < e; i++) {
+      //     auto nodes = aten::VecToIdArray(part_nodes[i]);
+      //     HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
+      //     std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
+      //       new HaloHeteroSubgraph(subg));
+      //     int part_id = part_ids[i];
+      //     subgs[part_id] = subg_ptr;
+      //   }
+      // });
+
+      for (auto i = 0; i < num_partitions; i++) {
+        std::cout << "GetSubgraphWithHalo for part-" << i << " starts." << std::endl;
+        auto nodes = aten::VecToIdArray(part_nodes[i]);
+        HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
+        std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
+          new HaloHeteroSubgraph(subg));
+        int part_id = part_ids[i];
+        subgs[part_id] = subg_ptr;
+      }
+
+      List<HeteroSubgraphRef> ret_list;
+      for (size_t i = 0; i < subgs.size(); i++) {
+        ret_list.push_back(HeteroSubgraphRef(subgs[i]));
+      }
+      *rv = ret_list;
+    } else {
+      for (int i = 0; i < part_nodes.size(); i++) {
+        if (part_ids[i] == target_part) {
+          std::cout << "GetSubgraphWithHalo for part-" << target_part << " starts." << std::endl;
+          auto nodes = aten::VecToIdArray(part_nodes[i]);
+          HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
+          std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
+            new HaloHeteroSubgraph(subg));
+          int part_id = part_ids[i];
+          List<HeteroSubgraphRef> ret_list;
+          ret_list.push_back(HeteroSubgraphRef(subg_ptr));
+          *rv = ret_list;
+          break;
+        }
+      }
     }
-    *rv = ret_list;
   });
 
 template<class IdType>

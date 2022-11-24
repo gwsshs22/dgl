@@ -28,7 +28,7 @@ def _get_inner_edge_mask(graph, etype_id):
     else:
         return graph.edata['inner_edge'] == 1
 
-def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
+def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False, target_part=-1):
     assert len(node_part) == g.number_of_nodes()
     if reshuffle:
         g, node_part = reshuffle_graph(g, node_part)
@@ -38,7 +38,7 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
     node_part = utils.toindex(node_part)
     start = time.time()
     subgs = c_api_dgl_partition_with_halo_hetero(
-        g._graph, node_part.todgltensor(), extra_cached_hops)
+        g._graph, node_part.todgltensor(), extra_cached_hops, target_part=target_part)
     # g is no longer needed. Free memory.
     g = None
     print('Split the graph: {:.3f} seconds'.format(time.time() - start))
@@ -79,7 +79,26 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
             subg1.edata[EID] = induced_edges[0]
         return subg1
 
-    for i, subg in enumerate(subgs):
+    if target_part == -1:
+        for i, subg in enumerate(subgs):
+            inner_node = _get_halo_heterosubgraph_inner_node(subg)
+            inner_node = F.zerocopy_from_dlpack(inner_node.to_dlpack())
+            subg = create_subgraph(subg, subg.induced_nodes, subg.induced_edges, inner_node)
+            subg.ndata['inner_node'] = inner_node
+            subg.ndata['part_id'] = F.gather_row(node_part, subg.ndata[NID])
+            if reshuffle:
+                subg.ndata['orig_id'] = F.gather_row(orig_nids, subg.ndata[NID])
+                # subg.edata['orig_id'] = F.gather_row(orig_eids, subg.edata[EID])
+
+            # if extra_cached_hops >= 1:
+            #     inner_edge = get_inner_edge(subg, inner_node)
+            # else:
+            #     inner_edge = F.ones((subg.number_of_edges(),), F.int8, F.cpu())
+            # subg.edata['inner_edge'] = inner_edge
+            subg_dict[i] = subg
+    else:
+        assert(len(subgs) == 1)
+        subg = subgs[0]
         inner_node = _get_halo_heterosubgraph_inner_node(subg)
         inner_node = F.zerocopy_from_dlpack(inner_node.to_dlpack())
         subg = create_subgraph(subg, subg.induced_nodes, subg.induced_edges, inner_node)
@@ -94,7 +113,7 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
         # else:
         #     inner_edge = F.ones((subg.number_of_edges(),), F.int8, F.cpu())
         # subg.edata['inner_edge'] = inner_edge
-        subg_dict[i] = subg
+        subg_dict[target_part] = subg
     print('Construct subgraphs: {:.3f} seconds'.format(time.time() - start))
     if reshuffle:
         return subg_dict, orig_nids, orig_eids
@@ -139,7 +158,7 @@ def get_homogeneous(g, balance_ntypes):
 
 def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, part_method="metis",
                     reshuffle=True, balance_ntypes=None, balance_edges=False, return_mapping=False,
-                    num_trainers_per_machine=1, objtype='cut'):
+                    num_trainers_per_machine=1, objtype='cut', target_part=-1):
 
     if objtype not in ['cut', 'vol']:
         raise ValueError
@@ -164,9 +183,9 @@ def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, part_method=
     del g
     gc.collect()
 
-    node_parts = random_choice(num_parts, sim_g.number_of_nodes())
+    node_parts = np.random.choice(num_parts, sim_g.number_of_nodes())
     start = time.time()
-    parts, _, _ = partition_graph_with_halo(sim_g, node_parts, num_hops, reshuffle=reshuffle)
+    parts, _, _ = partition_graph_with_halo(sim_g, node_parts, num_hops, reshuffle=reshuffle, target_part=target_part)
     print('Splitting the graph into partitions takes {:.3f}s, peak mem: {:.3f} GB'.format(
         time.time() - start, get_peak_mem()))
 
@@ -210,7 +229,7 @@ def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, part_method=
                      'ntypes': ntypes,
                      'etypes': etypes}
 
-    for part_id in range(num_parts):
+    for part_id in parts:
         part = parts[part_id]
 
         # Get the node/edge features of each partition.
@@ -269,7 +288,11 @@ def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, part_method=
     print('Save partitions: {:.3f} seconds, peak memory: {:.3f} GB'.format(
         time.time() - start, get_peak_mem()))
 
-    with open('{}/{}.json'.format(out_path, graph_name), 'w') as outfile:
-        json.dump(part_metadata, outfile, sort_keys=True, indent=4)
+    if target_part == -1:
+        with open('{}/{}.json'.format(out_path, graph_name), 'w') as outfile:
+            json.dump(part_metadata, outfile, sort_keys=True, indent=4)
+    else:
+        with open('{}/{}-{}.json'.format(out_path, graph_name, target_part), 'w') as outfile:
+            json.dump(part_metadata, outfile, sort_keys=True, indent=4)
 
     print("Done partitioning")

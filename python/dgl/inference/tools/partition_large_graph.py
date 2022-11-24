@@ -8,6 +8,7 @@ import time
 import sys
 import os
 import gc
+import json
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from .load_graph import load_reddit, load_ogb
@@ -42,21 +43,47 @@ def save_infer_graph(args, org_g):
     dgl.save_graphs(str(output_path / "infer_target_graph.dgl"), infer_target_g)
     print("Build inference target graph done.")
 
-def save_infer_graph_and_partition(args, org_g):
+def partition(args, org_g):
     output_path = Path(args.output)
     os.makedirs(output_path, exist_ok=True)
-
-    save_infer_graph(args, org_g)
 
     # Partition the origin graph
     partition_graph(org_g, args.dataset, args.num_parts, args.output,
                     part_method=args.part_method,
                     balance_ntypes=balance_ntypes,
                     balance_edges=args.balance_edges,
-                    num_trainers_per_machine=args.num_trainers_per_machine)
-    del org_g
-    gc.collect()
+                    num_trainers_per_machine=args.num_trainers_per_machine,
+                    target_part=args.target_part)
 
+
+def finalize(args, org_g):
+    merge_config_files(args)
+    collect_id_mappings(args)
+    fill_node_features(args, org_g)
+    save_infer_target_features(args, org_g)
+    delete_infer_edges(args, org_g)
+
+def merge_config_files(args):
+    if os.path.exists(Path(args.output) / f'{args.dataset}.json'):
+        return
+
+    merged_meta = None
+    for part_id in range(args.num_parts):
+        part_config = Path(args.output) / f'{args.dataset}-{part_id}.json'
+        with open(part_config) as conf_f:
+            part_metadata = json.load(conf_f)
+        if part_id == 0:
+            merged_meta = part_metadata
+            continue
+        
+        merged_meta[f"part-{part_id}"] = part_metadata[f"part-{part_id}"]
+        merged_meta["node_map"]['_N'].append(part_metadata["node_map"]['_N'][0])
+    
+    with open(Path(args.output) / f'{args.dataset}.json', 'w') as outfile:
+        json.dump(merged_meta, outfile, sort_keys=True, indent=4)
+
+
+def collect_id_mappings(args):
     # Collect id mappings to build inference requests later
     orig_ids_in_partitions = []
     global_ids_in_partitions = []
@@ -77,10 +104,6 @@ def save_infer_graph_and_partition(args, org_g):
     id_mappings["global_ids_in_partitions"] = th.concat(global_ids_in_partitions)
     dgl.data.save_tensors(str(Path(args.output) / "id_mappings.dgl"), id_mappings)
 
-def fill_node_features_and_remove_infer_edges(args, org_g):
-    fill_node_features(args, org_g)
-    save_infer_target_features(args, org_g)
-    delete_infer_edges(args, org_g)
 
 def fill_node_features(args, org_g):
     node_features = org_g.ndata['features']
@@ -144,7 +167,8 @@ if __name__ == '__main__':
     argparser.add_argument('--output', type=str, default='data',
                            help='Output path of partitioned graph.')
     argparser.add_argument('--infer_prob', type=float, default=0.1)
-    argparser.add_argument('--stage', type=str, default="all", choices=["partition", "finalize"])
+    argparser.add_argument('--target_part', type=int, default=-1)
+    argparser.add_argument('--stage', type=str, default="all", choices=["save_infer_graph", "partition", "finalize"])
     args = argparser.parse_args()
     np.random.seed(args.random_seed)
     start = time.time()
@@ -175,9 +199,10 @@ if __name__ == '__main__':
         if k != "features":
             del g.ndata[k]
 
-
-    if args.stage == "partition":
+    if args.stage == "save_infer_graph":
+        save_infer_graph(args, g)
+    elif args.stage == "partition":
         del g.ndata["features"]
-        save_infer_graph_and_partition(args, g)
+        partition(args, g)
     elif args.stage == "finalize":
-        fill_node_features_and_remove_infer_edges(args, g)
+        finalize(args, g)

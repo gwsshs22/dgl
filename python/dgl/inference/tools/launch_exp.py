@@ -196,6 +196,7 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
 --result-file-path {args.result_file_path} \
 --node-rank 0 \
 --num-nodes {num_nodes} \
+--num-backup-servers {args.num_backup_servers} \
 --num-devices-per-node {args.num_devices_per_node} \
 --ip-config-path {args.ip_config} \
 --graph-name {args.graph_name} \
@@ -230,6 +231,7 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
 --master-torch-port {master_torch_port} \
 --node-rank {worker_idx} \
 --num-nodes {num_nodes} \
+--num-backup-servers {args.num_backup_servers} \
 --num-devices-per-node {args.num_devices_per_node} \
 --ip-config-path {args.ip_config} \
 --graph-name {args.graph_name} \
@@ -304,7 +306,7 @@ def submit_jobs(args, dry_run=False):
 
     # Start a cleanup process dedicated for cleaning up remote training jobs.
     conn1,conn2 = multiprocessing.Pipe()
-    func = partial(get_all_remote_pids, hosts, args.ssh_port, ".*python.*-m.*dgl.inference.*")
+    func = partial(get_all_remote_pids, hosts, args.ssh_port, ".*python.*-m.*dgl.inference.main*|.*python.*-m.*dgl.inference.fork*")
     process = multiprocessing.Process(target=cleanup_proc, args=(func, conn1))
     process.start()
 
@@ -345,6 +347,7 @@ def main():
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--num_devices_per_node', type=int, required=True)
     parser.add_argument('--ip_config', type=str, required=True)
+    parser.add_argument('--num_backup_servers', type=int, default=3)
     parser.add_argument('--part_config', type=str, required=True)
     parser.add_argument('--graph_name', help="reddit, ogbn-papers100M, ...", required=True)
     parser.add_argument('--iface', type=str, required=True)

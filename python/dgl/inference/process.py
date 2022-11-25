@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--master-torch-port", type=int)
     parser.add_argument("--node-rank", type=int, required=False, default=0)
     parser.add_argument("--num-nodes", type=int)
+    parser.add_argument("--num-backup-servers", type=int, default=3)
     parser.add_argument("--num-devices-per-node", type=int,  required=True)
     parser.add_argument("--ip-config-path", required=True)
     parser.add_argument("--graph-name", required=True)
@@ -69,6 +70,7 @@ def main():
     os.environ[envs.DGL_INFER_MASTER_PORT] = str(args.master_port)
     os.environ[envs.DGL_INFER_MASTER_TORCH_PORT] = str(args.master_torch_port)
     os.environ[envs.DGL_INFER_NODE_RANK] = str(node_rank)
+    os.environ[envs.DGL_INFER_NUM_BACKUP_SERVERS] = str(args.num_backup_servers)
     os.environ[envs.DGL_INFER_NUM_NODES] = str(args.num_nodes)
     os.environ[envs.DGL_INFER_NUM_DEVICES_PER_NODE] = str(args.num_devices_per_node)
     os.environ[envs.DGL_INFER_IP_CONFIG_PATH] = args.ip_config_path
@@ -117,6 +119,7 @@ def fork():
 
     actor_process_role = os.environ[envs.DGL_INFER_ACTOR_PROCESS_ROLE]
     num_nodes = int(os.environ[envs.DGL_INFER_NUM_NODES])
+    num_backup_servers = int(os.environ[envs.DGL_INFER_NUM_BACKUP_SERVERS])
     node_rank = int(os.environ[envs.DGL_INFER_NODE_RANK])
     local_rank = int(os.environ[envs.DGL_INFER_LOCAL_RANK])
     master_host = os.environ[envs.DGL_INFER_MASTER_HOST]
@@ -155,6 +158,7 @@ def fork():
         model = load_model(model_type, num_inputs, num_hiddens, num_outputs, num_layers, heads)
         actor_process = GnnExecutorProcess(channel,
                                            num_nodes,
+                                           num_backup_servers,
                                            node_rank,
                                            num_devices_per_node,
                                            local_rank,
@@ -170,6 +174,7 @@ def fork():
     elif actor_process_role == "graph_server":
         actor_process = GraphServerProcess(channel,
                                            num_nodes,
+                                           num_backup_servers,
                                            node_rank,
                                            num_devices_per_node,
                                            local_rank,
@@ -181,6 +186,7 @@ def fork():
     elif actor_process_role == "sampler":
         actor_process = SamplerProcess(channel,
                                        num_nodes,
+                                       num_backup_servers,
                                        node_rank,
                                        num_devices_per_node,
                                        local_rank,

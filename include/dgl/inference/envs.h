@@ -14,6 +14,7 @@ extern const char* DGL_INFER_MASTER_PORT;
 extern const char* DGL_INFER_NODE_RANK;
 extern const char* DGL_INFER_LOCAL_RANK;
 extern const char* DGL_INFER_NUM_NODES;
+extern const char* DGL_INFER_NUM_BACKUP_SERVERS;
 extern const char* DGL_INFER_NUM_DEVICES_PER_NODE;
 extern const char* DGL_INFER_IFACE;
 extern const char* DGL_INFER_ACTOR_PROCESS_ROLE;

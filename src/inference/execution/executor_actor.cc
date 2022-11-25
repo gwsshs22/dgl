@@ -13,19 +13,23 @@ executor_actor::executor_actor(caf::actor_config& config,
                                caf::strong_actor_ptr mpi_actor_ptr,
                                int node_rank,
                                int num_nodes,
+                               int num_backup_servers,
                                int num_devices_per_node,
                                int required_init_count)
     : event_based_actor(config),
       node_rank_(node_rank),
       num_nodes_(num_nodes),
+      num_backup_servers_(num_backup_servers),
       num_devices_per_node_(num_devices_per_node),
-      required_init_count_(required_init_count + 2) { // Include the common graph_server_actor and gnn_executor_group
+      required_init_count_(required_init_count + 1 + (1 + num_backup_servers)) { // Include the common graph_server_actor and gnn_executor_group
   exec_ctl_actor_ = caf::actor_cast<caf::actor>(exec_ctl_actor_ptr);
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
   gnn_executor_group_ = spawn<caf::linked + caf::monitored>(
         gnn_executor_group, self_ptr, num_devices_per_node);
-  graph_server_actor_ = spawn<graph_server_actor, caf::linked + caf::monitored>(self_ptr);
+  for (int i = 0; i < (1 + num_backup_servers); i++) {
+    auto graph_server = spawn<graph_server_actor, caf::linked + caf::monitored>(self_ptr, i);
+  }
 }
 
 caf::behavior executor_actor::make_behavior() {
@@ -141,17 +145,18 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 const caf::strong_actor_ptr& mpi_actor_ptr,
                                 int node_rank,
                                 int num_nodes,
+                                int num_backup_servers,
                                 int num_devices_per_node,
                                 bool using_precomputed_aggs) {
   if (parallelization_type == ParallelizationType::kData) {
     return system.spawn<data_parallel_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_devices_per_node);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node);
   } else if (parallelization_type == ParallelizationType::kP3) {
     return system.spawn<p3_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_devices_per_node);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node);
   } else {
     return system.spawn<vertex_cut_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_devices_per_node, using_precomputed_aggs);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, using_precomputed_aggs);
   }
 }
 

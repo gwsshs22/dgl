@@ -49,8 +49,8 @@ def main(args):
         filter_set = non_infer_target_ids_in_infer_g.union(set(selected_ids_in_infer_g.tolist()))
 
         def get_mask(infer_g_node_ids):
-            return torch.tensor(list(map(lambda id: id in filter_set, infer_g_node_ids.tolist())), dtype=torch.bool)      
-        
+            return torch.tensor(list(map(lambda id: id in filter_set, infer_g_node_ids.tolist())), dtype=torch.bool)
+
         mask = torch.logical_and(get_mask(u), get_mask(v))
         u = torch.masked_select(u, mask)
         v = torch.masked_select(v, mask)
@@ -78,6 +78,9 @@ def main(args):
             return torch.tensor(ret, dtype=torch.int64)
 
         dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), {
+            "new_orig_ids": new_orig_ids,
+            "src_orig_ids": src_orig_ids,
+            "dst_orig_ids": dst_orig_ids,
             "new_gnids": torch.arange(new_nodes_start_id, new_nodes_start_id + new_gnids.shape[0], dtype=torch.int64),
             "new_features": new_features.type(torch.float32),
             "src_gnids": change_new_gnid(src_gnids),

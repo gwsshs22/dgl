@@ -44,12 +44,14 @@ data_parallel_executor::data_parallel_executor(caf::actor_config& config,
                                                caf::strong_actor_ptr mpi_actor_ptr,
                                                int node_rank,
                                                int num_nodes,
+                                               int num_backup_servers,
                                                int num_devices_per_node)
     : executor_actor(config,
                      exec_ctl_actor_ptr,
                      mpi_actor_ptr,
                      node_rank,
                      num_nodes,
+                     num_backup_servers,
                      num_devices_per_node,
                      num_devices_per_node) {
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);

@@ -11,7 +11,8 @@ class graph_server_actor : public process_control_actor {
 
  public:
   graph_server_actor(caf::actor_config& config,
-                     const caf::strong_actor_ptr& owner_ptr);
+                     const caf::strong_actor_ptr& owner_ptr,
+                     int local_rank);
 
  private:
   EnvSetter MakeEnvSetter() override;

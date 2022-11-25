@@ -5,6 +5,7 @@ class GraphServerProcess:
     def __init__(self,
                  channel,
                  num_nodes,
+                 num_backup_servers,
                  node_rank,
                  num_devices_per_node,
                  local_rank,
@@ -15,6 +16,7 @@ class GraphServerProcess:
                  precom_filename):
         self._channel = channel
         self._num_nodes = num_nodes
+        self._num_backup_servers = num_backup_servers
         self._node_rank = node_rank
         self._num_devices_per_node = num_devices_per_node
         self._local_rank = local_rank
@@ -30,7 +32,7 @@ class GraphServerProcess:
         self._using_precomputed_aggregations = using_precomputed_aggregations
         self._load_batch_partitioned_feats = parallel_type != ParallelizationType.P3
         self._precom_filename = precom_filename
-        self._num_servers = 1 # Number of servers for one machin including backup servers
+        self._num_servers = 1 + self._num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
         self._formats = ["csc"]
@@ -43,7 +45,7 @@ class GraphServerProcess:
 
         rpc.reset()
 
-        serv = DistGraphServer(self._node_rank,
+        serv = DistGraphServer(self._node_rank * self._num_servers + self._local_rank,
                                self._ip_config_path,
                                self._num_servers,
                                self._num_clients,

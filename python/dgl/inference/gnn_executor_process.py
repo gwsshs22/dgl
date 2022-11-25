@@ -14,6 +14,7 @@ class GnnExecutorProcess:
     def __init__(self,
                  channel,
                  num_nodes,
+                 num_backup_servers,
                  node_rank,
                  num_devices_per_node,
                  local_rank,
@@ -28,6 +29,7 @@ class GnnExecutorProcess:
                  num_features):
         self._channel = channel
         self._num_nodes = num_nodes
+        self._num_backup_servers = num_backup_servers
         self._node_rank = node_rank
         self._num_devices_per_node = num_devices_per_node
         self._local_rank = local_rank
@@ -49,7 +51,7 @@ class GnnExecutorProcess:
         self._num_devices_per_node = num_devices_per_node
         self._num_total_gpus = num_nodes * num_devices_per_node
         self._gpu_global_rank = num_devices_per_node * node_rank + local_rank
-        self._num_servers = 1 # Number of servers for one machin including backup servers
+        self._num_servers = 1 + num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
 

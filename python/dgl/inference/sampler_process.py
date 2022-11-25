@@ -11,6 +11,7 @@ class SamplerProcess:
     def __init__(self,
                  channel,
                  num_nodes,
+                 num_backup_servers,
                  node_rank,
                  num_devices_per_node,
                  local_rank,
@@ -21,19 +22,21 @@ class SamplerProcess:
                  graph_config_path):
         self._channel = channel
         self._num_nodes = num_nodes
+        self._num_backup_servers = num_backup_servers
         self._node_rank = node_rank
         self._num_devices_per_node = num_devices_per_node
         self._local_rank = local_rank
+        self._gpu_global_rank = num_devices_per_node * node_rank + local_rank
         self._ip_config_path = ip_config_path
         self._parallel_type = parallel_type
         self._using_precomputed_aggregations = using_precomputed_aggregations
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
 
-        self._num_servers = 1 # Number of servers for one machin including backup servers
+        self._num_servers = 1 + num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
-        self._num_omp_threads = 1
+        self._num_omp_threads = 16
 
     def run(self):
         # From dgl.distributed.initialize

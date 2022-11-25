@@ -48,6 +48,9 @@ def partition_graph(args, old_g):
     new_g = old_g.subgraph(th.logical_not(infer_target_mask))
     del old_g
 
+    if args.save_new_g:
+        dgl.save_graphs(str(output_path / "new_graph.dgl"), new_g)
+
     id_mappings = {
         "new_to_old": new_g.ndata[dgl.NID]
     }
@@ -97,6 +100,7 @@ if __name__ == '__main__':
     argparser.add_argument('--random_seed', type=int, default=42421)  
     argparser.add_argument('--output', type=str, default='data',
                            help='Output path of partitioned graph.')
+    argparser.add_argument('--save_new_g', action='store_true')
     args = argparser.parse_args()
     np.random.seed(args.random_seed)
     start = time.time()

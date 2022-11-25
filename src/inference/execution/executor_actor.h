@@ -19,6 +19,7 @@ class executor_actor : public caf::event_based_actor {
                  caf::strong_actor_ptr mpi_actor_ptr,
                  int node_rank,
                  int num_nodes,
+                 int num_backup_servers,
                  int num_devices_per_node,
                  int required_init_count);
 
@@ -75,6 +76,7 @@ class executor_actor : public caf::event_based_actor {
   int num_initialized_components_ = 0;
   int node_rank_;
   int num_nodes_;
+  int num_backup_servers_;
   int num_devices_per_node_;
 
   std::unordered_map<int, caf::actor> object_storages_;
@@ -122,6 +124,7 @@ class data_parallel_executor : public executor_actor {
                          caf::strong_actor_ptr mpi_actor_ptr,
                          int node_rank,
                          int num_nodes,
+                         int num_backup_servers,
                          int num_devices_per_node);
 
  private:
@@ -148,6 +151,7 @@ class p3_executor : public executor_actor {
               caf::strong_actor_ptr mpi_actor_ptr,
               int node_rank,
               int num_nodes,
+              int num_backup_servers,
               int num_devices_per_node);
 
  private:
@@ -174,6 +178,7 @@ class vertex_cut_executor : public executor_actor {
                       caf::strong_actor_ptr mpi_actor_ptr,
                       int node_rank,
                       int num_nodes,
+                      int num_backup_servers,
                       int num_devices_per_node,
                       bool using_precomputed_aggs);
 
@@ -207,6 +212,7 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 const caf::strong_actor_ptr& mpi_actor_ptr,
                                 int node_rank,
                                 int num_nodes,
+                                int num_backup_servers,
                                 int num_devices_per_node,
                                 bool using_precomputed_aggs);
 

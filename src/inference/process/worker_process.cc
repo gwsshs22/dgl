@@ -18,6 +18,7 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto master_port = GetEnv<u_int16_t>(DGL_INFER_MASTER_PORT, 0);
   auto node_rank = GetEnv<int>(DGL_INFER_NODE_RANK, -1);
   auto num_nodes = GetEnv<int>(DGL_INFER_NUM_NODES, -1);
+  auto num_backup_servers = GetEnv<int>(DGL_INFER_NUM_BACKUP_SERVERS, -1);
   auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
 
@@ -65,6 +66,7 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
       caf::actor_cast<caf::strong_actor_ptr>(mpi_a),
       node_rank,
       num_nodes,
+      num_backup_servers,
       num_devices_per_node,
       using_precomputed_aggregations);
 

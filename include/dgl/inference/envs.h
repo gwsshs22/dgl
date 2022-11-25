@@ -23,6 +23,12 @@ extern const char* DGL_INFER_PARALLELIZATION_TYPE;
 extern const char* DGL_INFER_SCHEDULING_TYPE;
 extern const char* DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS;
 
+extern const char* DGL_INFER_INPUT_TRACE_DIR;
+extern const char* DGL_INFER_NUM_WARMUPS;
+extern const char* DGL_INFER_NUM_REQUESTS;
+extern const char* DGL_INFER_RESULT_FILE_PATH;
+extern const char* DGL_INFER_COLLECT_STATS;
+
 enum ParallelizationType {
   kData = 0,
   kP3 = 1,

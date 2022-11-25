@@ -36,11 +36,17 @@ def main():
 
     # Model parameters
     parser.add_argument("--model", type=str, required=True, choices=["gcn", "sage", "gat"])
-    parser.add_argument('--num_layers', type=int, default=2)
-    parser.add_argument('--num_inputs', type=int, default=32)
-    parser.add_argument('--num_hiddens', type=int, default=32)
-    parser.add_argument('--num_outputs', type=int, default=32)
+    parser.add_argument('--num-layers', type=int, default=2)
+    parser.add_argument('--num-inputs', type=int, default=32)
+    parser.add_argument('--num-hiddens', type=int, default=32)
+    parser.add_argument('--num-outputs', type=int, default=32)
     parser.add_argument('--heads', type=str, default="8,8", help="The number of attention heads for two-layer gat models")
+
+    parser.add_argument('--input-trace-dir', type=str, default="")
+    parser.add_argument('--num-warmups', type=int, default=32)
+    parser.add_argument('--num-requests', type=int, default=258)
+    parser.add_argument('--result-file-path', type=str, default="")
+    parser.add_argument('--collect-stats', action='store_true')
 
     args = parser.parse_args()
 
@@ -49,12 +55,13 @@ def main():
             print(f"The node_rank of master should be 0 but {args.node_rank} is given.")
             exit(-1)
         node_rank = 0
+        assert(args.input_trace_dir)
     else:
         if args.node_rank <= 0:
             print(f"Invalid node_rank {args.node_rank} for a worker.")
             exit(-1)
         node_rank = args.node_rank
-    
+
     assert(not args.using_precomputed_aggregations or args.precom_filename != "")
 
     # TODO: parameter validation
@@ -76,6 +83,14 @@ def main():
     os.environ[envs.DGL_INFER_NUM_HIDDENS] = str(args.num_hiddens)
     os.environ[envs.DGL_INFER_NUM_OUTPUTS] = str(args.num_outputs)
     os.environ[envs.DGL_INFER_HEADS] = args.heads
+
+    os.environ[envs.DGL_INFER_INPUT_TRACE_DIR] = args.input_trace_dir
+    os.environ[envs.DGL_INFER_NUM_WARMUPS] = str(args.num_warmups)
+    os.environ[envs.DGL_INFER_NUM_REQUESTS] = str(args.num_requests)
+
+    
+    os.environ[envs.DGL_INFER_RESULT_FILE_PATH] = args.result_file_path
+    os.environ[envs.DGL_INFER_COLLECT_STATS] = "1" if args.collect_stats else "0"
 
     if args.parallelization_type == "data":
         os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.DATA.value)

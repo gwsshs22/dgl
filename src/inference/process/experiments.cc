@@ -1,5 +1,7 @@
 #include "experiments.h"
 
+#include <fstream>
+
 namespace dgl {
 namespace inference {
 
@@ -25,27 +27,39 @@ std::map<std::string, NDArray> read_tensor_dict(const std::string& filename) {
     return nd_dict;
 }
 
+int get_num_traces(const std::string& input_trace_dir) {
+  int num_traces;
+  std::ifstream infile(input_trace_dir + "/num_traces.txt");
+  infile >> num_traces;
+  return num_traces;
+}
+
 void input_feader_fn(caf::blocking_actor* self,
                      const caf::actor& scheduler,
                      const std::string& input_trace_dir,
                      int num_warmup_reqs,
                      int num_reqs) {
 
-  
+  auto num_traces = get_num_traces(input_trace_dir);
+
   auto new_gnids_vec = std::vector<NDArray>();
   auto new_features_vec = std::vector<NDArray>();
   auto src_gnids_vec = std::vector<NDArray>();
   auto dst_gnids_vec = std::vector<NDArray>();
 
-
-  auto nd_dict = read_tensor_dict("/home/gwkim/dgl_input_trace/ogbn-papers100M/batch_size_16/0.dgl");
-  NDArray new_gnids = nd_dict["new_gnids"];
-  NDArray new_features = nd_dict["new_features"];
-  NDArray src_gnids = nd_dict["src_gnids"];
-  NDArray dst_gnids = nd_dict["dst_gnids"];
+  std::cout << "input_feader start loading (" << num_traces << ") input traces" << std::endl;
+  for (int i = 0; i < num_traces; i++) {
+    auto nd_dict = read_tensor_dict(input_trace_dir + "/" + std::to_string(i) + ".dgl");
+    new_gnids_vec.push_back(nd_dict["new_gnids"]);
+    new_features_vec.push_back(nd_dict["new_features"]);
+    src_gnids_vec.push_back(nd_dict["src_gnids"]);
+    dst_gnids_vec.push_back(nd_dict["dst_gnids"]);
+  }
+  
 
   for (int i = 0; i < num_warmup_reqs; i++) {
-    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids, new_features, src_gnids, dst_gnids);
+    auto idx = i % num_traces;
+    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids_vec[idx], new_features_vec[idx], src_gnids_vec[idx], dst_gnids_vec[idx]);
     receive_result<int>(rh);
   }
 
@@ -54,7 +68,8 @@ void input_feader_fn(caf::blocking_actor* self,
   self->receive([](caf::start_atom){});
 
   for (int i = 0; i < num_reqs; i++) {
-    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids, new_features, src_gnids, dst_gnids);
+    auto idx = i % num_traces;
+    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids_vec[idx], new_features_vec[idx], src_gnids_vec[idx], dst_gnids_vec[idx]);
     receive_result<int>(rh);
   }
 
@@ -77,6 +92,7 @@ caf::behavior result_receiver_fn(caf::stateful_actor<result_receiver_state>* sel
   return  {
     [=](caf::done_atom, int req_id, const NDArray& result, const RequestStats& stats) {
       if (!self->state.warmup_finished) {
+        std::cout << "[WARMUP] req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << ", result=" << result << std::endl;
         self->state.num_done_warmups_reqs++;
         if (self->state.num_done_warmups_reqs == self->state.num_warmups_reqs) {
           self->state.warmup_finished = true;

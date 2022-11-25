@@ -9,8 +9,7 @@ import torch
 
 import dgl
 
-def find_index_of_values(arr, values):
-    sorter = np.argsort(arr)
+def find_index_of_values(arr, sorter, values):
     return sorter[np.searchsorted(arr, values, sorter=sorter)]
 
 def main(args):
@@ -24,6 +23,10 @@ def main(args):
     infer_target_orig_ids = id_mappings["infer_target_orig_ids"]
     infer_target_features = id_mappings["infer_target_features"]
     orig_ids_in_partitions = id_mappings["orig_ids_in_partitions"]
+    orig_ids_in_partitions_sorter = np.argsort(orig_ids_in_partitions)
+
+    infer_g_dgl_nid = infer_g.ndata[dgl.NID]
+    infer_g_dgl_nid_sorter = np.argsort(infer_g_dgl_nid)
 
     new_nodes_start_id = orig_ids_in_partitions.shape[0]
 
@@ -37,7 +40,7 @@ def main(args):
         selected_index_list = np.random.choice(infer_target_orig_ids.shape[0], (args.batch_size,), replace=False)
         new_orig_ids = infer_target_orig_ids[selected_index_list]
 
-        selected_ids_in_infer_g = find_index_of_values(infer_g.ndata[dgl.NID], new_orig_ids)
+        selected_ids_in_infer_g = find_index_of_values(infer_g_dgl_nid, infer_g_dgl_nid_sorter, new_orig_ids)
 
         in_edge_eids = infer_g.in_edges(selected_ids_in_infer_g, 'eid')
         out_edge_eids = infer_g.out_edges(selected_ids_in_infer_g, 'eid')
@@ -55,13 +58,13 @@ def main(args):
         u = torch.masked_select(u, mask)
         v = torch.masked_select(v, mask)
 
-        src_orig_ids = infer_g.ndata[dgl.NID][u]
-        dst_orig_ids = infer_g.ndata[dgl.NID][v]
+        src_orig_ids = infer_g_dgl_nid[u]
+        dst_orig_ids = infer_g_dgl_nid[v]
 
-        new_gnids = find_index_of_values(orig_ids_in_partitions, new_orig_ids)
+        new_gnids = find_index_of_values(orig_ids_in_partitions, orig_ids_in_partitions_sorter, new_orig_ids)
         new_features = infer_target_features[selected_index_list]
-        src_gnids = find_index_of_values(orig_ids_in_partitions, src_orig_ids)
-        dst_gnids = find_index_of_values(orig_ids_in_partitions, dst_orig_ids)
+        src_gnids = find_index_of_values(orig_ids_in_partitions, orig_ids_in_partitions_sorter, src_orig_ids)
+        dst_gnids = find_index_of_values(orig_ids_in_partitions, orig_ids_in_partitions_sorter, dst_orig_ids)
 
         new_gnids_map = {}
         for i, new_gnid in enumerate(new_gnids.tolist()):
@@ -77,16 +80,23 @@ def main(args):
                     ret.append(gnid)
             return torch.tensor(ret, dtype=torch.int64)
 
-        dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), {
-            "new_orig_ids": new_orig_ids,
-            "src_orig_ids": src_orig_ids,
-            "dst_orig_ids": dst_orig_ids,
-            "new_gnids": torch.arange(new_nodes_start_id, new_nodes_start_id + new_gnids.shape[0], dtype=torch.int64),
-            "new_features": new_features.type(torch.float32),
-            "src_gnids": change_new_gnid(src_gnids),
-            "dst_gnids": change_new_gnid(dst_gnids)
-        })
-
+        if args.save_orig_data:
+            dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), {
+                "new_orig_ids": new_orig_ids,
+                "src_orig_ids": src_orig_ids,
+                "dst_orig_ids": dst_orig_ids,
+                "new_gnids": torch.arange(new_nodes_start_id, new_nodes_start_id + new_gnids.shape[0], dtype=torch.int64),
+                "new_features": new_features.type(torch.float32),
+                "src_gnids": change_new_gnid(src_gnids),
+                "dst_gnids": change_new_gnid(dst_gnids)
+            })
+        else:
+            dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), {
+                "new_gnids": torch.arange(new_nodes_start_id, new_nodes_start_id + new_gnids.shape[0], dtype=torch.int64),
+                "new_features": new_features.type(torch.float32),
+                "src_gnids": change_new_gnid(src_gnids),
+                "dst_gnids": change_new_gnid(dst_gnids)
+            })
         if trace_idx % 100 == 0:
             print(f"{trace_idx}-th input trace generated")
 
@@ -98,6 +108,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_traces', type=int, required=True)
     parser.add_argument('--random_seed', type=int, default=451241)
     parser.add_argument('--output', type=str, required=True)
+    parser.add_argument("--save_orig_data", action='store_true')
 
     args = parser.parse_args()
 

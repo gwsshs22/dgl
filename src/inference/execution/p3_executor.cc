@@ -10,6 +10,38 @@ namespace inference {
 
 namespace {
 
+void bsend_fn(caf::blocking_actor* self,
+              const caf::actor& mpi_actor,
+              const std::string name,
+              int batch_id,
+              int task_id) {
+  auto tag = CreateMpiTag(batch_id, TaskType::kCompute, 0, 0, task_id);
+  auto arr = LoadFromSharedMemory(batch_id, name);
+  auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_bsend_atom_v, arr, tag);
+  receive_result<bool>(rh);
+  self->receive([](caf::get_atom) { });
+}
+
+void brecv_fn(caf::blocking_actor* self,
+              const caf::actor& mpi_actor,
+              const std::string name,
+              int owner_node_rank,
+              int batch_id,
+              int task_id) {
+  auto tag = CreateMpiTag(batch_id, TaskType::kCompute, 0, 0, task_id);
+  auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, owner_node_rank, tag);
+  auto arr = receive_result<NDArray>(rh);
+  auto metadata_name = GetArrayMetadataName(batch_id, name);
+  assert(!runtime::SharedMemory::Exist(metadata_name));
+  auto meta_holder = CreateMetadataSharedMem(metadata_name, arr);
+
+  assert(arr->ctx.device_type == kDLCPU);
+  auto arr_holder = CopyToSharedMem(batch_id, name, arr);
+  self->receive([=](caf::get_atom) {
+    return std::make_pair(arr_holder, meta_holder);
+  });
+}
+
 void p3_compute(caf::blocking_actor* self,
                 const caf::actor& mpi_actor,
                 const caf::actor& gnn_executor_group,
@@ -19,8 +51,6 @@ void p3_compute(caf::blocking_actor* self,
                 int num_devices_per_node,
                 int owner_node_rank,
                 int owner_local_rank) {
-  uint32_t tag = CreateMpiTag(batch_id, TaskType::kCompute);
-
   // For receive case. We should hold the shared memory until GNN computation finishes.
   NDArray new_features;
   std::shared_ptr<runtime::SharedMemory> new_features_meta;
@@ -37,42 +67,61 @@ void p3_compute(caf::blocking_actor* self,
 
   if (node_rank == owner_node_rank) {
     TraceMe push_comp_graph(batch_id, "push_comp_graph");
-    auto bsend_fn = [&](const NDArray& arr) {
-      auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_bsend_atom_v, arr, tag);
-      receive_result<bool>(rh);
+
+    std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
+    auto bsend_lambda = [&](const std::string& name, int task_id) {
+      auto actor = self->spawn(bsend_fn, mpi_actor, name, batch_id, task_id);
+      auto rh = self->request(actor, caf::infinite, caf::get_atom_v);
+      return rh;
     };
 
-    new_features = LoadFromSharedMemory(batch_id, "new_features");
-    input_gnids = LoadFromSharedMemory(batch_id, "input_gnids");
-    b1_u = LoadFromSharedMemory(batch_id, "b1_u");
-    b1_v = LoadFromSharedMemory(batch_id, "b1_v");
-    num_src_nodes_list = LoadFromSharedMemory(batch_id, "num_src_nodes_list");
-    num_dst_nodes_list = LoadFromSharedMemory(batch_id, "num_dst_nodes_list");
-
-    bsend_fn(new_features);
-    bsend_fn(input_gnids);
-    bsend_fn(b1_u);
-    bsend_fn(b1_v);
-    bsend_fn(num_src_nodes_list);
-    bsend_fn(num_dst_nodes_list);
+    rh_list.push_back(bsend_lambda("new_features", 0));
+    rh_list.push_back(bsend_lambda("input_gnids", 1));
+    rh_list.push_back(bsend_lambda("b1_u", 2));
+    rh_list.push_back(bsend_lambda("b1_v", 3));
+    rh_list.push_back(bsend_lambda("num_src_nodes_list", 4));
+    rh_list.push_back(bsend_lambda("num_dst_nodes_list", 5));
+    for (int i = 0; i < rh_list.size(); i++) {
+      receive_result<void>(rh_list[i]);
+    }
   } else {
-    auto brecv_fn = [&](const std::string& name, NDArray& arr_holder, std::shared_ptr<runtime::SharedMemory>& meta_holder) {
-      auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, owner_node_rank, tag);
-      auto arr = receive_result<NDArray>(rh);
-      auto metadata_name = GetArrayMetadataName(batch_id, name);
-      assert(!runtime::SharedMemory::Exist(metadata_name));
-      meta_holder = CreateMetadataSharedMem(metadata_name, arr);
-
-      assert(arr->ctx.device_type == kDLCPU);
-      arr_holder = CopyToSharedMem(batch_id, name, arr);
+    std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
+    auto brecv_lambda = [&](const std::string& name, int task_id) {
+      auto actor = self->spawn(brecv_fn, mpi_actor, name, owner_node_rank, batch_id, task_id);
+      auto rh = self->request(actor, caf::infinite, caf::get_atom_v);
+      return rh;
     };
 
-    brecv_fn("new_features", new_features, new_features_meta);
-    brecv_fn("input_gnids", input_gnids, input_gnids_meta);
-    brecv_fn("b1_u", b1_u, b1_u_meta);
-    brecv_fn("b1_v", b1_v, b1_v_meta);
-    brecv_fn("num_src_nodes_list", num_src_nodes_list, num_src_nodes_list_meta);
-    brecv_fn("num_dst_nodes_list", num_dst_nodes_list, num_dst_nodes_list_meta);
+    rh_list.push_back(brecv_lambda("new_features", 0));
+    rh_list.push_back(brecv_lambda("input_gnids", 1));
+    rh_list.push_back(brecv_lambda("b1_u", 2));
+    rh_list.push_back(brecv_lambda("b1_v", 3));
+    rh_list.push_back(brecv_lambda("num_src_nodes_list", 4));
+    rh_list.push_back(brecv_lambda("num_dst_nodes_list", 5));
+
+    auto new_features_result = receive_result<NDArrayWithSharedMeta>(rh_list[0]);
+    new_features = new_features_result.first;
+    new_features_meta = new_features_result.second;
+
+    auto input_gnids_result = receive_result<NDArrayWithSharedMeta>(rh_list[1]);
+    input_gnids = input_gnids_result.first;
+    input_gnids_meta = input_gnids_result.second;
+
+    auto b1_u_result = receive_result<NDArrayWithSharedMeta>(rh_list[2]);
+    b1_u = b1_u_result.first;
+    b1_u_meta = b1_u_result.second;
+
+    auto b1_v_result = receive_result<NDArrayWithSharedMeta>(rh_list[3]);
+    b1_v = b1_v_result.first;
+    b1_v_meta = b1_v_result.second;
+
+    auto num_src_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[4]);
+    num_src_nodes_list = num_src_nodes_list_result.first;
+    num_src_nodes_list_meta = num_src_nodes_list_result.second;
+
+    auto num_dst_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[5]);
+    num_dst_nodes_list = num_dst_nodes_list_result.first;
+    num_dst_nodes_list_meta = num_dst_nodes_list_result.second;
   }
 
   int owner_gpu_global_rank = num_devices_per_node * owner_node_rank + owner_local_rank;

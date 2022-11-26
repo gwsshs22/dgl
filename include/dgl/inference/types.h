@@ -9,6 +9,7 @@ namespace dgl {
 namespace inference {
 
 using NDArray = dgl::runtime::NDArray;
+using NDArrayWithSharedMeta = std::pair<NDArray, std::shared_ptr<runtime::SharedMemory>>;
 using EnvSetter = std::function<void()>;
 
 struct config : caf::actor_system_config {

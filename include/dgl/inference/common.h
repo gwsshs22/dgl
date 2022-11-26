@@ -68,6 +68,7 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
 
   CAF_ADD_TYPE_ID(core_extension, (dgl::runtime::NDArray))
   CAF_ADD_TYPE_ID(core_extension, (std::vector<dgl::runtime::NDArray>))
+  CAF_ADD_TYPE_ID(core_extension, (dgl::inference::NDArrayWithSharedMeta))
   CAF_ADD_TYPE_ID(core_extension, (std::shared_ptr<dgl::runtime::SharedMemory>))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::TaskType))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::RequestStats))
@@ -78,6 +79,7 @@ CAF_END_TYPE_ID_BLOCK(core_extension)
 
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::runtime::NDArray)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(std::shared_ptr<dgl::runtime::SharedMemory>)
+CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::inference::NDArrayWithSharedMeta)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(std::vector<dgl::runtime::NDArray>)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::inference::EnvSetter)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::inference::RequestStats)
@@ -141,9 +143,14 @@ inline void receive_result(caf::response_handle<caf::blocking_actor, caf::messag
   return;
 }
 
+inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank, int local_rank, int task_id) {
+  assert(0 <= task_id && task_id < 0xF);
+  return ((((uint32_t) batch_id) & 0xFF) << 24) + ((((uint32_t) task_type) & 0xF) << 20) +
+      ((((uint32_t) node_rank) & 0xFF) << 12) + ((((uint32_t) local_rank) & 0xFF) << 4) + (((uint32_t)task_id) & 0xF);
+}
+
 inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank, int local_rank) {
-  return ((((uint32_t) batch_id) & 0xFF) << 24) + ((((uint32_t) task_type) & 0xFF) << 16) +
-      ((((uint32_t) node_rank) & 0xFF) << 8) + (((uint32_t)local_rank) & 0xFF);
+  return CreateMpiTag(batch_id, task_type, node_rank, local_rank, 0);
 }
 
 inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank) {

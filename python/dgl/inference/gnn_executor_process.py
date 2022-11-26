@@ -132,12 +132,12 @@ class GnnExecutorProcess:
                 b1_v = load_tensor(batch_id, "b1_v")
                 b2_u = load_tensor(batch_id, "b2_u")
                 b2_v = load_tensor(batch_id, "b2_v")
-                num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
-                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+                num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list").tolist()
+                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
             with trace_me(batch_id, "compute/block_creation"):
-                block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
-                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False)
+                block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0])
+                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=num_dst_nodes_list[1], num_src_nodes=num_src_nodes_list[1])
 
             with trace_me(batch_id, "compute/pull_features"):
                 org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
@@ -174,12 +174,12 @@ class GnnExecutorProcess:
                 b1_v = load_tensor(batch_id, "b1_v")
                 b2_u = load_tensor(batch_id, "b2_u")
                 b2_v = load_tensor(batch_id, "b2_v")
-                num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
-                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+                num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list").tolist()
+                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
             
             with trace_me(batch_id, "compute/block_creation"):
-                block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
-                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False)
+                block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0])
+                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=num_dst_nodes_list[1], num_src_nodes=num_src_nodes_list[1])
             
             with trace_me(batch_id, "compute/prepare_input"):
                 block1 = block1.to(self._device)
@@ -222,10 +222,10 @@ class GnnExecutorProcess:
         b1_u = load_tensor(batch_id, "b1_u")
         b1_v = load_tensor(batch_id, "b1_v")
 
-        num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
-        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+        num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list").tolist()
+        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
-        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
+        block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0]).to(self._device)
 
         org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
         h = torch.concat((new_features, org_features)).to(self._device)
@@ -268,9 +268,9 @@ class GnnExecutorProcess:
                 batch_split = self._get_batch_split_to_gpus(batch_size)
                 batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
 
-                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
-                num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
+                num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list").tolist()
                 input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
 
                 dst_split_1 = load_tensor(batch_id, "dst_split_1")
@@ -282,8 +282,8 @@ class GnnExecutorProcess:
                 b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
 
             with trace_me(batch_id, "compute/block_creation"):
-                block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
-                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False)
+                block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0])
+                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=num_dst_nodes_list[1], num_src_nodes=num_src_nodes_list[1])
 
             with trace_me(batch_id, "compute/prepare_input"):
                 block1 = block1.to(self._device)
@@ -428,7 +428,7 @@ class GnnExecutorProcess:
                 batch_split = self._get_batch_split_to_gpus(batch_size)
                 batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
 
-                num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
+                num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list").tolist()
 
                 b2_input_gnids = load_tensor(batch_id, f"g{self._local_rank}_b2_input_gnids")
                 dst_split_2 = load_tensor(batch_id, f"dst_split_2")
@@ -440,9 +440,10 @@ class GnnExecutorProcess:
                 inc_v = load_tensor(batch_id, f"g{self._local_rank}_inc_v")
 
             with trace_me(batch_id, "compute/block_creation"):
-                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(batch_size), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
+                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=batch_size, num_src_nodes=num_src_nodes_list[0])
                 inc_dst_gnids = b2_input_gnids[dst_split_2[self._gpu_global_rank]:]
-                inc_block = dgl.to_block(dgl.graph((inc_u, inc_v)), torch.arange(inc_dst_gnids.shape[0]), src_nodes=torch.arange(batch_size), include_dst_in_src=False)
+
+                inc_block = dgl.create_block((inc_u, inc_v), num_dst_nodes=inc_dst_gnids.shape[0], num_src_nodes=batch_size)
 
             with trace_me(batch_id, "compute/prepare_input"):
                 block2 = block2.to(self._device)

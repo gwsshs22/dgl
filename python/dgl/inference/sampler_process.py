@@ -130,7 +130,9 @@ class SamplerProcess:
         u = torch.concat((base_u, org_u + num_shift))
         v = torch.concat((base_v, org_v + num_shift))
 
-        merged_block = dgl.to_block(dgl.graph((u, v)), torch.arange(num_shift + org_block.num_dst_nodes()))
+        num_merged_block_srcs = num_shift + org_block.num_src_nodes()
+        num_merged_block_dsts = num_shift + org_block.num_dst_nodes()
+        merged_block = dgl.create_block((u, v), num_src_nodes=num_merged_block_srcs, num_dst_nodes=num_merged_block_dsts)
 
         merged_block.srcdata[dgl.NID] = torch.concat((base_block.srcdata[dgl.NID][:num_shift], org_block.srcdata[dgl.NID]))
         merged_block.dstdata[dgl.NID] = torch.concat((base_block.dstdata[dgl.NID][:num_shift], org_block.dstdata[dgl.NID]))

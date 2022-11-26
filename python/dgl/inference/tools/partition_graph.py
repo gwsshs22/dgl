@@ -8,7 +8,7 @@ import time
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from .load_graph import load_reddit, load_ogb
+from load_graph import load_reddit, load_ogb
 
 def remove_isolated_nodes(g):
     in_degrees = g.in_degrees()

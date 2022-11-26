@@ -20,10 +20,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
-import torch.distributed as dist
 import socket
-CH_PATH = "/home/lightkhan/workspace/dgl/examples/pytorch/graphsage/dist/checkpoints/"
-state = {}
+
 def load_subtensor(g, seeds, input_nodes, device, load_feat=True):
     """
     Copys features and labels of a set of nodes onto GPU.
@@ -61,7 +59,7 @@ class NeighborSampler(object):
         blocks[-1].dstdata['labels'] = batch_labels
         return blocks
 
-class DistSAGE(nn.Module):
+class DistGCN(nn.Module):
     def __init__(self, in_feats, n_hidden, n_classes, n_layers,
                  activation, dropout):
         super().__init__()
@@ -69,22 +67,21 @@ class DistSAGE(nn.Module):
         self.n_hidden = n_hidden
         self.n_classes = n_classes
         self.layers = nn.ModuleList()
-        self.layers.append(dglnn.SAGEConv(in_feats, n_hidden, 'mean'))
+        self.layers.append(dglnn.GraphConv(in_feats, n_hidden, activation=F.relu))
         for i in range(1, n_layers - 1):
-            self.layers.append(dglnn.SAGEConv(n_hidden, n_hidden, 'mean'))
-        self.layers.append(dglnn.SAGEConv(n_hidden, n_classes, 'mean'))
+            self.layers.append(dglnn.GraphConv(n_hidden, n_hidden, activation=F.relu))
+        self.layers.append(dglnn.GraphConv(n_hidden, n_classes))
         self.dropout = nn.Dropout(dropout)
         self.activation = activation
 
     def forward(self, blocks, x):
         h = x
         for l, (layer, block) in enumerate(zip(self.layers, blocks)):
-            h = layer(block, h)
-            if l != len(self.layers) - 1:
-                h = self.activation(h)
+            if l != 0:
                 h = self.dropout(h)
+            h = layer(block, h)
         return h
-
+    
     def inference(self, g, x, batch_size, device):
         """
         Inference with the GraphSAGE model on full neighbors (i.e. without neighbor sampling).
@@ -123,18 +120,17 @@ class DistSAGE(nn.Module):
                 input_nodes = block.srcdata[dgl.NID]
                 output_nodes = block.dstdata[dgl.NID]
                 h = x[input_nodes].to(device)
+                if l != 0:
+                    h = self.dropout(h)
                 h_dst = h[:block.number_of_dst_nodes()]
                 h = layer(block, (h, h_dst))
-                if l != len(self.layers) - 1:
-                    h = self.activation(h)
-                    h = self.dropout(h)
-
+                # if l != len(self.layers) - 1:
+                #     h = self.activation(h)
+                #     h = self.dropout(h)
                 y[output_nodes] = h.cpu()
 
             x = y
             g.barrier()
-        if(g.rank()==7):
-            state['predictions'] = y
         return y
 
 def compute_acc(pred, labels):
@@ -158,14 +154,14 @@ def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device):
     with th.no_grad():
         pred = model.inference(g, inputs, batch_size, device)
     model.train()
-    return pred, compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid])
+    return compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid])
 
 
 def run(args, device, data):
     # Unpack data
     train_nid, val_nid, test_nid, in_feats, n_classes, g = data
     shuffle = True
-
+    # Create sampler
     sampler = NeighborSampler(g, [int(fanout) for fanout in args.fan_out.split(',')],
                               dgl.distributed.sample_neighbors, device)
 
@@ -178,7 +174,7 @@ def run(args, device, data):
         drop_last=False)
 
     # Define model and optimizer
-    model = DistSAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
+    model = DistGCN(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
     if not args.standalone:
         if args.num_gpus == -1:
@@ -188,19 +184,9 @@ def run(args, device, data):
     loss_fcn = nn.CrossEntropyLoss()
     loss_fcn = loss_fcn.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    #if not os.stat(os.path.join(CH_PATH, "model.pt")).st_size == 0:
-        #checkpoint = th.load(os.path.join(CH_PATH, "model.pt"))
-        #model.load_state_dict(checkpoint['model_state_dict'])
-        #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        #epoch = checkpoint['epoch']
-        #print("EPOCH", epoch)
-        #loss = checkpoint['loss']
-        #print("loss", loss)
-        #predictions = checkpoint['predictions']
-        #labels = checkpoint['graph_labels']
-        #print("VAL ACC {}", compute_acc(predictions[val_nid], labels[val_nid]))
-        #print("TEST ACC {}", compute_acc(predictions[test_nid], labels[test_nid]))
+
     train_size = th.sum(g.ndata['train_mask'][0:g.number_of_nodes()])
+
     # Training loop
     iter_tput = []
     epoch = 0
@@ -262,32 +248,14 @@ def run(args, device, data):
         print('Part {}, Epoch Time(s): {:.4f}, sample+data_copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
             g.rank(), toc - tic, sample_time, forward_time, backward_time, update_time, num_seeds, num_inputs))
         epoch += 1
+
+
         if epoch % args.eval_every == 0 and epoch != 0:
             start = time.time()
-            predictions, val_acc, test_acc = evaluate(model.module, g, g.ndata['features'],
+            val_acc, test_acc = evaluate(model.module, g, g.ndata['features'],
                                          g.ndata['labels'], val_nid, test_nid, args.batch_size_eval, device)
             print('Part {}, Val Acc {:.4f}, Test Acc {:.4f}, time: {:.4f}'.format(g.rank(), val_acc, test_acc,
                                                                                   time.time() - start))
-    
-    if (g.rank()==7):
-        state['epoch'] = epoch
-        state['model_state_dict'] = model.state_dict()
-        state['optimizer_state_dict'] = optimizer.state_dict()
-        state['loss'] = loss
-        state['graph_features'] = g.ndata['features']
-        state['graph_labels'] = g.ndata['labels']
-        th.save(state, os.path.join(CH_PATH,"model.pt"))
-        #th.save({
-        #    'epoch': epoch,
-        #    'model_state_dict': model.state_dict(),
-        #    'optimizer_state_dict': optimizer.state_dict(),
-        #    'loss': loss,
-        #    'predictions': predictions,
-        #    'val_acc': val_acc,
-        #    'test_acc': test_acc,
-        #    'graph_features': g.ndata['features'],
-        #    'graph_labels':  g.ndata['labels']
-        #    }, os.path.join(CH_PATH,"model.pt"))
 
 def main(args):
     print(socket.gethostname(), 'Initializing DGL dist')

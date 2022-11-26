@@ -20,7 +20,7 @@ def main(args):
     infer_g = dgl.load_graphs(str(config_path / "infer_target_graph.dgl"))[0][0]
     id_mappings = dgl.data.load_tensors(str(config_path / "id_mappings.dgl"))
 
-    infer_target_orig_ids = id_mappings["infer_target_orig_ids"]
+    infer_target_orig_ids = torch.masked_select(infer_g.ndata[dgl.NID], infer_g.ndata["infer_target_mask"])
     infer_target_features = id_mappings["infer_target_features"]
     orig_ids_in_partitions = id_mappings["orig_ids_in_partitions"]
     orig_ids_in_partitions_sorter = np.argsort(orig_ids_in_partitions)

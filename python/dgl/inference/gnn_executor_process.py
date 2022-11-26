@@ -5,11 +5,13 @@ import numpy as np
 
 from .envs import ParallelizationType
 from .api import *
+from .trace_utils import trace_me, write_traces
 
 class GnnExecutorProcess:
     COMPUTE_REQUEST_TYPE = 0
     P3_OWNER_COMPUTE_REQUEST_TYPE = 1
     P3_OTHER_COMPUTE_REQUEST_TYPE = 2
+    WRITE_TRACES = 1000
 
     def __init__(self,
                  channel,
@@ -26,7 +28,9 @@ class GnnExecutorProcess:
                  graph_name,
                  graph_config_path,
                  model,
-                 num_features):
+                 num_features,
+                 result_dir,
+                 collect_stats):
         self._channel = channel
         self._num_nodes = num_nodes
         self._num_backup_servers = num_backup_servers
@@ -41,6 +45,8 @@ class GnnExecutorProcess:
         self._using_precomputed_aggregations = using_precomputed_aggregations
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
+        self._result_dir = result_dir
+        self._collect_stats = collect_stats
         
         self._device = torch.device(f"cuda:{local_rank}")
         self._cpu_device = torch.device("cpu")
@@ -97,6 +103,8 @@ class GnnExecutorProcess:
             elif request_type == GnnExecutorProcess.P3_OTHER_COMPUTE_REQUEST_TYPE:
                 with torch.no_grad():
                     self.p3_other_compute(req.batch_id, req.param0)
+            elif request_type == GnnExecutorProcess.WRITE_TRACES:
+                write_traces(self._result_dir, self._node_rank)
             else:
                 print(f"Unknown request_type={request_type}")
                 req.done()
@@ -114,57 +122,97 @@ class GnnExecutorProcess:
                 else:
                     self.vertex_cut_compute(batch_id)
 
-
     def data_parallel_compute(self, batch_id):
-        new_features = load_tensor(batch_id, "new_features")
+        with trace_me(batch_id, "compute"):
+            with trace_me(batch_id, "compute/load_tensors"):
+                new_features = load_tensor(batch_id, "new_features")
 
-        input_gnids = load_tensor(batch_id, "input_gnids")
-        b1_u = load_tensor(batch_id, "b1_u")
-        b1_v = load_tensor(batch_id, "b1_v")
-        b2_u = load_tensor(batch_id, "b2_u")
-        b2_v = load_tensor(batch_id, "b2_v")
-        num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
-        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
-        
-        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
-        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False).to(self._device)
+                input_gnids = load_tensor(batch_id, "input_gnids")
+                b1_u = load_tensor(batch_id, "b1_u")
+                b1_v = load_tensor(batch_id, "b1_v")
+                b2_u = load_tensor(batch_id, "b2_u")
+                b2_v = load_tensor(batch_id, "b2_v")
+                num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
+                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
 
-        org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
-        h = torch.concat((new_features, org_features)).to(self._device)
-        h = self._model.layers[0](block1, h)
-        h = self._model.layers[1](block2, h)
-        result = h.to("cpu")
-        put_tensor(batch_id, "result", result)
+            with trace_me(batch_id, "compute/block_creation"):
+                block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
+                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False)
+
+            with trace_me(batch_id, "compute/pull_features"):
+                org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
+
+            with trace_me(batch_id, "compute/prepare_input"):
+                block1 = block1.to(self._device)
+                block2 = block2.to(self._device)
+                h = torch.concat((new_features, org_features)).to(self._device)
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+
+            with trace_me(batch_id, "compute/gnn"):
+                h = self._model.layers[0](block1, h)
+                h = self._model.layers[1](block2, h)
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+
+            with trace_me(batch_id, "compute/put_tensor"):
+                result = h.to("cpu")
+                put_tensor(batch_id, "result", result)
 
     def p3_owner_compute(self, batch_id, owner_gpu_global_rank):
         print(f"p3_owner_compute: self._gpu_global_rank={self._gpu_global_rank}, owner_gpu_global_rank={owner_gpu_global_rank}")
         assert(self._gpu_global_rank == owner_gpu_global_rank)
 
-        new_features = load_tensor(batch_id, "new_features")
-        new_features = new_features[:, self._p3_start_idx:self._p3_end_idx]
+        with trace_me(batch_id, "compute"):
+            with trace_me(batch_id, "compute/load_tensors"):
+                new_features = load_tensor(batch_id, "new_features")
+                new_features = new_features[:, self._p3_start_idx:self._p3_end_idx]
 
-        input_gnids = load_tensor(batch_id, "input_gnids")
+                input_gnids = load_tensor(batch_id, "input_gnids")
 
-        b1_u = load_tensor(batch_id, "b1_u")
-        b1_v = load_tensor(batch_id, "b1_v")
-        b2_u = load_tensor(batch_id, "b2_u")
-        b2_v = load_tensor(batch_id, "b2_v")
-        num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
-        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
-        
-        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
-        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False).to(self._device)
-        
-        org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
-        h = torch.concat((new_features, org_features)).to(self._device)
-        mp_aggr = self._model.layers[0].p3_first_layer_mp(block1, h)
-        for k, v in mp_aggr.items():
-            dist.reduce(v, owner_gpu_global_rank)
-        h = self._model.layers[0].p3_first_layer_dp(block1, mp_aggr)
-        h = self._model.layers[1](block2, h)
+                b1_u = load_tensor(batch_id, "b1_u")
+                b1_v = load_tensor(batch_id, "b1_v")
+                b2_u = load_tensor(batch_id, "b2_u")
+                b2_v = load_tensor(batch_id, "b2_v")
+                num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list")
+                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+            
+            with trace_me(batch_id, "compute/block_creation"):
+                block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
+                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False)
+            
+            with trace_me(batch_id, "compute/prepare_input"):
+                block1 = block1.to(self._device)
+                block2 = block2.to(self._device)
+                org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
+                h = torch.concat((new_features, org_features)).to(self._device)
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
 
-        result = h.to("cpu")
-        put_tensor(batch_id, "result", result)
+            with trace_me(batch_id, "compute/model_parallel"):                
+                mp_aggr = self._model.layers[0].p3_first_layer_mp(block1, h)
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+
+            with trace_me(batch_id, "compute/reduce"):
+                handles = []
+                for k, v in mp_aggr.items():
+                    handles.append(dist.reduce(v, owner_gpu_global_rank, async_op=True))
+                for h in handles:
+                    h.wait()
+                
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+
+            with trace_me(batch_id, "compute/data_parallel"):
+                h = self._model.layers[0].p3_first_layer_dp(block1, mp_aggr)
+                h = self._model.layers[1](block2, h)
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+
+            with trace_me(batch_id, "compute/put_tensor"):
+                result = h.to("cpu")
+                put_tensor(batch_id, "result", result)
 
     def p3_other_compute(self, batch_id, owner_gpu_global_rank):
         new_features = load_tensor(batch_id, "new_features")
@@ -211,78 +259,107 @@ class GnnExecutorProcess:
         return global_start_idx, global_end_idx
 
     def vertex_cut_compute(self, batch_id):
-        # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
-        new_gnids = load_tensor(batch_id, "new_gnids")
-        new_features = load_tensor(batch_id, "new_features")
-        batch_size = new_gnids.shape[0]
-        batch_split = self._get_batch_split_to_gpus(batch_size)
-        batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
+        with trace_me(batch_id, "compute"):
+            with trace_me(batch_id, "compute/load_tensors"):
+                # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
+                new_gnids = load_tensor(batch_id, "new_gnids")
+                new_features = load_tensor(batch_id, "new_features")
+                batch_size = new_gnids.shape[0]
+                batch_split = self._get_batch_split_to_gpus(batch_size)
+                batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
 
-        num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
+                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list")
 
-        num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
-        input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
+                num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
+                input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
 
-        dst_split_1 = load_tensor(batch_id, "dst_split_1")
-        b1_u = load_tensor(batch_id, f"g{self._local_rank}_b1_u")
-        b1_v = load_tensor(batch_id, f"g{self._local_rank}_b1_v")
+                dst_split_1 = load_tensor(batch_id, "dst_split_1")
+                b1_u = load_tensor(batch_id, f"g{self._local_rank}_b1_u")
+                b1_v = load_tensor(batch_id, f"g{self._local_rank}_b1_v")
 
-        dst_split_2 = load_tensor(batch_id, f"dst_split_2")
-        b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
-        b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
+                dst_split_2 = load_tensor(batch_id, f"dst_split_2")
+                b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
+                b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
 
-        block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
-        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False).to(self._device)
+            with trace_me(batch_id, "compute/block_creation"):
+                block1 = dgl.to_block(dgl.graph((b1_u, b1_v)), torch.arange(num_dst_nodes_list[0]), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
+                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(num_dst_nodes_list[1]), src_nodes=torch.arange(num_src_nodes_list[1]), include_dst_in_src=False)
 
-        # Build source features
-        src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]].to(self._device)
-        existing_gnids = input_gnids[batch_split[self._gpu_global_rank]:]
-        src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
+            with trace_me(batch_id, "compute/prepare_input"):
+                block1 = block1.to(self._device)
+                block2 = block2.to(self._device)
+                # Build source features
+                src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]].to(self._device)
+                existing_gnids = input_gnids[batch_split[self._gpu_global_rank]:]
+                src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
 
-        src_feats = torch.concat((src_new_feats, src_existing_feats))
-        assert(src_feats.shape[0] == block1.num_src_nodes())
+                src_feats = torch.concat((src_new_feats, src_existing_feats))
+                assert(src_feats.shape[0] == block1.num_src_nodes())
 
-        h = src_feats
-        h = self.vertex_cut_compute_layer(self._model.layers[0], block1, h, dst_split_1)
-        h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2)
+                h = src_feats
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
 
-        put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
+            h = self.vertex_cut_compute_layer(self._model.layers[0], block1, h, dst_split_1, batch_id, 0)
+            h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2, batch_id, 1)
 
-    def vertex_cut_compute_layer(self, layer, block, src_feats, dst_split):
-        dst_split = dst_split.tolist()
-        num_local_dst_nodes = dst_split[self._gpu_global_rank]
-        req_handles = []
+            with trace_me(batch_id, "compute/put_tensor"):
+                put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
 
-        # All gather dst init values
-        dst_feats = src_feats[:num_local_dst_nodes]
-        input_dst_init_values_map = layer.compute_dst_init_values(block, src_feats, num_local_dst_nodes)
-        output_dst_init_values_map = {}
+    def vertex_cut_compute_layer(self, layer, block, src_feats, dst_split, batch_id, layer_idx):
+        with trace_me(batch_id, f"compute/layer_{layer_idx}"):
+            with trace_me(batch_id, f"compute/layer_{layer_idx}/compute_init_vals"):
+                dst_split = dst_split.tolist()
+                num_local_dst_nodes = dst_split[self._gpu_global_rank]
+                req_handles = []
 
-        if len(input_dst_init_values_map) != 0:
-            for k, input_dst_init_values in input_dst_init_values_map.items():
-                output_dst_init_val, broadcast_req_handles = self.all_gather_dst_init_values(input_dst_init_values, dst_split)
-                for r in broadcast_req_handles:
-                    req_handles.append(r)
-                output_dst_init_values_map[k] = output_dst_init_val
+                # All gather dst init values
+                dst_feats = src_feats[:num_local_dst_nodes]
+                input_dst_init_values_map = layer.compute_dst_init_values(block, src_feats, num_local_dst_nodes)
+                output_dst_init_values_map = {}
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
 
-        for handle in req_handles:
-            handle.wait()
-        req_handles = []
-        # Compute Aggregation
-        input_aggs_map = layer.compute_aggregations(block, src_feats, output_dst_init_values_map)
-        output_aggs_map = {}
+            with trace_me(batch_id, f"compute/layer_{layer_idx}/comm_init_vals"):
+                if len(input_dst_init_values_map) != 0:
+                    for k, input_dst_init_values in input_dst_init_values_map.items():
+                        output_dst_init_val, broadcast_req_handles = self.all_gather_dst_init_values(input_dst_init_values, dst_split)
+                        for r in broadcast_req_handles:
+                            req_handles.append(r)
+                        output_dst_init_values_map[k] = output_dst_init_val
 
-        # All-to-all Aggregation
-        for k, input_aggr in input_aggs_map.items():
-            output_aggr, req_handle = self.all_to_all_aggregation(input_aggr, dst_split)
-            req_handles.append(req_handle)
-            output_aggs_map[k] = output_aggr
+                for handle in req_handles:
+                    handle.wait()
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
 
-        for handle in req_handles:
-            handle.wait()
+            with trace_me(batch_id, f"compute/layer_{layer_idx}/compute_aggregations"):
+                req_handles = []
+                # Compute Aggregation
+                input_aggs_map = layer.compute_aggregations(block, src_feats, output_dst_init_values_map)
+                output_aggs_map = {}
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
 
-        # # Merge all
-        return layer.merge(block, src_feats[:num_local_dst_nodes], output_aggs_map)
+            with trace_me(batch_id, f"compute/layer_{layer_idx}/comm_aggregations"):
+                # All-to-all Aggregation
+                for k, input_aggr in input_aggs_map.items():
+                    output_aggr, req_handle = self.all_to_all_aggregation(input_aggr, dst_split)
+                    req_handles.append(req_handle)
+                    output_aggs_map[k] = output_aggr
+
+                for handle in req_handles:
+                    handle.wait()
+
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+
+            with trace_me(batch_id, f"compute/layer_{layer_idx}/merge"):
+                # # Merge all
+                ret = layer.merge(block, src_feats[:num_local_dst_nodes], output_aggs_map)
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+                return ret
 
     def all_gather_dst_init_values(self, input_tensor, dst_split):
         # TODO OPTIMIZATION: check whether this multiple calls of broadcast underperform or not.
@@ -342,42 +419,55 @@ class GnnExecutorProcess:
         return ret
 
     def vertex_cut_compute_with_precomputed_aggrs(self, batch_id):
-        # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
-        new_gnids = load_tensor(batch_id, "new_gnids")
-        new_features = load_tensor(batch_id, "new_features").to(self._device)
-        batch_size = new_gnids.shape[0]
-        batch_split = self._get_batch_split_to_gpus(batch_size)
-        batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
+        with trace_me(batch_id, "compute"):
+            with trace_me(batch_id, "compute/load_tensors"):
+                # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
+                new_gnids = load_tensor(batch_id, "new_gnids")
+                new_features = load_tensor(batch_id, "new_features").to(self._device)
+                batch_size = new_gnids.shape[0]
+                batch_split = self._get_batch_split_to_gpus(batch_size)
+                batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
 
-        num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
+                num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list")
 
-        b2_input_gnids = load_tensor(batch_id, f"g{self._local_rank}_b2_input_gnids")
-        dst_split_2 = load_tensor(batch_id, f"dst_split_2")
-        b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
-        b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
+                b2_input_gnids = load_tensor(batch_id, f"g{self._local_rank}_b2_input_gnids")
+                dst_split_2 = load_tensor(batch_id, f"dst_split_2")
 
-        block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(batch_size), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False).to(self._device)
+                b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
+                b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
 
-        inc_u = load_tensor(batch_id, f"g{self._local_rank}_inc_u")
-        inc_v = load_tensor(batch_id, f"g{self._local_rank}_inc_v")
+                inc_u = load_tensor(batch_id, f"g{self._local_rank}_inc_u")
+                inc_v = load_tensor(batch_id, f"g{self._local_rank}_inc_v")
 
-        inc_dst_gnids = b2_input_gnids[dst_split_2[self._gpu_global_rank]:]
-        inc_block = dgl.to_block(dgl.graph((inc_u, inc_v)), torch.arange(inc_dst_gnids.shape[0]), src_nodes=torch.arange(batch_size), include_dst_in_src=False).to(self._device)
+            with trace_me(batch_id, "compute/block_creation"):
+                block2 = dgl.to_block(dgl.graph((b2_u, b2_v)), torch.arange(batch_size), src_nodes=torch.arange(num_src_nodes_list[0]), include_dst_in_src=False)
+                inc_dst_gnids = b2_input_gnids[dst_split_2[self._gpu_global_rank]:]
+                inc_block = dgl.to_block(dgl.graph((inc_u, inc_v)), torch.arange(inc_dst_gnids.shape[0]), src_nodes=torch.arange(batch_size), include_dst_in_src=False)
 
-        # Build source features
-        src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]]
-        existing_gnids = b2_input_gnids[batch_split[self._gpu_global_rank]:]
-        src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
+            with trace_me(batch_id, "compute/prepare_input"):
+                block2 = block2.to(self._device)
+                inc_block = inc_block.to(self._device)
+                # Build source features
+                src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]]
+                existing_gnids = b2_input_gnids[batch_split[self._gpu_global_rank]:]
+                src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
 
-        src_feats = torch.concat((src_new_feats, src_existing_feats))
-        assert(src_feats.shape[0] == block2.num_src_nodes())
+                src_feats = torch.concat((src_new_feats, src_existing_feats))
+                assert(src_feats.shape[0] == block2.num_src_nodes())
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
 
-        new_nodes_h = self.vertex_cut_compute_layer(self._model.layers[0], block2, src_feats, dst_split_2)
-        inc_computed_h = self.inc_compute(self._model.layers[0], batch_id, inc_block, inc_dst_gnids, new_features)
+            new_nodes_h = self.vertex_cut_compute_layer(self._model.layers[0], block2, src_feats, dst_split_2, batch_id, 0)
 
-        h = torch.concat((new_nodes_h, inc_computed_h))
-        h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2)
-        put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
+            with trace_me(batch_id, "compute/inc_compute"):
+                inc_computed_h = self.inc_compute(self._model.layers[0], batch_id, inc_block, inc_dst_gnids, new_features)
+                h = torch.concat((new_nodes_h, inc_computed_h))
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
+
+            h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2, batch_id, 1)
+            with trace_me(batch_id, "compute/put_tensor"):
+                put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
 
     def inc_compute(self, first_layer, batch_id, inc_block, inc_dst_gnids, new_features):
         # TODO OPTIMIZATION: precompute some dst value computation for SAGE to remove below dst_features

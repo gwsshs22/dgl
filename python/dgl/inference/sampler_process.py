@@ -3,10 +3,12 @@ import dgl
 
 from .envs import ParallelizationType
 from .api import *
+from .trace_utils import trace_me, write_traces
 
 class SamplerProcess:
     SAMPLE_REQUEST_TYPE = 0
     DATA_PARALLEL_INPUT_FETCH = 1
+    WRITE_TRACES = 1000
 
     def __init__(self,
                  channel,
@@ -19,7 +21,8 @@ class SamplerProcess:
                  parallel_type,
                  using_precomputed_aggregations,
                  graph_name,
-                 graph_config_path):
+                 graph_config_path,
+                 result_dir):
         self._channel = channel
         self._num_nodes = num_nodes
         self._num_backup_servers = num_backup_servers
@@ -32,6 +35,7 @@ class SamplerProcess:
         self._using_precomputed_aggregations = using_precomputed_aggregations
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
+        self._result_dir = result_dir
 
         self._num_servers = 1 + num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
@@ -70,6 +74,8 @@ class SamplerProcess:
                         self.vcut_sample(batch_id)
             elif request_type == SamplerProcess.DATA_PARALLEL_INPUT_FETCH:
                 self.data_parallel_input_fetch(batch_id)
+            elif request_type == SamplerProcess.WRITE_TRACES:
+                write_traces(self._result_dir, self._node_rank)
             else:
                 print(f"Unknown request_type={request_type}")
                 req.done()
@@ -77,36 +83,46 @@ class SamplerProcess:
             req.done()
 
     def sample(self, batch_id):
-        new_gnids = load_tensor(batch_id, "new_gnids")
-        src_gnids = load_tensor(batch_id, "src_gnids")
-        dst_gnids = load_tensor(batch_id, "dst_gnids")
+        with trace_me(batch_id, "sample"):
+            with trace_me(batch_id, "sample/load_tensors"):
+                new_gnids = load_tensor(batch_id, "new_gnids")
+                src_gnids = load_tensor(batch_id, "src_gnids")
+                dst_gnids = load_tensor(batch_id, "dst_gnids")
 
-        batch_size = new_gnids.shape[0]
+            with trace_me(batch_id, "sample/block_creation"):
+                with trace_me(batch_id, "sample/block_creation/second_block"):
+                    batch_size = new_gnids.shape[0]
 
-        input_graph = dgl.graph((src_gnids, dst_gnids))
-        second_block_eids = input_graph.in_edges(new_gnids, 'eid')
-        second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
+                    input_graph = dgl.graph((src_gnids, dst_gnids))
+                    second_block_eids = input_graph.in_edges(new_gnids, 'eid')
+                    second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 
-        base_block_eids = input_graph.in_edges(second_block.srcdata[dgl.NID], 'eid')
-        base_block = dgl.to_block(input_graph.edge_subgraph(base_block_eids, relabel_nodes=False), second_block.srcdata[dgl.NID])
+                with trace_me(batch_id, "sample/block_creation/base_block"):
+                    base_block_eids = input_graph.in_edges(second_block.srcdata[dgl.NID], 'eid')
+                    base_block = dgl.to_block(input_graph.edge_subgraph(base_block_eids, relabel_nodes=False), second_block.srcdata[dgl.NID])
 
-        first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
+                with trace_me(batch_id, "sample/block_creation/first_block"):
+                    first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
 
-        frontier = dgl.distributed.sample_neighbors(self._dist_graph, first_org_block_seed, -1)
-        first_org_block = dgl.to_block(frontier, first_org_block_seed)
+                    with trace_me(batch_id, "sample/block_creation/first_block/sample_neighbors"):
+                        frontier = dgl.distributed.sample_neighbors(self._dist_graph, first_org_block_seed, -1)
+                    with trace_me(batch_id, "sample/block_creation/first_block/to_block"):
+                        first_org_block = dgl.to_block(frontier, first_org_block_seed)
 
-        first_block = self.merge_blocks(base_block, first_org_block, batch_size)
+            with trace_me(batch_id, "sample/merge_block"):
+                first_block = self.merge_blocks(base_block, first_org_block, batch_size)
 
-        b1_u, b1_v = first_block.edges()
-        b2_u, b2_v = second_block.edges()
+            with trace_me(batch_id, "sample/put_tensors"):
+                b1_u, b1_v = first_block.edges()
+                b2_u, b2_v = second_block.edges()
 
-        put_tensor(batch_id, "input_gnids", first_block.srcdata[dgl.NID])
-        put_tensor(batch_id, "b1_u", b1_u)
-        put_tensor(batch_id, "b1_v", b1_v)
-        put_tensor(batch_id, "b2_u", b2_u)
-        put_tensor(batch_id, "b2_v", b2_v)
-        put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
-        put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
+                put_tensor(batch_id, "input_gnids", first_block.srcdata[dgl.NID])
+                put_tensor(batch_id, "b1_u", b1_u)
+                put_tensor(batch_id, "b1_v", b1_v)
+                put_tensor(batch_id, "b2_u", b2_u)
+                put_tensor(batch_id, "b2_v", b2_v)
+                put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
+                put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
 
     def merge_blocks(self, base_block, org_block, num_shift):
         base_u, base_v = base_block.all_edges()
@@ -122,103 +138,122 @@ class SamplerProcess:
         return merged_block
 
     def vcut_sample(self, batch_id):
-        new_gnids = load_tensor(batch_id, "new_gnids")
-        src_gnids = load_tensor(batch_id, "src_gnids")
-        dst_gnids = load_tensor(batch_id, "dst_gnids")
+        with trace_me(batch_id, "sample"):
+            with trace_me(batch_id, "sample/load_tensors"):
+                new_gnids = load_tensor(batch_id, "new_gnids")
+                src_gnids = load_tensor(batch_id, "src_gnids")
+                dst_gnids = load_tensor(batch_id, "dst_gnids")
 
-        batch_size = new_gnids.shape[0]
+            with trace_me(batch_id, "sample/block_creation"):
+                with trace_me(batch_id, "sample/block_creation/second_block"):
+                    batch_size = new_gnids.shape[0]
 
-        input_graph = dgl.graph((src_gnids, dst_gnids))
-        second_block_eids = input_graph.in_edges(new_gnids, 'eid')
-        second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
+                    input_graph = dgl.graph((src_gnids, dst_gnids))
+                    second_block_eids = input_graph.in_edges(new_gnids, 'eid')
+                    second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 
-        base_block_eids = input_graph.in_edges(second_block.srcdata[dgl.NID], 'eid')
-        base_block = dgl.to_block(input_graph.edge_subgraph(base_block_eids, relabel_nodes=False), second_block.srcdata[dgl.NID])
+                with trace_me(batch_id, "sample/block_creation/base_block"):
+                    base_block_eids = input_graph.in_edges(second_block.srcdata[dgl.NID], 'eid')
+                    base_block = dgl.to_block(input_graph.edge_subgraph(base_block_eids, relabel_nodes=False), second_block.srcdata[dgl.NID])
 
-        first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
+                with trace_me(batch_id, "sample/block_creation/first_block"):
+                    first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
 
-        frontier = dgl.distributed.sample_neighbors(self._dist_graph, first_org_block_seed, -1)
-        first_org_block = dgl.to_block(frontier, first_org_block_seed)
+                    with trace_me(batch_id, "sample/block_creation/first_block/sample_neighbors"):
+                        frontier = dgl.distributed.sample_neighbors(self._dist_graph, first_org_block_seed, -1)
+                    with trace_me(batch_id, "sample/block_creation/first_block/to_block"):
+                        first_org_block = dgl.to_block(frontier, first_org_block_seed)
 
-        first_block = self.merge_blocks(base_block, first_org_block, batch_size)
+            with trace_me(batch_id, "sample/merge_block"):
+                first_block = self.merge_blocks(base_block, first_org_block, batch_size)
 
-        first_blocks, first_dst_split = split_blocks(first_block,
-                                    self._gpb.nid2partid(first_block.srcdata[dgl.NID]),
-                                    self._gpb.nid2partid(first_block.dstdata[dgl.NID]),
-                                    self._num_nodes,
-                                    self._num_devices_per_node,
-                                    self._node_rank,
-                                    batch_size)
+            with trace_me(batch_id, "sample/split_first_block"):
+                first_blocks, first_dst_split = split_blocks(first_block,
+                                            self._gpb.nid2partid(first_block.srcdata[dgl.NID]),
+                                            self._gpb.nid2partid(first_block.dstdata[dgl.NID]),
+                                            self._num_nodes,
+                                            self._num_devices_per_node,
+                                            self._node_rank,
+                                            batch_size)
 
-        second_blocks, second_dst_split = split_blocks(second_block,
-                                     self._gpb.nid2partid(second_block.srcdata[dgl.NID]),
-                                     self._gpb.nid2partid(second_block.dstdata[dgl.NID]),
-                                     self._num_nodes,
-                                     self._num_devices_per_node,
-                                     self._node_rank,
-                                     batch_size)
+            with trace_me(batch_id, "sample/split_second_block"):
+                second_blocks, second_dst_split = split_blocks(second_block,
+                                            self._gpb.nid2partid(second_block.srcdata[dgl.NID]),
+                                            self._gpb.nid2partid(second_block.dstdata[dgl.NID]),
+                                            self._num_nodes,
+                                            self._num_devices_per_node,
+                                            self._node_rank,
+                                            batch_size)
 
-        num_dst_nodes_list = torch.tensor((first_blocks[0].num_dst_nodes(), second_blocks[0].num_dst_nodes()))
+            with trace_me(batch_id, "sample/put_tensors"):
+                num_dst_nodes_list = torch.tensor((first_blocks[0].num_dst_nodes(), second_blocks[0].num_dst_nodes()))
 
-        put_tensor(batch_id, "num_dst_nodes_list", num_dst_nodes_list)
-        put_tensor(batch_id, "dst_split_1", first_dst_split)
-        put_tensor(batch_id, "dst_split_2", second_dst_split)
+                put_tensor(batch_id, "num_dst_nodes_list", num_dst_nodes_list)
+                put_tensor(batch_id, "dst_split_1", first_dst_split)
+                put_tensor(batch_id, "dst_split_2", second_dst_split)
 
-        for i in range(self._num_devices_per_node):
-            fb = first_blocks[i]
-            sb = second_blocks[i]
-            b1_u, b1_v = fb.edges()
-            b2_u, b2_v = sb.edges()
+                for i in range(self._num_devices_per_node):
+                    fb = first_blocks[i]
+                    sb = second_blocks[i]
+                    b1_u, b1_v = fb.edges()
+                    b2_u, b2_v = sb.edges()
 
-            num_src_nodes_list = torch.tensor((fb.num_src_nodes(), sb.num_src_nodes()))
-            put_tensor(batch_id, f"g{i}_num_src_nodes_list", num_src_nodes_list)
+                    num_src_nodes_list = torch.tensor((fb.num_src_nodes(), sb.num_src_nodes()))
+                    put_tensor(batch_id, f"g{i}_num_src_nodes_list", num_src_nodes_list)
 
-            put_tensor(batch_id, f"g{i}_input_gnids", fb.srcdata[dgl.NID])
-            put_tensor(batch_id, f"g{i}_b1_u", b1_u)
-            put_tensor(batch_id, f"g{i}_b1_v", b1_v)
-            put_tensor(batch_id, f"g{i}_b2_u", b2_u)
-            put_tensor(batch_id, f"g{i}_b2_v", b2_v)
+                    put_tensor(batch_id, f"g{i}_input_gnids", fb.srcdata[dgl.NID])
+                    put_tensor(batch_id, f"g{i}_b1_u", b1_u)
+                    put_tensor(batch_id, f"g{i}_b1_v", b1_v)
+                    put_tensor(batch_id, f"g{i}_b2_u", b2_u)
+                    put_tensor(batch_id, f"g{i}_b2_v", b2_v)
 
     def vcut_sample_with_precomputed_aggrs(self, batch_id):
-        new_gnids = load_tensor(batch_id, "new_gnids")
-        src_gnids = load_tensor(batch_id, "src_gnids")
-        dst_gnids = load_tensor(batch_id, "dst_gnids")
+        with trace_me(batch_id, "sample"):
+            with trace_me(batch_id, "sample/load_tensors"):
+                new_gnids = load_tensor(batch_id, "new_gnids")
+                src_gnids = load_tensor(batch_id, "src_gnids")
+                dst_gnids = load_tensor(batch_id, "dst_gnids")
 
-        batch_size = new_gnids.shape[0]
+            with trace_me(batch_id, "sample/block_creation"):
+                with trace_me(batch_id, "sample/block_creation/second_block"):
+                    batch_size = new_gnids.shape[0]
 
-        input_graph = dgl.graph((src_gnids, dst_gnids))
-        second_block_eids = input_graph.in_edges(new_gnids, 'eid')
-        second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
+                    input_graph = dgl.graph((src_gnids, dst_gnids))
+                    second_block_eids = input_graph.in_edges(new_gnids, 'eid')
+                    second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 
-        second_blocks, second_dst_split = split_blocks(second_block,
-                                     self._gpb.nid2partid(second_block.srcdata[dgl.NID]),
-                                     self._gpb.nid2partid(second_block.dstdata[dgl.NID]),
-                                     self._num_nodes,
-                                     self._num_devices_per_node,
-                                     self._node_rank,
-                                     batch_size)
-        put_tensor(batch_id, "dst_split_2", second_dst_split)
 
-        for i in range(self._num_devices_per_node):
-            sb = second_blocks[i]
+            with trace_me(batch_id, "sample/split_second_block"):
+                second_blocks, second_dst_split = split_blocks(second_block,
+                                            self._gpb.nid2partid(second_block.srcdata[dgl.NID]),
+                                            self._gpb.nid2partid(second_block.dstdata[dgl.NID]),
+                                            self._num_nodes,
+                                            self._num_devices_per_node,
+                                            self._node_rank,
+                                            batch_size)
 
-            inc_comp_dst_gnids = sb.srcdata[dgl.NID][second_dst_split[i]:]
-            inc_comp_eids = input_graph.in_edges(inc_comp_dst_gnids, 'eid')
-            inc_comp_block = dgl.to_block(input_graph.edge_subgraph(inc_comp_eids, relabel_nodes=False), inc_comp_dst_gnids, src_nodes=new_gnids)
+            with trace_me(batch_id, "sample/put_tensors"):
+                put_tensor(batch_id, "dst_split_2", second_dst_split)
 
-            b2_u, b2_v = sb.edges()
-            inc_u, inc_v = inc_comp_block.edges()
+                for i in range(self._num_devices_per_node):
+                    sb = second_blocks[i]
 
-            num_src_nodes_list = torch.tensor([sb.num_src_nodes()])
+                    inc_comp_dst_gnids = sb.srcdata[dgl.NID][second_dst_split[i]:]
+                    inc_comp_eids = input_graph.in_edges(inc_comp_dst_gnids, 'eid')
+                    inc_comp_block = dgl.to_block(input_graph.edge_subgraph(inc_comp_eids, relabel_nodes=False), inc_comp_dst_gnids, src_nodes=new_gnids)
 
-            put_tensor(batch_id, f"g{i}_num_src_nodes_list", num_src_nodes_list)
-            put_tensor(batch_id, f"g{i}_b2_input_gnids", sb.srcdata[dgl.NID])
-            put_tensor(batch_id, f"g{i}_b2_u", b2_u)
-            put_tensor(batch_id, f"g{i}_b2_v", b2_v)
+                    b2_u, b2_v = sb.edges()
+                    inc_u, inc_v = inc_comp_block.edges()
 
-            put_tensor(batch_id, f"g{i}_inc_u", inc_u)
-            put_tensor(batch_id, f"g{i}_inc_v", inc_v)
+                    num_src_nodes_list = torch.tensor([sb.num_src_nodes()])
 
+                    put_tensor(batch_id, f"g{i}_num_src_nodes_list", num_src_nodes_list)
+                    put_tensor(batch_id, f"g{i}_b2_input_gnids", sb.srcdata[dgl.NID])
+                    put_tensor(batch_id, f"g{i}_b2_u", b2_u)
+                    put_tensor(batch_id, f"g{i}_b2_v", b2_v)
+
+                    put_tensor(batch_id, f"g{i}_inc_u", inc_u)
+                    put_tensor(batch_id, f"g{i}_inc_v", inc_v)
 
     def data_parallel_input_fetch(self, batch_id):
         # It will not be called.

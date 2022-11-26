@@ -24,7 +24,13 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
 
   auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
   auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
+  auto result_dir = GetEnv<std::string>(DGL_INFER_RESULT_DIR, "");
+  auto collect_stats = GetEnv<bool>(DGL_INFER_COLLECT_STATS, false);
   // TODO: env variables validation
+
+  if (collect_stats) {
+    EnableTracing();
+  }
 
   auto node = retry<caf::node_id>([&] {
     return system.middleman().connect(master_host, master_port);
@@ -68,6 +74,8 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
       num_nodes,
       num_backup_servers,
       num_devices_per_node,
+      result_dir,
+      collect_stats,
       using_precomputed_aggregations);
 
   caf::scoped_actor self { system };

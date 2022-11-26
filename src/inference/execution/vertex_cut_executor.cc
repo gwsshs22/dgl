@@ -50,6 +50,32 @@ void fetch_result_fn(caf::blocking_actor* self,
   self->receive([](caf::get_atom) { });
 }
 
+void write_traces_fn(caf::blocking_actor* self,
+                     const std::string& result_dir,
+                     int num_devices_per_node,
+                     int node_rank,
+                     const caf::actor& gnn_executor_group,
+                     const caf::actor& sampler,
+                     caf::response_promise rp) {
+  WriteTraces(result_dir, node_rank);
+
+  auto rh = self->request(sampler, caf::infinite, caf::write_trace_atom_v);
+  receive_result<bool>(rh);
+
+  for (int i = 0; i < num_devices_per_node; i++) {
+    auto rh = self->request(gnn_executor_group,
+                            caf::infinite,
+                            caf::exec_atom_v,
+                            -1,
+                            static_cast<int>(gnn_executor_request_type::kWriteTraces),
+                            i,
+                            -1);
+    receive_result<bool>(rh);
+  }
+
+  rp.deliver(true);  
+}
+
 }
 
 vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
@@ -59,6 +85,8 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
                                          int num_nodes,
                                          int num_backup_servers,
                                          int num_devices_per_node,
+                                         std::string result_dir,
+                                         bool collect_stats,
                                          bool using_precomputed_aggs)
     : executor_actor(config,
                      exec_ctl_actor_ptr,
@@ -67,6 +95,8 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
                      num_nodes,
                      num_backup_servers,
                      num_devices_per_node,
+                     result_dir,
+                     collect_stats,
                      1),
       using_precomputed_aggs_(using_precomputed_aggs) {
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
@@ -132,6 +162,10 @@ void vertex_cut_executor::Cleanup(int batch_id) {
        /* param0 */ -1);
 
   object_storages_.erase(batch_id);
+}
+
+void vertex_cut_executor::WriteExecutorTraces(caf::response_promise rp) {
+  spawn(write_traces_fn, result_dir_, num_devices_per_node_, node_rank_, gnn_executor_group_, sampler_, rp);
 }
 
 }

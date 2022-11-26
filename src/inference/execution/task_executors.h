@@ -7,6 +7,7 @@ namespace inference {
 
 void input_bsend_fn(caf::blocking_actor* self,
                     const caf::actor& mpi_actor,
+                    int batch_id,
                     const NDArray& new_gnids,
                     const NDArray& new_features,
                     const NDArray& src_gnids,
@@ -18,6 +19,7 @@ void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, cons
 void input_send_fn(caf::blocking_actor *self,
                    const caf::actor& mpi_actor,
                    int node_rank,
+                   int batch_id,
                    const NDArray& new_gnids,
                    const NDArray& new_features,
                    const NDArray& src_gnids,
@@ -28,6 +30,7 @@ void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const
 
 void move_input_to_shared_mem_fn(caf::blocking_actor *self,
                                  const caf::actor& object_storage_actor,
+                                 int batch_id,
                                  const NDArray& new_gnids,
                                  const NDArray& new_features,
                                  const NDArray& src_gnids,
@@ -46,6 +49,7 @@ enum gnn_executor_request_type {
   kComputeRequestType = 0,
   kP3OwnerComputeRequest = 1,
   kP3OtherComputeRequest = 2,
+  kWriteTraces = DGL_INFER_WRITE_TRACES_REQUEST_TYPE,
   kCleanupRequestType = DGL_INFER_CLEANUP_REQUEST_TYPE
 };
 

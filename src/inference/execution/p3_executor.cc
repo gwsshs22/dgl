@@ -36,6 +36,7 @@ void p3_compute(caf::blocking_actor* self,
   std::shared_ptr<runtime::SharedMemory> num_dst_nodes_list_meta;
 
   if (node_rank == owner_node_rank) {
+    TraceMe push_comp_graph(batch_id, "push_comp_graph");
     auto bsend_fn = [&](const NDArray& arr) {
       auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_bsend_atom_v, arr, tag);
       receive_result<bool>(rh);
@@ -133,6 +134,34 @@ void fetch_result_fn(caf::blocking_actor* self,
   self->receive([](caf::get_atom) { });
 }
 
+void write_traces_fn(caf::blocking_actor* self,
+                     const std::string& result_dir,
+                     int num_devices_per_node,
+                     int node_rank,
+                     const caf::actor& gnn_executor_group,
+                     const std::vector<caf::actor>& samplers,
+                     caf::response_promise rp) {
+  WriteTraces(result_dir, node_rank);
+
+  for (int i = 0; i < samplers.size(); i++) {
+    auto rh = self->request(samplers[i], caf::infinite, caf::write_trace_atom_v);
+    receive_result<bool>(rh);
+  }
+
+  for (int i = 0; i < num_devices_per_node; i++) {
+    auto rh = self->request(gnn_executor_group,
+                            caf::infinite,
+                            caf::exec_atom_v,
+                            -1,
+                            static_cast<int>(gnn_executor_request_type::kWriteTraces),
+                            i,
+                            -1);
+    receive_result<bool>(rh);
+  }
+
+  rp.deliver(true);  
+}
+
 
 }
 
@@ -142,7 +171,9 @@ p3_executor::p3_executor(caf::actor_config& config,
                          int node_rank,
                          int num_nodes,
                          int num_backup_servers,
-                         int num_devices_per_node)
+                         int num_devices_per_node,
+                         std::string result_dir,
+                         bool collect_stats)
     : executor_actor(config,
                      exec_ctl_actor_ptr,
                      mpi_actor_ptr,
@@ -150,6 +181,8 @@ p3_executor::p3_executor(caf::actor_config& config,
                      num_nodes,
                      num_backup_servers,
                      num_devices_per_node,
+                     result_dir,
+                     collect_stats,
                      num_devices_per_node) {
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
   for (int i = 0; i < num_devices_per_node; i++) {
@@ -207,6 +240,10 @@ void p3_executor::Cleanup(int batch_id, int local_rank) {
        /* param0 */ -1);
 
   object_storages_.erase(batch_id);
+}
+
+void p3_executor::WriteExecutorTraces(caf::response_promise rp) {
+  spawn(write_traces_fn, result_dir_, num_devices_per_node_, node_rank_, gnn_executor_group_, samplers_, rp);
 }
 
 }

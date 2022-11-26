@@ -55,6 +55,7 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   // misc
   CAF_ADD_ATOM(core_extension, caf, start_atom, "start") // start
   CAF_ADD_ATOM(core_extension, caf, wait_warmup_atom, "w_warmup") // start
+  CAF_ADD_ATOM(core_extension, caf, write_trace_atom, "w_traces") // start
 
   // For actor remote lookup
   
@@ -152,6 +153,52 @@ inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank) {
 inline uint32_t CreateMpiTag(int batch_id, TaskType task_type) {
   return CreateMpiTag(batch_id, task_type, 0);
 }
+
+
+extern bool TRACE_ENABLED;
+
+void EnableTracing();
+
+class TraceMe;
+
+void AddTrace(const TraceMe& trace_me);
+
+void WriteTraces(const std::string result_dir, int node_rank);
+
+class TraceMe {
+ public:
+  TraceMe(int batch_id, const char* name): name_(name) {
+    if (TRACE_ENABLED) {
+      batch_id_ = batch_id;
+      start_point_ = std::chrono::steady_clock::now();
+    }
+  }
+
+  ~TraceMe() {
+    if (TRACE_ENABLED) {
+      AddTrace(*this);
+    }
+  }
+
+  inline const int batch_id() const {
+    return batch_id_;
+  }
+
+  inline const char* name() const {
+    return name_;
+  }
+
+  inline const int GetElapsedMicro() const {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_point_).count();
+  }
+
+ private:
+  int batch_id_;
+  const char* name_;
+  std::chrono::time_point<std::chrono::steady_clock> start_point_;
+};
+
+
 
 }
 }

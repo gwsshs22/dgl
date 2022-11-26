@@ -28,8 +28,12 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto input_trace_dir = GetEnv<std::string>(DGL_INFER_INPUT_TRACE_DIR, "");
   auto num_warmup_reqs = GetEnv<int>(DGL_INFER_NUM_WARMUPS, 1);
   auto num_reqs = GetEnv<int>(DGL_INFER_NUM_REQUESTS, 1);
-  auto result_file_path = GetEnv<std::string>(DGL_INFER_RESULT_FILE_PATH, "");
+  auto result_dir = GetEnv<std::string>(DGL_INFER_RESULT_DIR, "");
   auto collect_stats = GetEnv<bool>(DGL_INFER_COLLECT_STATS, false);
+
+  if (collect_stats) {
+    EnableTracing();
+  }
 
   auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
   auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
@@ -83,6 +87,8 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
       num_nodes,
       num_backup_servers,
       num_devices_per_node,
+      result_dir,
+      collect_stats,
       using_precomputed_aggregations);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
@@ -113,6 +119,11 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   std::cout << "Wait for the experiment finished" << std::endl;
   auto exp_fin_rh = self->request(result_receiver, std::chrono::minutes(10), caf::wait_atom_v);
   receive_result<bool>(exp_fin_rh);
+
+  if (collect_stats) {
+    auto rh = self->request(exec_ctl_actor, caf::infinite, caf::write_trace_atom_v);
+    receive_result<bool>(rh);
+  }
 
   auto fin_rh = self->request(fin_mon_actor, caf::infinite, caf::done_atom_v);
   receive_result<bool>(fin_rh);

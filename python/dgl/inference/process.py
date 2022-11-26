@@ -11,6 +11,7 @@ from .models.factory import load_model
 from .graph_server_process import GraphServerProcess
 from .gnn_executor_process import GnnExecutorProcess
 from .sampler_process import SamplerProcess
+from .trace_utils import enable_tracing
 from .._ffi.function import _init_api
 from .._ffi.object import register_object, ObjectBase
 
@@ -46,7 +47,7 @@ def main():
     parser.add_argument('--input-trace-dir', type=str, default="")
     parser.add_argument('--num-warmups', type=int, default=32)
     parser.add_argument('--num-requests', type=int, default=258)
-    parser.add_argument('--result-file-path', type=str, default="")
+    parser.add_argument('--result-dir', type=str, default="")
     parser.add_argument('--collect-stats', action='store_true')
 
     args = parser.parse_args()
@@ -90,9 +91,10 @@ def main():
     os.environ[envs.DGL_INFER_NUM_WARMUPS] = str(args.num_warmups)
     os.environ[envs.DGL_INFER_NUM_REQUESTS] = str(args.num_requests)
 
-    
-    os.environ[envs.DGL_INFER_RESULT_FILE_PATH] = args.result_file_path
+    os.environ[envs.DGL_INFER_RESULT_DIR] = args.result_dir
     os.environ[envs.DGL_INFER_COLLECT_STATS] = "1" if args.collect_stats else "0"
+
+    os.makedirs(args.result_dir, exist_ok=True)
 
     if args.parallelization_type == "data":
         os.environ[envs.DGL_INFER_PARALLELIZATION_TYPE] = str(envs.ParallelizationType.DATA.value)
@@ -142,6 +144,12 @@ def fork():
     using_precomputed_aggregations = envs.get_using_precomputed_aggregations()
     precom_filename = os.environ[envs.DGL_INFER_PRECOM_FILENAME]
 
+    result_dir = os.environ[envs.DGL_INFER_RESULT_DIR]
+    collect_stats = envs.get_collect_stats()
+
+    if collect_stats:
+        enable_tracing()
+
     channel = ActorProcessChannel()
 
     random.seed(random_seed)
@@ -170,7 +178,9 @@ def fork():
                                            graph_name,
                                            graph_config_path,
                                            model,
-                                           num_inputs)
+                                           num_inputs,
+                                           result_dir,
+                                           collect_stats)
     elif actor_process_role == "graph_server":
         actor_process = GraphServerProcess(channel,
                                            num_nodes,
@@ -194,7 +204,8 @@ def fork():
                                        parallel_type,
                                        using_precomputed_aggregations,
                                        graph_name,
-                                       graph_config_path)
+                                       graph_config_path,
+                                       result_dir)
     else:
         print(f"Unknown actor_process_role: {actor_process_role}")
         exit(-1)

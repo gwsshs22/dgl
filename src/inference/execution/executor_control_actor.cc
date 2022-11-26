@@ -17,6 +17,7 @@ void fetch_result_fn(caf::blocking_actor* self,
                      int batch_id,
                      int node_rank,
                      int local_rank) {
+  TraceMe fetch(batch_id, "fetch_result");
   if (node_rank == 0) {
     auto rh = self->request(executor, caf::infinite, caf::direct_fetch_result_atom_v, batch_id, local_rank);
     auto result = receive_result<std::vector<NDArray>>(rh);
@@ -61,7 +62,7 @@ void broadcast_fetch_result_fn(caf::blocking_actor* self,
                                const int num_nodes,
                                const int num_devices_per_node,
                                int batch_id) {
-
+  TraceMe fetch(batch_id, "fetch_result");
   auto rhs = std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>>();
   for (int i = 0; i < num_nodes; i++) {
     if (i == 0) {
@@ -125,6 +126,23 @@ void broadcast_fetch_result_fn(caf::blocking_actor* self,
   int loop_idx = 0;
   self->receive_for(loop_idx, num_nodes * num_devices_per_node) ([&](caf::done_atom) {});
   self->send(scheduler, caf::finished_atom_v, batch_id, result);
+}
+
+void write_traces_fn(caf::blocking_actor* self,
+                     const std::vector<caf::actor>& executors,
+                     caf::response_promise rp) {
+
+  auto rhs = std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>>();
+  for (int i = 0; i < executors.size(); i++) {
+    auto rh = self->request(executors[i], caf::infinite, caf::write_trace_atom_v);
+    rhs.push_back(rh);
+  }
+
+  for (int i = 0; i < rhs.size(); i++) {
+    receive_result<bool>(rhs[i]);
+  }
+
+  rp.deliver(true);
 }
 }
 
@@ -193,7 +211,7 @@ caf::behavior executor_control_actor::running() {
       if (node_rank == 0) {
         send(executors_[node_rank], caf::init_atom_v, batch_id, new_gnids, new_features, src_gnids, dst_gnids);  
       } else {
-        spawn(input_send_fn, mpi_actor_, node_rank, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
+        spawn(input_send_fn, mpi_actor_, node_rank, batch_id, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
         send(executors_[node_rank], caf::init_atom_v, batch_id);
       }
 
@@ -258,7 +276,11 @@ caf::behavior executor_control_actor::running() {
       }
         
     },
-    
+    [&](caf::write_trace_atom) {
+      auto rp = make_response_promise<bool>();
+      spawn(write_traces_fn, executors_, rp);
+      return rp;
+    },
   };
 }
 

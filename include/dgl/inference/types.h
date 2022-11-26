@@ -2,6 +2,7 @@
 
 #include <dgl/runtime/ndarray.h>
 
+#define DGL_INFER_WRITE_TRACES_REQUEST_TYPE 1000
 #define DGL_INFER_CLEANUP_REQUEST_TYPE 99999999
 
 namespace dgl {

@@ -7,6 +7,7 @@ namespace inference {
 namespace {
 static const int SAMPLING_REQUEST = 0;
 static const int DATA_PARALLEL_INPUT_FETCH_REQUEST = 1;
+static const int WRITE_TRACES_REQUEST = DGL_INFER_WRITE_TRACES_REQUEST_TYPE;
 static const int CLEANUP_REQUEST = DGL_INFER_CLEANUP_REQUEST_TYPE;
 }
 
@@ -43,6 +44,13 @@ caf::behavior sampling_actor::make_running_behavior(const caf::actor& req_handle
       auto rp = make_response_promise<bool>();
       uint64_t req_id = req_id_counter_++;
       send(req_handler, caf::request_atom_v, req_id, CLEANUP_REQUEST, batch_id, /* param0 */ -1);
+      rp_map_.emplace(std::make_pair(req_id, rp));
+      return rp;
+    },
+    [=](caf::write_trace_atom) {
+      auto rp = make_response_promise<bool>();
+      uint64_t req_id = req_id_counter_++;
+      send(req_handler, caf::request_atom_v, req_id, WRITE_TRACES_REQUEST, -1, /* param0 */ -1);
       rp_map_.emplace(std::make_pair(req_id, rp));
       return rp;
     },

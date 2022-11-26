@@ -19,7 +19,7 @@ from typing import Optional
 def cleanup_proc(get_all_remote_pids, conn):
     '''This process tries to clean up the remote training tasks.
     '''
-    print('cleanupu process runs')
+    print('cleanup process runs')
     # This process should not handle SIGINT.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
@@ -193,7 +193,7 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
 --input-trace-dir {args.input_trace_dir} \
 --num-warmups {args.num_warmups} \
 --num-requests {args.num_requests} \
---result-file-path {args.result_file_path} \
+--result-dir {args.result_dir} \
 --node-rank 0 \
 --num-nodes {num_nodes} \
 --num-backup-servers {args.num_backup_servers} \
@@ -229,6 +229,7 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
 --master-host {master_host} \
 --master-port {master_port} \
 --master-torch-port {master_torch_port} \
+--result-dir {args.result_dir} \
 --node-rank {worker_idx} \
 --num-nodes {num_nodes} \
 --num-backup-servers {args.num_backup_servers} \
@@ -246,6 +247,8 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
     if args.using_precomputed_aggregations:
         cmd += " --using-precomputed-aggregations"
         cmd += f" --precom-filename {args.precom_filename}"
+    if args.collect_stats:
+        cmd += " --collect-stats"
 
     return cmd
 
@@ -363,7 +366,7 @@ def main():
     parser.add_argument('--input_trace_dir', type=str, required=True)
     parser.add_argument('--num_warmups', type=int, required=True)
     parser.add_argument('--num_requests', type=int, required=True)
-    parser.add_argument('--result_file_path', type=str, required=True)
+    parser.add_argument('--result_dir', type=str, required=True)
     parser.add_argument('--collect_stats', action='store_true')
 
     args = parser.parse_args()

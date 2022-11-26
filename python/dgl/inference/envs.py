@@ -32,7 +32,7 @@ DGL_INFER_HEADS = "DGL_INFER_HEADS"
 DGL_INFER_INPUT_TRACE_DIR = "DGL_INFER_INPUT_TRACE_DIR"
 DGL_INFER_NUM_WARMUPS =  "DGL_INFER_NUM_WARMUPS"
 DGL_INFER_NUM_REQUESTS =  "DGL_INFER_NUM_REQUESTS"
-DGL_INFER_RESULT_FILE_PATH = "DGL_INFER_RESULT_FILE_PATH"
+DGL_INFER_RESULT_DIR = "DGL_INFER_RESULT_DIR"
 DGL_INFER_COLLECT_STATS = "DGL_INFER_COLLECT_STATS"
 
 class ParallelizationType(Enum):
@@ -57,3 +57,12 @@ def get_using_precomputed_aggregations():
         return True
     else:
         print(f"Unknown DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS={DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS}. It should be 0 or 1")
+
+def get_collect_stats():
+    s = os.environ[DGL_INFER_COLLECT_STATS]
+    if s == "0":
+        return False
+    elif s == "1":
+        return True
+    else:
+        print(f"Unknown DGL_INFER_COLLECT_STATS={DGL_INFER_COLLECT_STATS}. It should be 0 or 1")

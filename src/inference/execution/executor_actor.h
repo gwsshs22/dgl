@@ -21,6 +21,8 @@ class executor_actor : public caf::event_based_actor {
                  int num_nodes,
                  int num_backup_servers,
                  int num_devices_per_node,
+                 std::string result_dir,
+                 bool collect_stats,
                  int required_init_count);
 
  protected:
@@ -56,6 +58,10 @@ class executor_actor : public caf::event_based_actor {
     throw std::runtime_error("FetchResult not implemented");
   }
 
+  virtual void WriteExecutorTraces(caf::response_promise rp) {
+    throw std::runtime_error("WriteTraces not implemented");
+  }
+
   void ReportTaskDone(TaskType task_type, int batch_id);
 
   template <typename T, typename F>
@@ -74,10 +80,12 @@ class executor_actor : public caf::event_based_actor {
   caf::actor graph_server_actor_;
 
   int num_initialized_components_ = 0;
-  int node_rank_;
-  int num_nodes_;
-  int num_backup_servers_;
-  int num_devices_per_node_;
+  const int node_rank_;
+  const int num_nodes_;
+  const int num_backup_servers_;
+  const int num_devices_per_node_;
+  const std::string result_dir_;
+  const bool collect_stats_;
 
   std::unordered_map<int, caf::actor> object_storages_;
 
@@ -125,7 +133,9 @@ class data_parallel_executor : public executor_actor {
                          int node_rank,
                          int num_nodes,
                          int num_backup_servers,
-                         int num_devices_per_node);
+                         int num_devices_per_node,
+                         std::string result_dir,
+                         bool collect_stats);
 
  private:
   void Sampling(int batch_id, int local_rank);
@@ -140,6 +150,8 @@ class data_parallel_executor : public executor_actor {
 
   void Cleanup(int batch_id, int local_rank);
 
+  void WriteExecutorTraces(caf::response_promise rp) override;
+
   std::vector<caf::actor> samplers_;
 };
 
@@ -152,7 +164,9 @@ class p3_executor : public executor_actor {
               int node_rank,
               int num_nodes,
               int num_backup_servers,
-              int num_devices_per_node);
+              int num_devices_per_node,
+              std::string result_dir,
+              bool collect_stats);
 
  private:
   void Sampling(int batch_id, int local_rank) override;
@@ -167,6 +181,8 @@ class p3_executor : public executor_actor {
 
   void Cleanup(int batch_id, int local_rank);
 
+  void WriteExecutorTraces(caf::response_promise rp) override;
+
   std::vector<caf::actor> samplers_;
 };
 
@@ -180,6 +196,8 @@ class vertex_cut_executor : public executor_actor {
                       int num_nodes,
                       int num_backup_servers,
                       int num_devices_per_node,
+                      std::string result_dir,
+                      bool collect_stats,
                       bool using_precomputed_aggs);
 
  private:
@@ -201,6 +219,8 @@ class vertex_cut_executor : public executor_actor {
 
   void Cleanup(int batch_id);
 
+  void WriteExecutorTraces(caf::response_promise rp) override;
+
   const bool using_precomputed_aggs_;
 
   caf::actor sampler_;
@@ -214,6 +234,8 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 int num_nodes,
                                 int num_backup_servers,
                                 int num_devices_per_node,
+                                std::string result_dir,
+                                bool collect_stats,
                                 bool using_precomputed_aggs);
 
 }

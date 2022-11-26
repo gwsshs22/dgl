@@ -15,12 +15,16 @@ executor_actor::executor_actor(caf::actor_config& config,
                                int num_nodes,
                                int num_backup_servers,
                                int num_devices_per_node,
+                               std::string result_dir,
+                               bool collect_stats,
                                int required_init_count)
     : event_based_actor(config),
       node_rank_(node_rank),
       num_nodes_(num_nodes),
       num_backup_servers_(num_backup_servers),
       num_devices_per_node_(num_devices_per_node),
+      result_dir_(result_dir),
+      collect_stats_(collect_stats),
       required_init_count_(required_init_count + 1 + (1 + num_backup_servers)) { // Include the common graph_server_actor and gnn_executor_group
   exec_ctl_actor_ = caf::actor_cast<caf::actor>(exec_ctl_actor_ptr);
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
@@ -58,9 +62,10 @@ void executor_actor::ReportTaskDone(TaskType task_type, int batch_id) {
 caf::behavior executor_actor::make_running_behavior() {
   return {
     [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& new_features, const NDArray& src_gnids, const NDArray& dst_gnids) {
+      TraceMe input_send(batch_id, "input_send");
       auto obj_storage_actor = spawn(object_storage_actor, batch_id);
       object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
-      auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, new_gnids, new_features, src_gnids, dst_gnids);
+      auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
       RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
     },
     [&](caf::init_atom, int batch_id) {
@@ -69,7 +74,7 @@ caf::behavior executor_actor::make_running_behavior() {
       auto receiver = spawn(input_recv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
       request(receiver, caf::infinite, caf::get_atom_v).then(
         [=](const std::vector<NDArray>& ret) {
-          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, ret[0], ret[1], ret[2], ret[3]);
+          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, ret[0], ret[1], ret[2], ret[3]);
           RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
         },
         [&](caf::error& err) {
@@ -80,10 +85,10 @@ caf::behavior executor_actor::make_running_behavior() {
     [&](caf::broadcast_init_atom, int batch_id, const NDArray& new_gnids, const NDArray& new_features, const NDArray& src_gnids, const NDArray& dst_gnids) {
       auto obj_storage_actor = spawn(object_storage_actor, batch_id);
       object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
-      auto broadcaster = spawn(input_bsend_fn, mpi_actor_, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
+      auto broadcaster = spawn(input_bsend_fn, mpi_actor_, batch_id, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
       request(broadcaster, caf::infinite, caf::get_atom_v).then(
         [=]() {
-          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, new_gnids, new_features, src_gnids, dst_gnids);
+          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
           RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
         },
         [&](caf::error& err) {
@@ -97,7 +102,7 @@ caf::behavior executor_actor::make_running_behavior() {
       auto receiver = spawn(input_brecv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
       request(receiver, caf::infinite, caf::get_atom_v).then(
         [=](const std::vector<NDArray>& ret) {
-          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, ret[0], ret[1], ret[2], ret[3]);
+          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, ret[0], ret[1], ret[2], ret[3]);
           RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
         },
         [&](caf::error& err) {
@@ -135,6 +140,11 @@ caf::behavior executor_actor::make_running_behavior() {
     },
     [&](caf::fetch_result_atom, int batch_id, int local_rank) {
       FetchResult(batch_id, local_rank);
+    },
+    [&](caf::write_trace_atom) {
+      auto rp = make_response_promise<bool>();
+      WriteExecutorTraces(rp);
+      return rp;
     }
   };
 }
@@ -147,16 +157,18 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 int num_nodes,
                                 int num_backup_servers,
                                 int num_devices_per_node,
+                                std::string result_dir,
+                                bool collect_stats,
                                 bool using_precomputed_aggs) {
   if (parallelization_type == ParallelizationType::kData) {
     return system.spawn<data_parallel_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, result_dir, collect_stats);
   } else if (parallelization_type == ParallelizationType::kP3) {
     return system.spawn<p3_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, result_dir, collect_stats);
   } else {
     return system.spawn<vertex_cut_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, using_precomputed_aggs);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, result_dir, collect_stats, using_precomputed_aggs);
   }
 }
 

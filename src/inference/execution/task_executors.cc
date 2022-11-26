@@ -6,11 +6,13 @@ namespace inference {
 
 void input_bsend_fn(caf::blocking_actor* self,
                     const caf::actor& mpi_actor,
+                    int batch_id,
                     const NDArray& new_gnids,
                     const NDArray& new_features,
                     const NDArray& src_gnids,
                     const NDArray& dst_gnids,
                     const uint32_t tag) {
+  TraceMe send(batch_id, "input_send");
   auto fn = [&](const NDArray& arr) {
     auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_bsend_atom_v, arr, tag);
     receive_result<bool>(rh);
@@ -49,11 +51,13 @@ void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, cons
 void input_send_fn(caf::blocking_actor *self,
                    const caf::actor& mpi_actor,
                    int node_rank,
+                   int batch_id,
                    const NDArray& new_gnids,
                    const NDArray& new_features,
                    const NDArray& src_gnids,
                    const NDArray& dst_gnids,
                    const uint32_t tag) {
+  TraceMe send(batch_id, "input_send");
   auto fn = [&](const NDArray& arr) {
     auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_send_atom_v, node_rank, arr, tag);
     receive_result<bool>(rh);
@@ -88,10 +92,12 @@ void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const
 
 void move_input_to_shared_mem_fn(caf::blocking_actor *self,
                                  const caf::actor& object_storage_actor,
+                                 int batch_id,
                                  const NDArray& new_gnids,
                                  const NDArray& new_features,
                                  const NDArray& src_gnids,
                                  const NDArray& dst_gnids) {
+  TraceMe move_input(batch_id, "input_copy_to_shared_mem");
   auto fn = [&](const std::string& name, const NDArray& arr) {
     auto rh = self->request(object_storage_actor, caf::infinite, caf::put_atom_v, name, arr);
     receive_result<bool>(rh);

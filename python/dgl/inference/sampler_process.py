@@ -1,10 +1,16 @@
+from collections import namedtuple
+
 import torch # Can implement with NDArrays, but we stick to pytorch now
 import dgl
+import torch.distributed as dist
 
 from .envs import ParallelizationType
 from .api import *
 from .trace_utils import trace_me, write_traces
 from ..utils import measure
+from dgl import backend as F
+
+LocalSampledGraph = namedtuple('LocalSampledGraph', 'global_src global_dst')
 
 class SamplerProcess:
     SAMPLE_REQUEST_TYPE = 0
@@ -18,6 +24,7 @@ class SamplerProcess:
                  node_rank,
                  num_devices_per_node,
                  local_rank,
+                 master_host,
                  ip_config_path,
                  parallel_type,
                  using_precomputed_aggregations,
@@ -30,6 +37,7 @@ class SamplerProcess:
         self._node_rank = node_rank
         self._num_devices_per_node = num_devices_per_node
         self._local_rank = local_rank
+        self._master_host = master_host
         self._gpu_global_rank = num_devices_per_node * node_rank + local_rank
         self._ip_config_path = ip_config_path
         self._parallel_type = parallel_type
@@ -41,7 +49,7 @@ class SamplerProcess:
         self._num_servers = 1 + num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
-        self._num_omp_threads = 16
+        self._num_omp_threads = 32
 
     def run(self):
         # From dgl.distributed.initialize
@@ -59,6 +67,13 @@ class SamplerProcess:
 
         self._dist_graph = dgl.distributed.DistGraph(self._graph_name, part_config=self._graph_config_path)
         self._gpb = self._dist_graph.get_partition_book()
+
+        if self._parallel_type == ParallelizationType.VERTEX_CUT:
+            dist.init_process_group(
+                backend='gloo',
+                init_method=f'tcp://{self._master_host}:41520',
+                rank=self._node_rank,
+                world_size=self._num_nodes)
 
         self._channel.notify_initialized()
         while True:
@@ -83,6 +98,25 @@ class SamplerProcess:
                 exit(-1)
             req.done()
 
+    def sample_neighbors(self, seed, fanout):
+        return dgl.distributed.sample_neighbors(self._dist_graph, seed, -1, include_eid=False, return_only_edges=True)
+
+    def merge_graphs(self, res_list, num_nodes):
+        """Merge request from multiple servers"""
+        if len(res_list) > 1:
+            srcs = []
+            dsts = []
+            for res in res_list:
+                srcs.append(res.global_src)
+                dsts.append(res.global_dst)
+            src_tensor = F.cat(srcs, 0)
+            dst_tensor = F.cat(dsts, 0)
+        else:
+            src_tensor = res_list[0].global_src
+            dst_tensor = res_list[0].global_dst
+        g = dgl.graph((src_tensor, dst_tensor), num_nodes=num_nodes)
+        return g
+
     def sample(self, batch_id):
         with trace_me(batch_id, "sample"):
             with trace_me(batch_id, "sample/load_tensors"):
@@ -98,20 +132,16 @@ class SamplerProcess:
                     second_block_eids = input_graph.in_edges(new_gnids, 'eid')
                     second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 
-                with trace_me(batch_id, "sample/block_creation/base_block"):
-                    base_block_eids = input_graph.in_edges(second_block.srcdata[dgl.NID], 'eid')
-                    base_block = dgl.to_block(input_graph.edge_subgraph(base_block_eids, relabel_nodes=False), second_block.srcdata[dgl.NID])
-
                 with trace_me(batch_id, "sample/block_creation/first_block"):
-                    first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
-
                     with trace_me(batch_id, "sample/block_creation/first_block/sample_neighbors"):
-                        frontier = dgl.distributed.sample_neighbors(self._dist_graph, first_org_block_seed, -1)
+                        first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
+                        sampled_edges = self.sample_neighbors(first_org_block_seed, -1)
+                    
                     with trace_me(batch_id, "sample/block_creation/first_block/to_block"):
-                        first_org_block = dgl.to_block(frontier, first_org_block_seed)
-
-            with trace_me(batch_id, "sample/merge_block"):
-                first_block = self.merge_blocks(base_block, first_org_block, batch_size)
+                        base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
+                        base_edges = LocalSampledGraph(base_src, base_dst)
+                        sampled_edges.insert(0, base_edges)
+                        first_block = dgl.to_block(self.merge_graphs(sampled_edges, new_gnids[-1] + 1), second_block.srcdata[dgl.NID])
 
             with trace_me(batch_id, "sample/put_tensors"):
                 b1_u, b1_v = first_block.edges()
@@ -155,20 +185,16 @@ class SamplerProcess:
                     second_block_eids = input_graph.in_edges(new_gnids, 'eid')
                     second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 
-                with trace_me(batch_id, "sample/block_creation/base_block"):
-                    base_block_eids = input_graph.in_edges(second_block.srcdata[dgl.NID], 'eid')
-                    base_block = dgl.to_block(input_graph.edge_subgraph(base_block_eids, relabel_nodes=False), second_block.srcdata[dgl.NID])
-
                 with trace_me(batch_id, "sample/block_creation/first_block"):
-                    first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
-
                     with trace_me(batch_id, "sample/block_creation/first_block/sample_neighbors"):
-                        frontier = dgl.distributed.sample_neighbors(self._dist_graph, first_org_block_seed, -1)
+                        first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
+                        sampled_edges = self.vcut_sample_neighbors(first_org_block_seed, -1, batch_id)
+                    
                     with trace_me(batch_id, "sample/block_creation/first_block/to_block"):
-                        first_org_block = dgl.to_block(frontier, first_org_block_seed)
-
-            with trace_me(batch_id, "sample/merge_block"):
-                first_block = self.merge_blocks(base_block, first_org_block, batch_size)
+                        base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
+                        base_edges = LocalSampledGraph(base_src, base_dst)
+                        sampled_edges.insert(0, base_edges)
+                        first_block = dgl.to_block(self.merge_graphs(sampled_edges, new_gnids[-1] + 1), second_block.srcdata[dgl.NID])
 
             with trace_me(batch_id, "sample/split_first_block"):
                 first_blocks, first_dst_split = split_blocks(first_block,
@@ -209,6 +235,65 @@ class SamplerProcess:
                     put_tensor(batch_id, f"g{i}_b1_v", b1_v)
                     put_tensor(batch_id, f"g{i}_b2_u", b2_u)
                     put_tensor(batch_id, f"g{i}_b2_v", b2_v)
+
+    def vcut_sample_neighbors(self, seed, fanout, batch_id):
+        assert fanout == -1, "Currently only support full sampling"
+        local_graph = self._dist_graph.local_partition
+        part_ids = self._gpb.nid2partid(seed)
+        local_gnids = F.boolean_mask(seed, part_ids == self._node_rank)
+        local_nids = self._gpb.nid2localnid(local_gnids, self._node_rank)
+
+        global_nid_mapping = local_graph.ndata[dgl.NID]
+        src, dst = local_graph.in_edges(local_nids)
+        global_src, global_dst = F.gather_row(global_nid_mapping, src), \
+            F.gather_row(global_nid_mapping, dst)
+
+        global_src_part_ids = self._gpb.nid2partid(global_src)
+
+        global_src_list, global_dst_list = split_local_edges(global_src, global_dst, global_src_part_ids, self._num_nodes)
+
+        num_edges_per_partition = torch.tensor(list(map(lambda l: len(l), global_src_list)), dtype=torch.int64)
+
+        all_num_edges_per_partition = torch.zeros((self._num_nodes * self._num_nodes), dtype=torch.int64)
+        dist.all_gather(list(all_num_edges_per_partition.split([self._num_nodes] * self._num_nodes)), num_edges_per_partition)
+        all_num_edges_per_partition = all_num_edges_per_partition.reshape(self._num_nodes, self._num_nodes)
+        expected_num_per_partition = all_num_edges_per_partition.transpose(0, 1)[self._node_rank].tolist()
+
+        global_src_output = []
+        global_dst_output = []
+        for i in range(self._num_nodes):
+            if i == self._node_rank:
+                global_src_output.append(global_src_list[self._node_rank])
+                global_dst_output.append(global_dst_list[self._node_rank])
+            else:
+                global_src_output.append(torch.zeros(expected_num_per_partition[i], dtype=torch.int64))
+                global_dst_output.append(torch.zeros(expected_num_per_partition[i], dtype=torch.int64))
+
+        req_handles = []
+
+        req_handles.extend(self.all_to_all_edges(global_src_output, global_src_list, batch_id, 0))
+        req_handles.extend(self.all_to_all_edges(global_dst_output, global_dst_list, batch_id, 1))
+
+        for r in req_handles:
+            r.wait()
+
+        ret_list = []
+        for i in range(self._num_nodes):
+            ret_list.append(LocalSampledGraph(global_src_output[i], global_dst_output[i]))
+        return ret_list
+
+    def all_to_all_edges(self, outputs, inputs, batch_id, op_tag):
+        def make_tag(i, j):
+            return (batch_id << 10) + (op_tag << 8) + (i << 4) + j
+
+        req_handle_list = []
+        for i in range(self._num_nodes):
+            if i == self._node_rank:
+                continue
+            req_handle_list.append(dist.isend(inputs[i], i, tag=make_tag(self._node_rank, i)))
+            req_handle_list.append(dist.irecv(outputs[i], i, tag=make_tag(i, self._node_rank)))
+
+        return req_handle_list
 
     def vcut_sample_with_precomputed_aggrs(self, batch_id):
         with trace_me(batch_id, "sample"):

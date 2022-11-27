@@ -350,6 +350,14 @@ void P3SchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const ND
 ///////////////////////////////
 // VertexCutSchedulingPolicy //
 ///////////////////////////////
+VertexCutSchedulingPolicy::VertexCutSchedulingPolicy(bool using_precomputed_aggs,
+                            int num_nodes,
+                            int num_devices_per_node)
+      : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node),
+        sampling_running_(false) {
+
+}
+
 void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
   while (!input_queue_.empty()) {
     if (scheduled_batches_.size() >= 8) {
@@ -372,7 +380,8 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     auto& scheduled_batch = it->second;
     auto batch_finished = false;
 
-    if (scheduled_batch->status == BatchStatus::kInitializedStatus) {
+    if (scheduled_batch->status == BatchStatus::kInitializedStatus && !sampling_running_) {
+      sampling_running_ = true;
       scheduled_batch->status = BatchStatus::kSamplingStatus;
       scheduler.BroadcastExecute(TaskType::kSampling, batch_id);
     } else if (scheduled_batch->status == BatchStatus::kSampledStatus) {
@@ -417,6 +426,7 @@ void VertexCutSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, T
 
   if (task_type == TaskType::kSampling) {
     scheduled_batch->status = kSampledStatus;
+    sampling_running_ = false;
     TryScheduling(scheduler);
     return;
   }

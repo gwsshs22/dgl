@@ -13,6 +13,23 @@ def load_tensor(batch_id, name):
 def put_tensor(batch_id, name, tensor):
     _CAPI_DGLInferencePutTensor(batch_id, name, F.zerocopy_to_dgl_ndarray(tensor))
 
+def split_local_edges(global_src, global_dst, global_src_part_ids, num_nodes):
+    ret_list = _CAPI_DGLInferenceSplitLocalEdges(num_nodes,
+                                                F.zerocopy_to_dgl_ndarray(global_src),
+                                                F.zerocopy_to_dgl_ndarray(global_dst),
+                                                F.zerocopy_to_dgl_ndarray(global_src_part_ids))
+
+    global_src_list = []
+    global_dst_list = []
+
+    for i in range(num_nodes):
+        global_src_list.append(F.zerocopy_from_dgl_ndarray(ret_list[i]))
+
+    for i in range(num_nodes):
+        global_dst_list.append(F.zerocopy_from_dgl_ndarray(ret_list[i + num_nodes]))
+
+    return global_src_list, global_dst_list
+
 def split_blocks(block, src_part_ids, dst_part_ids, num_nodes, num_devices_per_node, node_rank, batch_size):
     dst_gnids = block.dstdata[dgl.NID]
     if dst_gnids.shape[0] == batch_size: # last block

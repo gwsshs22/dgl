@@ -200,6 +200,7 @@ def fork():
                                        node_rank,
                                        num_devices_per_node,
                                        local_rank,
+                                       master_host,
                                        ip_config_path,
                                        parallel_type,
                                        using_precomputed_aggregations,

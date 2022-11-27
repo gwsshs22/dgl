@@ -7,6 +7,12 @@
 namespace dgl {
 namespace inference {
 
+std::pair<std::vector<IdArray>, std::vector<IdArray>> SplitLocalEdges(int num_nodes,
+                                                                     const IdArray& global_src,
+                                                                     const IdArray& global_dst,
+                                                                     const IdArray& global_src_part_ids);
+
+
 std::tuple<IdArray, IdArray, IdArray> SortDstIds(int num_nodes,
                                                  int num_devices_per_node,
                                                  int batch_size,

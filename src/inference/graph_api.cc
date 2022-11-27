@@ -1,7 +1,57 @@
 #include "graph_api.h"
 
+#include <dgl/runtime/parallel_for.h>
+
 namespace dgl {
 namespace inference {
+
+std::pair<std::vector<IdArray>, std::vector<IdArray>> SplitLocalEdges(int num_nodes,
+                                                                     const IdArray& global_src,
+                                                                     const IdArray& global_dst,
+                                                                     const IdArray& global_src_part_ids) {
+  int64_t* part_ptr = (int64_t*) global_src_part_ids->data;
+  auto init_counter = std::vector<int64_t>(num_nodes);
+  auto num_edges_per_part = runtime::parallel_reduce(0, global_src_part_ids->shape[0], 1, init_counter, 
+    [=](size_t b, size_t e, std::vector<int64_t> counter) {
+      for (int i = b; i < e; i++) {
+        counter[*(part_ptr + i)]++;
+      }
+
+      return counter;
+    },
+    [](std::vector<int64_t> a, std::vector<int64_t> b) {
+      for (int i = 0; i < a.size(); i++) {
+        a[i] += b[i];
+      }
+
+      return a;
+    });
+
+  auto global_src_list = std::vector<IdArray>();
+  auto global_dst_list = std::vector<IdArray>();
+
+  auto global_src_ptr_list = std::vector<int64_t*>();
+  auto global_dst_ptr_list = std::vector<int64_t*>();
+
+  for (int i = 0; i < num_nodes; i++) {
+    global_src_list.push_back(aten::NewIdArray(num_edges_per_part[i]));
+    global_src_ptr_list.push_back((int64_t*)global_src_list[i]->data);
+    global_dst_list.push_back(aten::NewIdArray(num_edges_per_part[i]));
+    global_dst_ptr_list.push_back((int64_t*)global_dst_list[i]->data);
+  }
+
+  int64_t* src_ptr = (int64_t*) global_src->data;
+  int64_t* dst_ptr = (int64_t*) global_dst->data;
+  part_ptr = (int64_t*) global_src_part_ids->data;
+
+  for (int i = 0; i < global_src->shape[0]; i++) {
+    auto part = *part_ptr++;
+    *global_src_ptr_list[part]++ = *src_ptr++;
+    *global_dst_ptr_list[part]++ = *dst_ptr++;
+  }
+
+  return std::make_pair(global_src_list, global_dst_list);
+}
 
 std::tuple<IdArray, IdArray, IdArray> SortDstIds(int num_nodes,
                                                  int num_devices_per_node,

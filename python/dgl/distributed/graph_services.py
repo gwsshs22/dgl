@@ -52,7 +52,7 @@ class FindEdgeResponse(Response):
     def __getstate__(self):
         return self.global_src, self.global_dst, self.order_id
 
-def _sample_neighbors(local_g, partition_book, seed_nodes, fan_out, edge_dir, prob, replace):
+def _sample_neighbors(local_g, partition_book, seed_nodes, fan_out, edge_dir, prob, replace, include_eid=True):
     """ Sample from local partition.
 
     The input nodes use global IDs. We need to map the global node IDs to local node IDs,
@@ -69,7 +69,10 @@ def _sample_neighbors(local_g, partition_book, seed_nodes, fan_out, edge_dir, pr
     src, dst = sampled_graph.edges()
     global_src, global_dst = F.gather_row(global_nid_mapping, src), \
             F.gather_row(global_nid_mapping, dst)
-    global_eids = F.gather_row(local_g.edata[EID], sampled_graph.edata[EID])
+    if include_eid:
+        global_eids = F.gather_row(local_g.edata[EID], sampled_graph.edata[EID])
+    else:
+        global_eids = None
     return global_src, global_dst, global_eids
 
 def _sample_etype_neighbors(local_g, partition_book, seed_nodes, etype_field,
@@ -142,18 +145,19 @@ def _in_subgraph(local_g, partition_book, seed_nodes):
 class SamplingRequest(Request):
     """Sampling Request"""
 
-    def __init__(self, nodes, fan_out, edge_dir='in', prob=None, replace=False):
+    def __init__(self, nodes, fan_out, edge_dir='in', prob=None, replace=False, include_eid=True):
         self.seed_nodes = nodes
         self.edge_dir = edge_dir
         self.prob = prob
         self.replace = replace
         self.fan_out = fan_out
+        self.include_eid = include_eid
 
     def __setstate__(self, state):
-        self.seed_nodes, self.edge_dir, self.prob, self.replace, self.fan_out = state
+        self.seed_nodes, self.edge_dir, self.prob, self.replace, self.fan_out, self.include_eid = state
 
     def __getstate__(self):
-        return self.seed_nodes, self.edge_dir, self.prob, self.replace, self.fan_out
+        return self.seed_nodes, self.edge_dir, self.prob, self.replace, self.fan_out, self.include_eid
 
     def process_request(self, server_state):
         local_g = server_state.graph
@@ -161,7 +165,7 @@ class SamplingRequest(Request):
         global_src, global_dst, global_eids = _sample_neighbors(local_g, partition_book,
                                                                 self.seed_nodes,
                                                                 self.fan_out, self.edge_dir,
-                                                                self.prob, self.replace)
+                                                                self.prob, self.replace, self.include_eid)
         return SubgraphResponse(global_src, global_dst, global_eids)
 
 class SamplingRequestEtype(Request):
@@ -328,7 +332,7 @@ def merge_graphs(res_list, num_nodes):
 
 LocalSampledGraph = namedtuple('LocalSampledGraph', 'global_src global_dst global_eids')
 
-def _distributed_access(g, nodes, issue_remote_req, local_access):
+def _distributed_access(g, nodes, issue_remote_req, local_access, return_only_edges=False):
     '''A routine that fetches local neighborhood of nodes from the distributed graph.
 
     The local neighborhood of some nodes are stored in the local machine and the other
@@ -387,8 +391,11 @@ def _distributed_access(g, nodes, issue_remote_req, local_access):
         results = recv_responses(msgseq2pos)
         res_list.extend(results)
 
-    sampled_graph = merge_graphs(res_list, g.number_of_nodes())
-    return sampled_graph
+    if return_only_edges:
+        return res_list
+    else:
+        sampled_graph = merge_graphs(res_list, g.number_of_nodes())
+        return sampled_graph
 
 def _frontier_to_heterogeneous_graph(g, frontier, gpb):
     # We need to handle empty frontiers correctly.
@@ -516,7 +523,7 @@ def sample_etype_neighbors(g, nodes, etype_field, fanout, edge_dir='in',
     else:
         return frontier
 
-def sample_neighbors(g, nodes, fanout, edge_dir='in', prob=None, replace=False):
+def sample_neighbors(g, nodes, fanout, edge_dir='in', prob=None, replace=False, include_eid=True, return_only_edges=False):
     """Sample from the neighbors of the given nodes from a distributed graph.
 
     For each node, a number of inbound (or outbound when ``edge_dir == 'out'``) edges
@@ -583,11 +590,16 @@ def sample_neighbors(g, nodes, fanout, edge_dir='in', prob=None, replace=False):
 
     def issue_remote_req(node_ids):
         return SamplingRequest(node_ids, fanout, edge_dir=edge_dir,
-                               prob=prob, replace=replace)
+                               prob=prob, replace=replace, include_eid=include_eid)
     def local_access(local_g, partition_book, local_nids):
         return _sample_neighbors(local_g, partition_book, local_nids,
-                                 fanout, edge_dir, prob, replace)
-    frontier = _distributed_access(g, nodes, issue_remote_req, local_access)
+                                 fanout, edge_dir, prob, replace, include_eid)
+    
+    if return_only_edges:
+        return _distributed_access(g, nodes, issue_remote_req, local_access, return_only_edges=True)
+
+    frontier = _distributed_access(g, nodes, issue_remote_req, local_access, return_only_edges=False)
+
     if not gpb.is_homogeneous:
         return _frontier_to_heterogeneous_graph(g, frontier, gpb)
     else:

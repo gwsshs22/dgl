@@ -47,7 +47,7 @@ class GnnExecutorProcess:
         self._graph_config_path = graph_config_path
         self._result_dir = result_dir
         self._collect_stats = collect_stats
-        
+
         self._device = torch.device(f"cuda:{local_rank}")
         self._cpu_device = torch.device("cpu")
         self._model = model.to(self._device)
@@ -60,6 +60,7 @@ class GnnExecutorProcess:
         self._num_servers = 1 + num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
+        self._num_omp_threads = 32
 
     def run(self):
         # From dgl.distributed.initialize
@@ -68,7 +69,9 @@ class GnnExecutorProcess:
         from ..distributed.kvstore import init_kvstore, close_kvstore
         from ..distributed.rpc_client import connect_to_server
         from ..distributed.role import init_role
+        from ..utils import set_num_threads
 
+        set_num_threads(self._num_omp_threads)
         connect_to_server(self._ip_config_path, self._num_servers, MAX_QUEUE_SIZE, self._net_type, group_id=self._group_id)
         init_role('default')
         init_kvstore(self._ip_config_path, self._num_servers, 'default', load_p3_feature=self._load_p3_feature)

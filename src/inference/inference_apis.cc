@@ -104,11 +104,25 @@ DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferencePutTensor")
     inference::ObjectStorage::GetInstance()->CopyToSharedMemory(batch_id, name, src_arr);
   });
 
-DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSplitBlocks")
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSplitLocalEdges")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
-    HeteroGraphRef hg = args[0];
-    IdArray src_gnids = args[1];
-    int num_splits = args[2];
+    int num_nodes = args[0];
+    IdArray global_src = args[1];
+    IdArray global_dst = args[2];
+    IdArray global_src_part_ids = args[3];
+
+    auto ret = inference::SplitLocalEdges(num_nodes, global_src, global_dst, global_src_part_ids);
+
+    runtime::List<runtime::Value> ret_list;
+    for (int i = 0; i < num_nodes; i++) {
+      ret_list.push_back(runtime::Value(MakeValue(ret.first[i])));
+    }
+
+    for (int i = 0; i < num_nodes; i++) {
+      ret_list.push_back(runtime::Value(MakeValue(ret.second[i])));
+    }
+
+    *rv = ret_list;
   });
 
 DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSortDstIds")

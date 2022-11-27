@@ -37,12 +37,15 @@ class GraphServerProcess:
         self._group_id = 0
         self._formats = ["csc", "coo", "csr"]
         self._keep_alive = False # Whether to keep server alive when clients exit
+        self._num_omp_threads = 32
 
     def run(self):
         # From dgl.distributed.initialize
         from ..distributed import rpc
         from ..distributed.dist_graph import DistGraphServer
+        from ..utils import set_num_threads
 
+        set_num_threads(self._num_omp_threads)
         rpc.reset()
 
         serv = DistGraphServer(self._node_rank * self._num_servers + self._local_rank,

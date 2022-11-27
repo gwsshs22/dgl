@@ -108,8 +108,7 @@ class VertexCutSchedulingPolicy : public BaseSchedulingPolicy {
  public:
   VertexCutSchedulingPolicy(bool using_precomputed_aggs,
                             int num_nodes,
-                            int num_devices_per_node)
-      : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node) {}
+                            int num_devices_per_node);
 
   void OnInitialized(Scheduler& scheduler, int batch_id) override;
   void OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) override;
@@ -119,6 +118,7 @@ class VertexCutSchedulingPolicy : public BaseSchedulingPolicy {
   void TryScheduling(Scheduler& scheduler) override;
 
   std::map<int, std::shared_ptr<ScheduledBatch>> scheduled_batches_;
+  bool sampling_running_;
 };
 
 }

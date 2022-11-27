@@ -32,8 +32,6 @@ def save_infer_graph(args, org_g):
     infer_target_eids = np.union1d(infer_target_in_eids, infer_target_out_eids)
     infer_target_g = org_g.edge_subgraph(infer_target_eids)
 
-    id_mappings["infer_target_orig_ids"] = infer_target_nids
-    dgl.data.save_tensors(id_mappings_path, id_mappings)
     dgl.save_graphs(str(output_path / "infer_target_graph.dgl"), infer_target_g)
     print("Build inference target graph done.")
 

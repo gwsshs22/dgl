@@ -136,7 +136,7 @@ class SamplerProcess:
                     with trace_me(batch_id, "sample/block_creation/first_block/sample_neighbors"):
                         first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
                         sampled_edges = self.sample_neighbors(first_org_block_seed, -1)
-                    
+
                     with trace_me(batch_id, "sample/block_creation/first_block/to_block"):
                         base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
                         base_edges = LocalSampledGraph(base_src, base_dst)
@@ -154,21 +154,6 @@ class SamplerProcess:
                 put_tensor(batch_id, "b2_v", b2_v)
                 put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
                 put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
-
-    def merge_blocks(self, base_block, org_block, num_shift):
-        base_u, base_v = base_block.all_edges()
-        org_u, org_v = org_block.all_edges()
-        u = torch.concat((base_u, org_u + num_shift))
-        v = torch.concat((base_v, org_v + num_shift))
-
-        num_merged_block_srcs = num_shift + org_block.num_src_nodes()
-        num_merged_block_dsts = num_shift + org_block.num_dst_nodes()
-        merged_block = dgl.create_block((u, v), num_src_nodes=num_merged_block_srcs, num_dst_nodes=num_merged_block_dsts)
-
-        merged_block.srcdata[dgl.NID] = torch.concat((base_block.srcdata[dgl.NID][:num_shift], org_block.srcdata[dgl.NID]))
-        merged_block.dstdata[dgl.NID] = torch.concat((base_block.dstdata[dgl.NID][:num_shift], org_block.dstdata[dgl.NID]))
-
-        return merged_block
 
     def vcut_sample(self, batch_id):
         with trace_me(batch_id, "sample"):

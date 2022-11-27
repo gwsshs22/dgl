@@ -82,6 +82,8 @@ class DataSchedulingPolicy : public BaseSchedulingPolicy {
 
   std::vector<std::map<int, std::shared_ptr<ScheduledBatch>>> scheduled_batches_;
   std::map<int, int> batch_id_to_global_rank_;
+  bool sampling_running_;
+  bool init_running_;
 };
 
 class P3SchedulingPolicy : public BaseSchedulingPolicy {
@@ -101,6 +103,8 @@ class P3SchedulingPolicy : public BaseSchedulingPolicy {
   std::vector<std::map<int, std::shared_ptr<ScheduledBatch>>> scheduled_batches_;
   std::map<int, int> batch_id_to_global_rank_;
   bool compute_running_;
+  bool sampling_running_;
+  bool init_running_;
 };
 
 class VertexCutSchedulingPolicy : public BaseSchedulingPolicy {
@@ -119,6 +123,7 @@ class VertexCutSchedulingPolicy : public BaseSchedulingPolicy {
 
   std::map<int, std::shared_ptr<ScheduledBatch>> scheduled_batches_;
   bool sampling_running_;
+  bool init_running_;
 };
 
 }

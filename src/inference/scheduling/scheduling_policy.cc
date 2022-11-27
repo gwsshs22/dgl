@@ -54,7 +54,9 @@ void BaseSchedulingPolicy::ReportRequestDone(Scheduler& scheduler, int req_id, c
 DataSchedulingPolicy::DataSchedulingPolicy(bool using_precomputed_aggs,
                                            int num_nodes,
                                            int num_devices_per_node)
-   : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node) {
+   : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node),
+     sampling_running_(false),
+     init_running_(false) {
   
   for (int i = 0; i < num_nodes; i++) {
     for (int j = 0; j < num_devices_per_node; j++) {
@@ -64,7 +66,7 @@ DataSchedulingPolicy::DataSchedulingPolicy(bool using_precomputed_aggs,
 }
 
 void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
-  while (!input_queue_.empty()) {
+  while (!input_queue_.empty() && !init_running_) {
     int min_allocated_num = std::numeric_limits<int>::max();
     int global_rank = -1;
 
@@ -88,6 +90,8 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
  
     scheduled_batches_[global_rank].emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));
     batch_id_to_global_rank_[batch_id] = global_rank;
+    init_running_ = true;
+    break;
   }
 
   for (int global_rank = 0; global_rank < num_nodes_ * num_devices_per_node_; global_rank++) {
@@ -102,8 +106,9 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
       auto& scheduled_batch = it->second;
       auto batch_finished = false;
 
-      if (scheduled_batch->status == BatchStatus::kInitializedStatus) {
+      if (scheduled_batch->status == BatchStatus::kInitializedStatus && !sampling_running_) {
         scheduled_batch->status = BatchStatus::kSamplingStatus;
+        sampling_running_ = true;
         scheduler.LocalExecute(TaskType::kSampling, batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kSampledStatus) {
         scheduled_batch->status = BatchStatus::kComputingStatus;
@@ -148,6 +153,7 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
   auto& scheduled_batch = it->second;
 
   if (task_type == TaskType::kSampling) {
+    sampling_running_ = false;
     scheduled_batch->status = kSampledStatus;
     TryScheduling(scheduler);
     return;
@@ -183,6 +189,7 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
 }
 
 void DataSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
+  init_running_ = false;
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
   assert(it != scheduled_batches_[global_rank].end());
@@ -215,7 +222,9 @@ P3SchedulingPolicy::P3SchedulingPolicy(bool using_precomputed_aggs,
                                        int num_nodes,
                                        int num_devices_per_node)
     : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node),
-      compute_running_(false) {
+      compute_running_(false),
+      sampling_running_(false),
+      init_running_(false) {
   for (int i = 0; i < num_nodes; i++) {
     for (int j = 0; j < num_devices_per_node; j++) {
       scheduled_batches_.emplace_back(std::map<int, std::shared_ptr<ScheduledBatch>>());
@@ -224,7 +233,7 @@ P3SchedulingPolicy::P3SchedulingPolicy(bool using_precomputed_aggs,
 }
 
 void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) { 
-  while (!input_queue_.empty()) {
+  while (!input_queue_.empty() && !init_running_) {
     int min_allocated_num = std::numeric_limits<int>::max();
     int global_rank = -1;
 
@@ -248,6 +257,9 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
  
     scheduled_batches_[global_rank].emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));
     batch_id_to_global_rank_[batch_id] = global_rank;
+
+    init_running_ = true;
+    break;
   }
 
   for (int global_rank = 0; global_rank < num_nodes_ * num_devices_per_node_; global_rank++) {
@@ -262,8 +274,9 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
       auto& scheduled_batch = it->second;
       auto batch_finished = false;
 
-      if (scheduled_batch->status == BatchStatus::kInitializedStatus) {
+      if (scheduled_batch->status == BatchStatus::kInitializedStatus && !sampling_running_) {
         scheduled_batch->status = BatchStatus::kSamplingStatus;
+        sampling_running_ = true;
         scheduler.LocalExecute(TaskType::kSampling, batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kSampledStatus) {
         scheduled_batch->status = BatchStatus::kComputingStatus;
@@ -301,6 +314,7 @@ void P3SchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType
   auto& scheduled_batch = it->second;
 
   if (task_type == TaskType::kSampling) {
+    sampling_running_ = false;
     scheduled_batch->status = kSampledStatus;
     TryScheduling(scheduler);
     return;
@@ -322,6 +336,7 @@ void P3SchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType
 }
 
 void P3SchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
+  init_running_ = false;
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
   assert(it != scheduled_batches_[global_rank].end());
@@ -354,12 +369,13 @@ VertexCutSchedulingPolicy::VertexCutSchedulingPolicy(bool using_precomputed_aggs
                             int num_nodes,
                             int num_devices_per_node)
       : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node),
-        sampling_running_(false) {
+        sampling_running_(false),
+        init_running_(false) {
 
 }
 
 void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
-  while (!input_queue_.empty()) {
+  while (!input_queue_.empty() && !init_running_) {
     if (scheduled_batches_.size() >= 8) {
       break;
     }
@@ -371,6 +387,8 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     input_queue_.pop();
  
     scheduled_batches_.emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));
+    init_running_ = true;
+    break;
   }
 
   bool is_first_batch = true;
@@ -461,6 +479,7 @@ void VertexCutSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, T
 }
 
 void VertexCutSchedulingPolicy::OnInitialized(Scheduler& scheduler, int batch_id) {
+  init_running_ = false;
   auto it = scheduled_batches_.find(batch_id);
   assert(it != scheduled_batches_.end());
   assert(it->second->status == kInitializingStatus);

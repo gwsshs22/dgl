@@ -113,7 +113,6 @@ void data_parallel_executor::DirectFetchResult(int batch_id,
   request(task, caf::infinite, caf::get_atom_v).then(
     [=](NDArray result) mutable {
       rp.deliver(std::vector<NDArray>({result}));
-      this->Cleanup(batch_id, local_rank);
     },
     [=](caf::error& err) {
       // TODO: error handling
@@ -124,7 +123,7 @@ void data_parallel_executor::DirectFetchResult(int batch_id,
 void data_parallel_executor::FetchResult(int batch_id, int local_rank) {
   auto task = spawn(fetch_result_fn, mpi_actor_, batch_id, local_rank);
   request(task, caf::infinite, caf::get_atom_v).then(
-    [=]() { this->Cleanup(batch_id, local_rank); },
+    [=]() { },
     [=](caf::error& err) {
       // TODO: error handling
       caf::aout(this) << "FetchResult (batch_id=" << batch_id << "): " << caf::to_string(err) << std::endl;
@@ -141,6 +140,7 @@ void data_parallel_executor::Cleanup(int batch_id, int local_rank) {
        /* param0 */ -1);
 
   object_storages_.erase(batch_id);
+  ReportTaskDone(TaskType::kCleanup, batch_id);
 }
 
 void data_parallel_executor::WriteExecutorTraces(caf::response_promise rp) {

@@ -58,6 +58,10 @@ class executor_actor : public caf::event_based_actor {
     throw std::runtime_error("FetchResult not implemented");
   }
 
+  virtual void Cleanup(int batch_id, int local_rank) {
+    throw std::runtime_error("Cleanup not implemented");
+  }
+
   virtual void WriteExecutorTraces(caf::response_promise rp) {
     throw std::runtime_error("WriteTraces not implemented");
   }
@@ -148,7 +152,7 @@ class data_parallel_executor : public executor_actor {
 
   void FetchResult(int batch_id, int local_rank) override;
 
-  void Cleanup(int batch_id, int local_rank);
+  void Cleanup(int batch_id, int local_rank) override;
 
   void WriteExecutorTraces(caf::response_promise rp) override;
 
@@ -179,7 +183,7 @@ class p3_executor : public executor_actor {
 
   void FetchResult(int batch_id, int local_rank) override;
 
-  void Cleanup(int batch_id, int local_rank);
+  void Cleanup(int batch_id, int local_rank) override;
 
   void WriteExecutorTraces(caf::response_promise rp) override;
 
@@ -217,7 +221,7 @@ class vertex_cut_executor : public executor_actor {
 
   void FetchResult(int batch_id, int local_rank) override;
 
-  void Cleanup(int batch_id);
+  void Cleanup(int batch_id, int) override;
 
   void WriteExecutorTraces(caf::response_promise rp) override;
 

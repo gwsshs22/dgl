@@ -131,6 +131,9 @@ caf::behavior executor_actor::make_running_behavior() {
         case TaskType::kComputeRemaining:
           ComputeRemaining(batch_id, local_rank);
           break;
+        case TaskType::kCleanup:
+          Cleanup(batch_id, local_rank);
+          break;
       }
     },
     [&](caf::direct_fetch_result_atom, int batch_id, int local_rank) {

@@ -35,7 +35,8 @@ enum TaskType {
   kPrepareAggregations = 5,
   kRecomputeAggregations = 6,
   kComputeRemaining = 7,
-  kFetchResult = 15,
+  kFetchResult = 14,
+  kCleanup = 15,
 };
 
 struct RequestStats {

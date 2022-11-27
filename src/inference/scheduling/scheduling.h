@@ -5,6 +5,11 @@
 namespace dgl {
 namespace inference {
 
+enum BroadcastInitType {
+  kAll = 0,
+  kScatter = 1,
+};
+
 struct BatchInput {
   int req_id;
   NDArray new_gnids;

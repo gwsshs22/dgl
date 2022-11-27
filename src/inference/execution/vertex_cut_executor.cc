@@ -135,7 +135,6 @@ void vertex_cut_executor::DirectFetchResult(int batch_id, int, caf::response_pro
   request(task, caf::infinite, caf::get_atom_v).then(
     [=](std::vector<NDArray> result) mutable {
       rp.deliver(result);
-      this->Cleanup(batch_id);
     },
     [=](caf::error& err) {
       // TODO: error handling
@@ -146,14 +145,14 @@ void vertex_cut_executor::DirectFetchResult(int batch_id, int, caf::response_pro
 void vertex_cut_executor::FetchResult(int batch_id, int) {
   auto task = spawn(fetch_result_fn, mpi_actor_, node_rank_, num_devices_per_node_, batch_id);
   request(task, caf::infinite, caf::get_atom_v).then(
-    [=]() { this->Cleanup(batch_id); },
+    [=]() {},
     [=](caf::error& err) {
       // TODO: error handling
       caf::aout(this) << "FetchResult (batch_id=" << batch_id << "): " << caf::to_string(err) << std::endl;
     });
 }
 
-void vertex_cut_executor::Cleanup(int batch_id) {
+void vertex_cut_executor::Cleanup(int batch_id, int) {
   send(sampler_, caf::cleanup_atom_v, batch_id);
   send(gnn_executor_group_,
        caf::broadcast_exec_atom_v,
@@ -162,6 +161,7 @@ void vertex_cut_executor::Cleanup(int batch_id) {
        /* param0 */ -1);
 
   object_storages_.erase(batch_id);
+  ReportTaskDone(TaskType::kCleanup, batch_id);
 }
 
 void vertex_cut_executor::WriteExecutorTraces(caf::response_promise rp) {

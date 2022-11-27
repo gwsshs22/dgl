@@ -135,6 +135,7 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
         scheduler.LocalFetchResult(batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kFinishedStatus) {
         batch_finished = true;
+        scheduler.LocalExecute(TaskType::kCleanup, batch_id, node_rank, local_rank);
       }
 
       if (batch_finished) {
@@ -148,6 +149,10 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
 }
 
 void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
+  if (task_type == TaskType::kCleanup) {
+    return;
+  }
+
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
   auto& scheduled_batch = it->second;
@@ -295,6 +300,7 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
         scheduled_batch->status = BatchStatus::kResultFetchingStatus;
         scheduler.LocalFetchResult(batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kFinishedStatus) {
+        scheduler.LocalExecute(TaskType::kCleanup, batch_id, node_rank, local_rank);
         batch_finished = true;
       }
 
@@ -309,6 +315,10 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
 }
 
 void P3SchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
+  if (task_type == TaskType::kCleanup) {
+    return;
+  }
+
   auto global_rank = batch_id_to_global_rank_[batch_id];
   auto it = scheduled_batches_[global_rank].find(batch_id);
   auto& scheduled_batch = it->second;
@@ -427,6 +437,7 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
       scheduler.BroadcastFetchResult(batch_id);
     } else if (scheduled_batch->status == BatchStatus::kFinishedStatus) {
       batch_finished = true;
+      scheduler.BroadcastExecute(TaskType::kCleanup, batch_id);
     }
 
     if (batch_finished) {
@@ -439,6 +450,10 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
 }
 
 void VertexCutSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) {
+  if (task_type == TaskType::kCleanup) {
+    return;
+  }
+
   auto it = scheduled_batches_.find(batch_id);
   auto& scheduled_batch = it->second;
 

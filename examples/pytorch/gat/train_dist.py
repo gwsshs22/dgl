@@ -60,29 +60,31 @@ class NeighborSampler(object):
         blocks[-1].dstdata['labels'] = batch_labels
         return blocks
 
-class DistGCN(nn.Module):
-    def __init__(self, in_feats, n_hidden, n_classes, n_layers,
+class DistGAT(nn.Module):
+    def __init__(self, in_feats, n_hidden, n_classes, n_layers, heads,
                  activation, dropout):
         super().__init__()
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_classes = n_classes
         self.layers = nn.ModuleList()
-        self.layers.append(dglnn.GraphConv(in_feats, n_hidden, activation=F.relu))
+        self.layers.append(dglnn.GATConv(in_feats, n_hidden, heads[0], feat_drop=0.6, attn_drop=0.6, activation=F.elu))
         for i in range(1, n_layers - 1):
-            self.layers.append(dglnn.GraphConv(n_hidden, n_hidden, activation=F.relu))
-        self.layers.append(dglnn.GraphConv(n_hidden, n_classes))
-        self.dropout = nn.Dropout(dropout)
+            self.layers.append(dglnn.GATConv(n_hidden, n_hidden, heads[0], feat_drop=0.6, attn_drop=0.6, activation=F.elu))
+        self.layers.append(dglnn.GATConv(n_hidden*heads[0], n_classes, heads[1], feat_drop=0.6, attn_drop=0.6, activation=None))
+        # self.dropout = nn.Dropout(dropout)
         self.activation = activation
 
     def forward(self, blocks, x):
         h = x
         for l, (layer, block) in enumerate(zip(self.layers, blocks)):
-            if l != 0:
-                h = self.dropout(h)
             h = layer(block, h)
+            if l == 1:  # last layer 
+                h = h.mean(1)
+            else:       # other layer(s)
+                h = h.flatten(1)
         return h
-    
+
     def inference(self, g, x, batch_size, device):
         """
         Inference with the GraphSAGE model on full neighbors (i.e. without neighbor sampling).
@@ -121,13 +123,16 @@ class DistGCN(nn.Module):
                 input_nodes = block.srcdata[dgl.NID]
                 output_nodes = block.dstdata[dgl.NID]
                 h = x[input_nodes].to(device)
-                if l != 0:
-                    h = self.dropout(h)
                 h_dst = h[:block.number_of_dst_nodes()]
                 h = layer(block, (h, h_dst))
+                if l == 1:  # last layer 
+                    h = h.mean(1)
+                else:       # other layer(s)
+                    h = h.flatten(1)
                 # if l != len(self.layers) - 1:
                 #     h = self.activation(h)
                 #     h = self.dropout(h)
+
                 y[output_nodes] = h.cpu()
 
             x = y
@@ -177,7 +182,7 @@ def run(args, device, data):
         drop_last=False)
 
     # Define model and optimizer
-    model = DistGCN(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
+    model = DistGAT(in_feats, args.num_hidden, n_classes, args.num_layers, [8,1], F.elu, args.dropout)
     model = model.to(device)
     if not args.standalone:
         if args.num_gpus == -1:
@@ -269,7 +274,7 @@ def run(args, device, data):
             val_acc, test_acc = evaluate(model.module, g, g.ndata['features'],
                                          g.ndata['labels'], val_nid, test_nid, args.batch_size_eval, device)
             print('Part {}, Val Acc {:.4f}, Test Acc {:.4f}, time: {:.4f}'.format(g.rank(), val_acc, test_acc,
-                                                                                  time.time() - start))
+                                                                              time.time() - start))
     
     if (g.rank()==7):
         state['epoch'] = epoch
@@ -279,7 +284,6 @@ def run(args, device, data):
         state['graph_features'] = g.ndata['features']
         state['graph_labels'] = g.ndata['labels']
         th.save(state, os.path.join(CH_PATH,"model.pt"))
-
 
 def main(args):
     print(socket.gethostname(), 'Initializing DGL dist')
@@ -336,15 +340,15 @@ if __name__ == '__main__':
     parser.add_argument('--num_gpus', type=int, default=-1,
                         help="the number of GPU device. Use -1 for CPU training")
     parser.add_argument('--num_epochs', type=int, default=20)
-    parser.add_argument('--num_hidden', type=int, default=16)
+    parser.add_argument('--num_hidden', type=int, default=8)
     parser.add_argument('--num_layers', type=int, default=2)
     parser.add_argument('--fan_out', type=str, default='10,25')
     parser.add_argument('--batch_size', type=int, default=1000)
     parser.add_argument('--batch_size_eval', type=int, default=100000)
     parser.add_argument('--log_every', type=int, default=20)
     parser.add_argument('--eval_every', type=int, default=5)
-    parser.add_argument('--lr', type=float, default=0.003)
-    parser.add_argument('--dropout', type=float, default=0.5)
+    parser.add_argument('--lr', type=float, default=0.005)
+    parser.add_argument('--dropout', type=float, default=0.6)
     parser.add_argument('--local_rank', type=int, help='get rank of the process')
     parser.add_argument('--standalone', action='store_true', help='run in the standalone mode')
     parser.add_argument('--pad-data', default=False, action='store_true',

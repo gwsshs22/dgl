@@ -9,11 +9,27 @@ from .. import backend as F
 from ..utils import measure
 from ..heterograph import DGLBlock
 
+empty_graph = dgl.graph(([], []))
+empty_tensor = torch.tensor([])
+
 def load_tensor(batch_id, name):
     return F.zerocopy_from_dgl_ndarray(_CAPI_DGLInferenceLoadTensor(batch_id, name))
 
 def put_tensor(batch_id, name, tensor):
     _CAPI_DGLInferencePutTensor(batch_id, name, F.zerocopy_to_dgl_ndarray(tensor))
+
+def fast_to_block(u, v, dst_ids, src_ids=None):
+    if src_ids == None:
+        src_ids = empty_tensor
+
+    graph_idx, src_orig_ids = _CAPI_DGLInferenceFastToBlock(empty_graph._graph,
+                                                            F.zerocopy_to_dgl_ndarray(u),
+                                                            F.zerocopy_to_dgl_ndarray(v),
+                                                            F.zerocopy_to_dgl_ndarray(dst_ids),
+                                                            F.zerocopy_to_dgl_ndarray(src_ids))
+    block = DGLBlock(graph_idx, (["_N"], ["_N"]), ["_E"])
+    block.srcdata[dgl.NID] = F.zerocopy_from_dgl_ndarray(src_orig_ids)
+    return block
 
 def split_local_edges(global_src, global_dst, global_src_part_ids, num_nodes):
     ret_list = _CAPI_DGLInferenceSplitLocalEdges(num_nodes,

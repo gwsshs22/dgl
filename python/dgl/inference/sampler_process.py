@@ -101,7 +101,7 @@ class SamplerProcess:
     def sample_neighbors(self, seed, fanout):
         return dgl.distributed.sample_neighbors(self._dist_graph, seed, -1, include_eid=False, return_only_edges=True)
 
-    def merge_graphs(self, res_list, num_nodes):
+    def merge_edges(self, res_list):
         """Merge request from multiple servers"""
         if len(res_list) > 1:
             srcs = []
@@ -114,8 +114,8 @@ class SamplerProcess:
         else:
             src_tensor = res_list[0].global_src
             dst_tensor = res_list[0].global_dst
-        g = dgl.graph((src_tensor, dst_tensor), num_nodes=num_nodes)
-        return g
+
+        return src_tensor, dst_tensor
 
     def sample(self, batch_id):
         with trace_me(batch_id, "sample"):
@@ -129,8 +129,8 @@ class SamplerProcess:
                     batch_size = new_gnids.shape[0]
 
                     input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
-                    second_block_eids = input_graph.in_edges(new_gnids, 'eid')
-                    second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
+                    u, v = input_graph.in_edges(new_gnids, 'uv')
+                    second_block = fast_to_block(u, v, new_gnids)
 
                 with trace_me(batch_id, "sample/block_creation/first_block"):
                     with trace_me(batch_id, "sample/block_creation/first_block/sample_neighbors"):
@@ -141,7 +141,9 @@ class SamplerProcess:
                         base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
                         base_edges = LocalSampledGraph(base_src, base_dst)
                         sampled_edges.insert(0, base_edges)
-                        first_block = dgl.to_block(self.merge_graphs(sampled_edges, new_gnids[-1] + 1), second_block.srcdata[dgl.NID])
+
+                        u, v = self.merge_edges(sampled_edges)
+                        first_block = fast_to_block(u, v, second_block.srcdata[dgl.NID])
 
             with trace_me(batch_id, "sample/put_tensors"):
                 b1_u, b1_v = first_block.edges()
@@ -167,8 +169,9 @@ class SamplerProcess:
                     batch_size = new_gnids.shape[0]
 
                     input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
-                    second_block_eids = input_graph.in_edges(new_gnids, 'eid')
-                    second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
+                    u, v = input_graph.in_edges(new_gnids, 'uv')
+                    second_block = fast_to_block(u, v, new_gnids)
+                    second_block.dstdata[dgl.NID] = new_gnids
 
                 with trace_me(batch_id, "sample/block_creation/first_block"):
                     with trace_me(batch_id, "sample/block_creation/first_block/sample_neighbors"):
@@ -179,7 +182,10 @@ class SamplerProcess:
                         base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
                         base_edges = LocalSampledGraph(base_src, base_dst)
                         sampled_edges.insert(0, base_edges)
-                        first_block = dgl.to_block(self.merge_graphs(sampled_edges, new_gnids[-1] + 1), second_block.srcdata[dgl.NID])
+
+                        u, v = self.merge_edges(sampled_edges)
+                        first_block = fast_to_block(u, v, second_block.srcdata[dgl.NID])
+                        first_block.dstdata[dgl.NID] = second_block.srcdata[dgl.NID]
 
             with trace_me(batch_id, "sample/split_first_block"):
                 first_blocks, first_dst_split = split_blocks(first_block,
@@ -289,14 +295,14 @@ class SamplerProcess:
 
             with trace_me(batch_id, "sample/block_creation"):
                 with trace_me(batch_id, "sample/block_creation/second_block"):
-                    batch_size = new_gnids.shape[0]
-
                     input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
-                    second_block_eids = input_graph.in_edges(new_gnids, 'eid')
-                    second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
+                    u, v = input_graph.in_edges(new_gnids, 'uv')
+                    second_block = fast_to_block(u, v, new_gnids)
+                    second_block.dstdata[dgl.NID] = new_gnids
 
 
             with trace_me(batch_id, "sample/split_second_block"):
+                batch_size = new_gnids.shape[0]
                 second_blocks, second_dst_split = split_blocks(second_block,
                                             self._gpb.nid2partid(second_block.srcdata[dgl.NID]),
                                             self._gpb.nid2partid(second_block.dstdata[dgl.NID]),
@@ -312,8 +318,8 @@ class SamplerProcess:
                     sb = second_blocks[i]
 
                     inc_comp_dst_gnids = sb.srcdata[dgl.NID][second_dst_split[i]:]
-                    inc_comp_eids = input_graph.in_edges(inc_comp_dst_gnids, 'eid')
-                    inc_comp_block = dgl.to_block(input_graph.edge_subgraph(inc_comp_eids, relabel_nodes=False), inc_comp_dst_gnids, src_nodes=new_gnids)
+                    inc_comp_u, inc_comp_v = input_graph.in_edges(inc_comp_dst_gnids, 'uv')
+                    inc_comp_block = fast_to_block(inc_comp_u, inc_comp_v, inc_comp_dst_gnids, new_gnids)                    
 
                     b2_u, b2_v = sb.edges()
                     inc_u, inc_v = inc_comp_block.edges()

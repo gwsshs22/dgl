@@ -7,6 +7,12 @@
 namespace dgl {
 namespace inference {
 
+std::pair<HeteroGraphPtr, IdArray> FastToBlock(const HeteroGraphRef& empty_graph_ref,
+                                               const IdArray& u,
+                                               const IdArray& v,
+                                               const IdArray& dst_ids,
+                                               const IdArray& src_ids);
+
 std::pair<std::vector<IdArray>, std::vector<IdArray>> SplitLocalEdges(int num_nodes,
                                                                      const IdArray& global_src,
                                                                      const IdArray& global_dst,

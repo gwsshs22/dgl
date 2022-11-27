@@ -7,6 +7,107 @@
 namespace dgl {
 namespace inference {
 
+std::pair<HeteroGraphPtr, IdArray> FastToBlock(const HeteroGraphRef& empty_graph_ref,
+                                               const IdArray& u,
+                                               const IdArray& v,
+                                               const IdArray& dst_ids,
+                                               const IdArray& src_ids) {
+  bool src_ids_given = src_ids->shape[0] > 0;
+  const auto meta_graph = empty_graph_ref->meta_graph();
+  const EdgeArray etypes = meta_graph->Edges("eid");
+  const int64_t num_ntypes = 1;
+  std::vector<int64_t> num_nodes_per_type(2);
+
+  std::vector<HeteroGraphPtr> rel_graphs;
+
+  const IdArray new_dst_meta = aten::Add(etypes.dst, num_ntypes);
+  const auto new_meta_graph = dgl::ImmutableGraph::CreateFromCOO(
+      num_ntypes * 2, etypes.src, new_dst_meta);
+
+  auto mapping = phmap::flat_hash_map<int64_t, int64_t>();
+  auto src_mapping = phmap::flat_hash_map<int64_t, int64_t>();
+  mapping.reserve(dst_ids->shape[0]);
+
+  int num_dst = dst_ids->shape[0];
+  auto dst_ids_ptr = (int64_t*) dst_ids->data;
+  for (int i = 0; i < num_dst; i++) {
+    mapping.insert({ *dst_ids_ptr++, i });
+  }
+
+  int num_edges = u->shape[0];
+  auto u_ptr = (int64_t*) u->data;
+  auto v_ptr = (int64_t*) v->data;
+
+  if (src_ids_given) {
+    src_mapping.reserve(src_ids->shape[0]);
+    auto given_src_ids_ptr = (int64_t*) src_ids->data;
+    auto num_given_src_ids = src_ids->shape[0];
+    for (int i = 0; i < num_given_src_ids; i++) {
+      src_mapping.insert({ *given_src_ids_ptr++, i });
+    }
+  } else {
+    for (int i = 0; i < num_edges; i++) {
+      mapping.insert({ *u_ptr++, mapping.size() });
+    }
+  }
+  
+
+  u_ptr = (int64_t*) u->data;
+
+  auto new_src = aten::NewIdArray(num_edges);
+  auto new_src_ptr = (int64_t*) new_src->data;
+  auto new_dst = aten::NewIdArray(num_edges);
+  auto new_dst_ptr = (int64_t*) new_dst->data;
+
+  if (src_ids_given) {
+    runtime::parallel_for(0, num_edges, [=, &mapping, &src_mapping](size_t b, size_t e) {
+      for (int i = b; i < e; i++) {
+        *(new_src_ptr + i) = src_mapping[*(u_ptr + i)];
+        *(new_dst_ptr + i) = mapping[*(v_ptr + i)];
+      }
+    });
+  } else {
+    runtime::parallel_for(0, num_edges, [=, &mapping](size_t b, size_t e) {
+      for (int i = b; i < e; i++) {
+        *(new_src_ptr + i) = mapping[*(u_ptr + i)];
+        *(new_dst_ptr + i) = mapping[*(v_ptr + i)];
+      }
+    });
+  }
+
+  if (src_ids_given) {
+    num_nodes_per_type[0] = src_ids->shape[0];
+    num_nodes_per_type[1] = num_dst;
+    rel_graphs.push_back(CreateFromCOO(
+        2, num_nodes_per_type[0], num_nodes_per_type[1],
+        new_src, new_dst));
+
+    auto block_graph = CreateHeteroGraph(
+      new_meta_graph, rel_graphs, num_nodes_per_type);
+
+    return std::make_pair(block_graph, src_ids);
+  } else {
+    num_nodes_per_type[0] = mapping.size();
+    num_nodes_per_type[1] = num_dst;
+    rel_graphs.push_back(CreateFromCOO(
+        2, num_nodes_per_type[0], num_nodes_per_type[1],
+        new_src, new_dst));
+
+    auto block_graph = CreateHeteroGraph(
+      new_meta_graph, rel_graphs, num_nodes_per_type);
+
+    auto src_orig_ids = aten::NewIdArray(mapping.size());
+    auto src_orig_ids_ptr = (int64_t*) src_orig_ids->data;
+    for (const auto& pair : mapping) {
+      *(src_orig_ids_ptr + pair.second) = pair.first;
+    }
+
+    return std::make_pair(block_graph, src_orig_ids);
+  }
+
+
+}
+
 std::pair<std::vector<IdArray>, std::vector<IdArray>> SplitLocalEdges(int num_nodes,
                                                                      const IdArray& global_src,
                                                                      const IdArray& global_dst,

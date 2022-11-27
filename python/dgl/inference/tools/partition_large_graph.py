@@ -33,6 +33,16 @@ def save_infer_graph(args, org_g):
     infer_target_g = org_g.edge_subgraph(infer_target_eids)
 
     dgl.save_graphs(str(output_path / "infer_target_graph.dgl"), infer_target_g)
+
+    id_mappings_path = str(Path(args.output) / "id_mappings.dgl")
+    if os.path.exists(id_mappings_path):
+        id_mappings = dgl.data.load_tensors(id_mappings_path)
+    else:
+        id_mappings = {}
+    id_mappings["infer_target_mask"] = infer_target_mask
+    id_mappings["infer_target_orig_ids"] = infer_target_nids
+    dgl.data.save_tensors(id_mappings_path, id_mappings)
+
     print("Build inference target graph done.")
 
 def partition(args, org_g):
@@ -98,7 +108,11 @@ def collect_id_mappings(args):
 
 
 def fill_node_features(args, org_g):
+    id_mappings = dgl.data.load_tensors(str(Path(args.output) / "id_mappings.dgl"))
+
     node_features = org_g.ndata['features']
+    if args.for_training:
+        labels = org_g.ndata['labels']
     for part_id in range(args.num_parts):
         part_graph_path = Path(args.output) / f'part{part_id}' / 'graph.dgl'
         part_graph = dgl.load_graphs(str(part_graph_path))[0][0]
@@ -107,7 +121,12 @@ def fill_node_features(args, org_g):
         orig_ids = part_graph.ndata["orig_id"][:num_inner_nodes]
 
         part_node_features = node_features[orig_ids]
-        dgl.data.save_tensors(str(Path(args.output) / f"part{part_id}" / "node_feat.dgl"), { "_N/features": part_node_features })
+
+        if args.for_training:
+            node_feats = { "_N/features": part_node_features, "_N/labels": labels[orig_ids], "_N/infer_target_mask": id_mappings["infer_target_mask"][orig_ids] }
+        else:
+            node_feats = { "_N/features": part_node_features }
+        dgl.data.save_tensors(str(Path(args.output) / f"part{part_id}" / "node_feat.dgl"), node_feats)
 
 def save_infer_target_features(args, org_g):
     output_path = Path(args.output)
@@ -121,12 +140,16 @@ def save_infer_target_features(args, org_g):
 
 def delete_infer_edges(args, org_g):
     output_path = Path(args.output)
-    infer_target_orig_ids = dgl.data.load_tensors(str(Path(args.output) / "id_mappings.dgl"))["infer_target_orig_ids"]
+    id_mappings = dgl.data.load_tensors(str(Path(args.output) / "id_mappings.dgl"))
+    
+    infer_target_mask = id_mappings["infer_target_mask"]
+    infer_target_orig_ids = id_mappings["infer_target_orig_ids"]
     for part_id in range(args.num_parts):
         part_graph_path = Path(args.output) / f'part{part_id}' / 'graph.dgl'
         part_graph = dgl.load_graphs(str(part_graph_path))[0][0]
 
         part_orig_id = part_graph.ndata["orig_id"]
+        part_graph.ndata["infer_target_mask"] = infer_target_mask[part_orig_id]
         infer_targets_orig_ids_in_part = np.intersect1d(infer_target_orig_ids, part_orig_id)
 
         sorter = np.argsort(part_orig_id)
@@ -160,6 +183,7 @@ if __name__ == '__main__':
                            help='Output path of partitioned graph.')
     argparser.add_argument('--infer_prob', type=float, default=0.1)
     argparser.add_argument('--target_part', type=int, default=-1)
+    argparser.add_argument('--for_training', action="store_true")
     argparser.add_argument('--stage', type=str, default="all", choices=["save_infer_graph", "partition", "finalize"])
     args = argparser.parse_args()
     np.random.seed(args.random_seed)
@@ -188,8 +212,13 @@ if __name__ == '__main__':
 
     node_feature_keys = set(g.ndata.keys())
     for k in node_feature_keys:
-        if k != "features":
-            del g.ndata[k]
+        if k == "features":
+            continue
+
+        if args.for_training and k == 'labels':
+            continue
+
+        del g.ndata[k]
 
     if args.stage == "save_infer_graph":
         save_infer_graph(args, g)

@@ -2,9 +2,15 @@
 
 import time
 import dgl
+import contextlib
 import torch
 from .api import *
 import random
+import numpy as np
+
+from dgl.inference.tools.load_graph import load_reddit, load_ogb
+from dgl.sampling import sample_neighbors
+from dgl.utils import get_num_threads, set_num_threads
 
 random.seed(5124)
 
@@ -107,7 +113,51 @@ def test_softmax_approximation():
     print(correct)
     print(approximation)
 
+@contextlib.contextmanager
+def measure(str):
+    try:
+        s = time.time()
+        yield
+    finally:
+        print(f"{str} ({time.time() - s})")
+
+def test_compare_sampling():
+
+    g = dgl.load_graphs("/home/gwkim/dgl_data/ogbn-products-random-4/part0/graph.dgl")[0][0]
+
+    seed = torch.tensor(np.random.choice(g.number_of_nodes(), 13873, replace=False))
+
+    # g.in_edges(torch.tensor([0,5]))
+    # print(g.in_edges.__doc__)
+
+    # print(f"num_omp_threads={get_num_threads()}")
+    # g = load_ogb("ogbn-products")[0]
+    # seed = dgl.data.load_tensors("/home/gwkim/tmp/seed.dgl")["seed"]
+    # print(f"seed.shape={seed.shape}")
+    with measure("in_edges"):
+        u, v = g.in_edges(seed, 'uv')
+    with measure("in_edges"):
+        u, v = g.in_edges(seed, 'uv')
+    with measure("sampling"):
+        frontier = sample_neighbors(g, seed, -1)
+
+def tt():   
+    input_req = dgl.data.load_tensors("/home/gwkim/dgl_input_trace/ogbn-products-random-4/batch_size/256/15.dgl")
+    orig_ids = input_req['new_orig_ids']
+    
+    frontier = sample_neighbors(g, orig_ids, -1)
+    first_block = dgl.to_block(frontier, orig_ids)
+
+    seed = first_block.srcdata[dgl.NID]
+    dgl.data.save_tensors("/home/gwkim/tmp/seed.dgl", {"seed": seed})
+    # sample_neighbors(g, seed, -1)
+
+    with measure("sample_neighbor"):
+        frontier = sample_neighbors(g, seed, -1)
+    with measure("in_edges"):
+        u, v =g.in_edges(seed, 'uv')
 
 if __name__ == "__main__":
     # test_split_blocks()
-    test_softmax_approximation()
+    # test_softmax_approximation()
+    test_compare_sampling()

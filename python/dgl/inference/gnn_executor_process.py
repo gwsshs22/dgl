@@ -327,7 +327,12 @@ class GnnExecutorProcess:
                         for r in broadcast_req_handles:
                             req_handles.append(r)
                         output_dst_init_values_map[k] = output_dst_init_val
+                if self._collect_stats:
+                    torch.cuda.synchronize(device=self._device)
 
+            with trace_me(batch_id, f"compute/layer_{layer_idx}/compute_merge_init_vals"):
+                dst_feats = src_feats[:num_local_dst_nodes]
+                dst_merge_init_values = layer.compute_dst_merge_init_values(dst_feats)
                 for handle in req_handles:
                     handle.wait()
                 if self._collect_stats:
@@ -356,7 +361,7 @@ class GnnExecutorProcess:
 
             with trace_me(batch_id, f"compute/layer_{layer_idx}/merge"):
                 # # Merge all
-                ret = layer.merge(block, src_feats[:num_local_dst_nodes], output_aggs_map)
+                ret = layer.merge(block, dst_merge_init_values, output_aggs_map)
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
                 return ret
@@ -471,11 +476,16 @@ class GnnExecutorProcess:
                 put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
 
     def inc_compute(self, first_layer, batch_id, inc_block, inc_dst_gnids, new_features):
-        # TODO OPTIMIZATION: precompute some dst value computation for SAGE to remove below dst_features
-        dst_features = self._dist_graph.ndata['features'][inc_dst_gnids].to(self._device)
+        div_names = first_layer.div_names()
+        dmiv_names = first_layer.dmiv_names()
+
         dst_init_values = {}
-        for div_name in first_layer.div_names():
+        for div_name in div_names:
             dst_init_values[div_name] = self._dist_graph.ndata[f"div_{div_name}"][inc_dst_gnids].to(self._device)
+
+        dst_merge_init_values = {}
+        for dmiv_name in dmiv_names:
+            dst_merge_init_values[dmiv_name] = self._dist_graph.ndata[f"dmiv_{dmiv_name}"][inc_dst_gnids].to(self._device)
 
         new_nodes_aggregations = first_layer.compute_aggregations(inc_block, new_features, dst_init_values)
 
@@ -483,4 +493,4 @@ class GnnExecutorProcess:
         for aggr_name in first_layer.aggr_names():
             aggrs[aggr_name] = torch.stack((new_nodes_aggregations[aggr_name], self._dist_graph.ndata[f"agg_{aggr_name}"][inc_dst_gnids].to(self._device)))
 
-        return first_layer.merge(inc_block, dst_features, aggrs)
+        return first_layer.merge(inc_block, dst_merge_init_values, aggrs)

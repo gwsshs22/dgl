@@ -91,15 +91,20 @@ def precompute_aggregations(model, g, local_rank, batch_size, device, part_confi
             dst_ids = block.dstdata[dgl.NID]
             input_features = block.srcdata["features"]
             dst_init_values = first_layer.compute_dst_init_values(block, input_features, dst_ids.shape[0])
-            if dst_init_values is not None:
-                for name, tensor in dst_init_values.items():
-                    handler.push(g, f"div_{name}", tensor, dst_ids)
+
+            for name, tensor in dst_init_values.items():
+                handler.push(g, f"div_{name}", tensor, dst_ids)
+
+            dst_features = input_features[:block.number_of_dst_nodes()]
+            dst_merge_init_values = first_layer.compute_dst_merge_init_values(dst_features)
+            for name, tensor in dst_merge_init_values.items():                
+                handler.push(g, f"dmiv_{name}", tensor, dst_ids)
 
             aggregations = first_layer.compute_aggregations(block, input_features, dst_init_values)
             for name, tensor in aggregations.items():
                 handler.push(g, f"agg_{name}", tensor, dst_ids)
     g.barrier()
-    
+
     if local_rank == 0:
         handler.write(g.get_partition_book().partid, part_config, precom_filename)
 

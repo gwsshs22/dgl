@@ -232,7 +232,13 @@ class GraphConv(nn.Module):
                 "counts": block.in_degrees().float()
             }
 
-    def merge(self, block, dst_feats, aggs_map):
+    def dmiv_names(self):
+        return []
+
+    def compute_dst_merge_init_values(self, dst_feats):
+        return {}
+
+    def merge(self, block, dst_merge_init_values, aggs_map):
         counts = aggs_map["counts"].sum(0).clamp(min=1)
         sums = aggs_map["sums"].sum(0)
         rst = sums / counts.reshape(-1, 1)

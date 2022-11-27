@@ -4,6 +4,7 @@ import dgl
 from .envs import ParallelizationType
 from .api import *
 from .trace_utils import trace_me, write_traces
+from ..utils import measure
 
 class SamplerProcess:
     SAMPLE_REQUEST_TYPE = 0
@@ -93,7 +94,7 @@ class SamplerProcess:
                 with trace_me(batch_id, "sample/block_creation/second_block"):
                     batch_size = new_gnids.shape[0]
 
-                    input_graph = dgl.graph((src_gnids, dst_gnids))
+                    input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
                     second_block_eids = input_graph.in_edges(new_gnids, 'eid')
                     second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 
@@ -150,7 +151,7 @@ class SamplerProcess:
                 with trace_me(batch_id, "sample/block_creation/second_block"):
                     batch_size = new_gnids.shape[0]
 
-                    input_graph = dgl.graph((src_gnids, dst_gnids))
+                    input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
                     second_block_eids = input_graph.in_edges(new_gnids, 'eid')
                     second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 
@@ -220,7 +221,7 @@ class SamplerProcess:
                 with trace_me(batch_id, "sample/block_creation/second_block"):
                     batch_size = new_gnids.shape[0]
 
-                    input_graph = dgl.graph((src_gnids, dst_gnids))
+                    input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
                     second_block_eids = input_graph.in_edges(new_gnids, 'eid')
                     second_block = dgl.to_block(input_graph.edge_subgraph(second_block_eids, relabel_nodes=False), new_gnids)
 

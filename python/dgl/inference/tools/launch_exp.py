@@ -179,6 +179,7 @@ def get_available_port(ip):
     raise RuntimeError("Failed to get available port for ip~{}".format(ip))
 
 def make_master_process_cmd(args, master_host, master_port, master_torch_port, num_nodes):
+    num_backup_servers = (args.num_backup_servers if args.num_backup_servers else num_nodes * args.num_devices_per_node) * 2
     python_exec = args.python_exec
     iface = args.iface
     if os.environ.get("PYTHONPATH", ""):
@@ -196,7 +197,7 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
 --result-dir {args.result_dir} \
 --node-rank 0 \
 --num-nodes {num_nodes} \
---num-backup-servers {args.num_backup_servers} \
+--num-backup-servers {num_backup_servers} \
 --num-devices-per-node {args.num_devices_per_node} \
 --ip-config-path {args.ip_config} \
 --graph-name {args.graph_name} \
@@ -216,8 +217,8 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
 
     return cmd
 
-
 def make_worker_process_cmd(args, master_host, master_port, master_torch_port, num_nodes, worker_idx):
+    num_backup_servers = (args.num_backup_servers if args.num_backup_servers else num_nodes * args.num_devices_per_node) * 2
     python_exec = args.python_exec
     iface = args.iface
     if os.environ.get("PYTHONPATH", ""):
@@ -232,7 +233,7 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
 --result-dir {args.result_dir} \
 --node-rank {worker_idx} \
 --num-nodes {num_nodes} \
---num-backup-servers {args.num_backup_servers} \
+--num-backup-servers {num_backup_servers} \
 --num-devices-per-node {args.num_devices_per_node} \
 --ip-config-path {args.ip_config} \
 --graph-name {args.graph_name} \
@@ -350,7 +351,7 @@ def main():
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--num_devices_per_node', type=int, required=True)
     parser.add_argument('--ip_config', type=str, required=True)
-    parser.add_argument('--num_backup_servers', type=int, default=3)
+    parser.add_argument('--num_backup_servers', type=int)
     parser.add_argument('--part_config', type=str, required=True)
     parser.add_argument('--graph_name', help="reddit, ogbn-papers100M, ...", required=True)
     parser.add_argument('--iface', type=str, required=True)

@@ -237,12 +237,20 @@ class SAGEConv(nn.Module):
                 "neigh_sums": h_neigh_sum
             }
 
-    def merge(self, block, dst_feats, aggs_map):
+    def dmiv_names(self):
+        return ["h_self"]
+
+    def compute_dst_merge_init_values(self, dst_feats):
+        return {
+            "h_self": self.fc_self(dst_feats)
+        }
+
+    def merge(self, block, dst_merge_init_values, aggs_map):
         h_neigh_counts = aggs_map["neigh_counts"].sum(0).clamp(min=1)
         h_neigh_sums = aggs_map["neigh_sums"].sum(0)
         h_neigh = h_neigh_sums / h_neigh_counts.reshape(-1, 1)
 
-        h_self = self.fc_self(dst_feats)
+        h_self = dst_merge_init_values["h_self"]
         rst = h_self + h_neigh
 
         # bias term

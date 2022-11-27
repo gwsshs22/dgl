@@ -316,7 +316,13 @@ class GATConv(nn.Module):
                 "ft": block.dstdata["ft"]
             }
 
-    def merge(self, block, dst_feats, aggs_map):
+    def dmiv_names(self):
+        return []
+
+    def compute_dst_merge_init_values(self, dst_feats):
+        return {}
+
+    def merge(self, block, dst_merge_init_values, aggs_map):
         logits_max_aggs = aggs_map["logits_max"]
         exp_logits_sum_aggs = aggs_map["exp_logits_sum"]
         ft_aggs = aggs_map["ft"]

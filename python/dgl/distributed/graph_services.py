@@ -9,7 +9,7 @@ from ..subgraph import in_subgraph as local_in_subgraph
 from .rpc import register_service
 from ..convert import graph, heterograph
 from ..base import NID, EID
-from ..utils import toindex
+from ..utils import toindex, measure
 from .. import backend as F
 
 __all__ = [

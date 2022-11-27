@@ -35,7 +35,7 @@ class GraphServerProcess:
         self._num_servers = 1 + self._num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
-        self._formats = ["csc"]
+        self._formats = ["csc", "coo", "csr"]
         self._keep_alive = False # Whether to keep server alive when clients exit
 
     def run(self):

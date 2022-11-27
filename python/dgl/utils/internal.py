@@ -4,9 +4,11 @@ from __future__ import absolute_import, division
 from collections.abc import Mapping, Iterable, Sequence
 from collections import defaultdict
 from functools import wraps
+import contextlib
 import glob
 import os
 import numpy as np
+import time
 
 from ..base import DGLError, dgl_warning, NID, EID
 from .. import backend as F
@@ -1064,5 +1066,14 @@ def context_of(data):
 def dtype_of(data):
     """Return the dtype of the data which can be either a tensor or a dict of tensors."""
     return F.dtype(next(iter(data.values())) if isinstance(data, Mapping) else data)
+
+@contextlib.contextmanager
+def measure(str):
+    try:
+        s = time.time()
+        yield
+    finally:
+        print(f"{str} ({time.time() - s})")
+
 
 _init_api("dgl.utils.internal")

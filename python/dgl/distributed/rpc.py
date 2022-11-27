@@ -12,6 +12,7 @@ from .._ffi.object import register_object, ObjectBase
 from .._ffi.function import _init_api
 from ..base import DGLError
 from .. import backend as F
+from ..utils import measure
 
 __all__ = ['set_rank', 'get_rank', 'Request', 'Response', 'register_service', \
 'create_sender', 'create_receiver', 'finalize_sender', 'finalize_receiver', \
@@ -872,6 +873,7 @@ def recv_responses(msgseq2pos, timeout=0):
         if res_cls is None:
             raise DGLError('Got response message from service ID {}, '
                            'but no response class is registered.'.format(msg.service_id))
+
         res = deserialize_from_payload(res_cls, msg.data, msg.tensors)
         if msg.client_id != myrank:
             raise DGLError('Got reponse of request sent by client {}, '

@@ -1,6 +1,8 @@
 #include "graph_api.h"
 
 #include <dgl/runtime/parallel_for.h>
+#include <parallel_hashmap/phmap.h>
+#include <dgl/immutable_graph.h>
 
 namespace dgl {
 namespace inference {
@@ -149,13 +151,13 @@ std::tuple<IdArray, IdArray, IdArray> SortDstIds(int num_nodes,
   return std::make_tuple(std::move(sorted_bids), std::move(sorted_org_ids), NDArray::FromVector(num_assigned_inputs_per_gpus));
 }
 
-std::vector<IdArray> ExtractSrcIds(int num_nodes,
-                                   int num_devices_per_node,
-                                   int node_rank,
-                                   int batch_size,
-                                   const IdArray& org_ids,
-                                   const IdArray& part_ids,
-                                   const IdArray& part_id_counts) {
+std::pair<std::vector<IdArray>, std::vector<IdArray>> ExtractSrcIds(int num_nodes,
+                                                                    int num_devices_per_node,
+                                                                    int node_rank,
+                                                                    int batch_size,
+                                                                    const IdArray& org_ids,
+                                                                    const IdArray& part_ids,
+                                                                    const IdArray& part_id_counts) {
   
   CHECK(org_ids.NumElements() == part_ids.NumElements());
   const size_t num_src_nodes = org_ids->shape[0];
@@ -183,7 +185,8 @@ std::vector<IdArray> ExtractSrcIds(int num_nodes,
     }
   }
 
-  auto ret_list = std::vector<IdArray>();
+  auto sorted_bids_list = std::vector<IdArray>();
+  auto sorted_orig_ids_list = std::vector<IdArray>();
 
   int64_t** sorted_bid_ptrs = (int64_t **)malloc(sizeof (int64_t*) * num_devices_per_node);
   int64_t** sorted_org_ids_ptrs = (int64_t **)malloc(sizeof (int64_t*) * num_devices_per_node);
@@ -203,8 +206,8 @@ std::vector<IdArray> ExtractSrcIds(int num_nodes,
     sorted_bid_ptrs[gpu_idx] = ((int64_t*)sorted_bids_per_gpu->data);
     sorted_org_ids_ptrs[gpu_idx] = ((int64_t*)sorted_org_ids_per_gpu->data);
 
-    ret_list.push_back(sorted_bids_per_gpu);
-    ret_list.push_back(sorted_org_ids_per_gpu);
+    sorted_bids_list.push_back(sorted_bids_per_gpu);
+    sorted_orig_ids_list.push_back(sorted_org_ids_per_gpu);
   }
 
   int idx = 0;
@@ -248,7 +251,76 @@ std::vector<IdArray> ExtractSrcIds(int num_nodes,
   free(sorted_bid_ptrs);
   free(sorted_org_ids_ptrs);
 
-  return ret_list;
+  return std::make_pair(std::move(sorted_bids_list), std::move(sorted_orig_ids_list));
+}
+
+std::vector<HeteroGraphPtr> SplitBlocks(const HeteroGraphRef& graph_ref,
+                                        int num_devices_per_node,
+                                        const std::vector<IdArray>& sorted_src_bids_list,
+                                        const IdArray& sorted_dst_bids) {
+  const auto meta_graph = graph_ref->meta_graph();
+  const EdgeArray etypes = meta_graph->Edges("eid");
+  const int64_t num_ntypes = 1;
+
+  const IdArray new_dst = aten::Add(etypes.dst, num_ntypes);
+  const auto new_meta_graph = dgl::ImmutableGraph::CreateFromCOO(
+      num_ntypes * 2, etypes.src, new_dst);
+  auto dst_mapping = phmap::flat_hash_map<int64_t, int64_t>();
+  auto num_dst = sorted_dst_bids->shape[0];
+  dst_mapping.reserve(num_dst);
+  auto dst_bid_ptr = (int64_t*) sorted_dst_bids->data;
+  for (int i = 0; i < num_dst; i++) {
+    dst_mapping.insert({ *dst_bid_ptr++, i});
+  }
+
+  auto splitted_graphs = std::vector<HeteroGraphPtr>(num_devices_per_node);
+  size_t b = 0;
+  size_t e = num_devices_per_node;
+  for (size_t gpu_idx = b; gpu_idx < e; gpu_idx++) {
+
+    std::vector<int64_t> num_nodes_per_type(2);
+    std::vector<HeteroGraphPtr> rel_graphs;
+    auto src_bids = sorted_src_bids_list[gpu_idx];
+    auto num_srcs = src_bids->shape[0];
+
+    auto src_mapping = phmap::flat_hash_map<int64_t, int64_t>();
+    src_mapping.reserve(num_srcs);
+    auto src_bid_ptr = (int64_t*) src_bids->data;
+    for (int i = 0; i < num_srcs; i++) {
+      src_mapping.insert({ *src_bid_ptr++, i });
+    }
+
+    auto edges = graph_ref->OutEdges(0, sorted_src_bids_list[gpu_idx]);
+
+    auto e_src = edges.src;
+    auto e_src_ptr = (int64_t*) e_src->data;
+    auto e_dst = edges.dst;
+    auto e_dst_ptr = (int64_t*) e_dst->data;
+    auto new_src = aten::NewIdArray(e_src->shape[0]);
+    auto new_src_ptr = (int64_t*) new_src->data;
+    auto new_dst = aten::NewIdArray(e_dst->shape[0]);
+    auto new_dst_ptr = (int64_t*) new_dst->data;
+
+    auto num_edges = e_src->shape[0];
+
+    runtime::parallel_for(0, num_edges, [=, &src_mapping, &dst_mapping](size_t b1, size_t e1) {
+      for (int i = b1; i < e1; i++) {
+        *(new_src_ptr + i) = src_mapping[*(e_src_ptr + i)];
+        *(new_dst_ptr + i) = dst_mapping[*(e_dst_ptr + i)];
+      }
+    });
+
+    num_nodes_per_type[0] = src_mapping.size();
+    num_nodes_per_type[1] = dst_mapping.size();
+
+    rel_graphs.push_back(CreateFromCOO(
+        2, src_mapping.size(), dst_mapping.size(),
+        new_src, new_dst));
+    splitted_graphs[gpu_idx] = CreateHeteroGraph(
+      new_meta_graph, rel_graphs, num_nodes_per_type);
+  }
+
+  return splitted_graphs;
 }
 
 }

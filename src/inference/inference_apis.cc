@@ -144,20 +144,30 @@ DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSortDstIds")
     *rv = ret_list;
   });
 
-DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceExtractSrcIds")
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceSplitBlocks")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
-    int num_nodes = args[0];
-    int num_devices_per_node = args[1];
-    int node_rank = args[2];
-    int batch_size = args[3];
-    IdArray org_ids = args[4];
-    IdArray part_ids = args[5];
-    IdArray part_id_counts = args[6];
+    const HeteroGraphRef graph_ref = args[0];
+    int num_nodes = args[1];
+    int num_devices_per_node = args[2];
+    int node_rank = args[3];
+    int batch_size = args[4];
+    IdArray org_ids = args[5];
+    IdArray part_ids = args[6];
+    IdArray part_id_counts = args[7];
+    IdArray sorted_dst_bids = args[8];
     
-    auto ret = inference::ExtractSrcIds(num_nodes, num_devices_per_node, node_rank, batch_size, org_ids, part_ids, part_id_counts);
+    auto extract_ret = inference::ExtractSrcIds(num_nodes, num_devices_per_node, node_rank, batch_size, org_ids, part_ids, part_id_counts);
+    auto sorted_bids_list = extract_ret.first;
+    auto sorted_orig_ids_list = extract_ret.second;
 
-    runtime::List<runtime::Value> ret_list;
+    auto ret = inference::SplitBlocks(graph_ref, num_devices_per_node, sorted_bids_list, sorted_dst_bids);
+
+    runtime::List<runtime::ObjectRef> ret_list;
     for (const auto& r : ret) {
+      ret_list.push_back(HeteroGraphRef(r));
+    }
+
+    for (const auto& r : sorted_orig_ids_list) {
       ret_list.push_back(runtime::Value(MakeValue(r)));
     }
 

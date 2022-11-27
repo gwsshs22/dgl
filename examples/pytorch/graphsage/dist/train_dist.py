@@ -1,4 +1,4 @@
-import os
+iimport os
 os.environ['DGLBACKEND']='pytorch'
 from multiprocessing import Process
 import argparse, time, math
@@ -133,7 +133,7 @@ class DistSAGE(nn.Module):
 
             x = y
             g.barrier()
-        if(g.rank()==7):
+        if(g.rank()==0):
             state['predictions'] = y
         return y
 
@@ -200,7 +200,7 @@ def run(args, device, data):
         #labels = checkpoint['graph_labels']
         #print("VAL ACC {}", compute_acc(predictions[val_nid], labels[val_nid]))
         #print("TEST ACC {}", compute_acc(predictions[test_nid], labels[test_nid]))
-    train_size = th.sum(g.ndata['train_mask'][0:g.number_of_nodes()])
+    # train_size = th.sum(g.ndata['train_mask'][0:g.number_of_nodes()])
     # Training loop
     iter_tput = []
     epoch = 0
@@ -269,7 +269,7 @@ def run(args, device, data):
             print('Part {}, Val Acc {:.4f}, Test Acc {:.4f}, time: {:.4f}'.format(g.rank(), val_acc, test_acc,
                                                                                   time.time() - start))
     
-    if (g.rank()==7):
+    if (g.rank()==0):
         state['epoch'] = epoch
         state['model_state_dict'] = model.state_dict()
         state['optimizer_state_dict'] = optimizer.state_dict()
@@ -301,21 +301,24 @@ def main(args):
 
     pb = g.get_partition_book()
     if 'trainer_id' in g.ndata:
-        train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
+        train_nid = dgl.distributed.node_split(g.ndata['inference_target_mask'], pb, force_even=True,
                                                node_trainer_ids=g.ndata['trainer_id'])
-        val_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True,
+        val_nid = dgl.distributed.node_split(g.ndata['inference_target_mask'], pb, force_even=True,
                                              node_trainer_ids=g.ndata['trainer_id'])
-        test_nid = dgl.distributed.node_split(g.ndata['test_mask'], pb, force_even=True,
+        test_nid = dgl.distributed.node_split(g.ndata['inference_target_mask'], pb, force_even=True,
                                               node_trainer_ids=g.ndata['trainer_id'])
     else:
-        train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
-        val_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True)
-        test_nid = dgl.distributed.node_split(g.ndata['test_mask'], pb, force_even=True)
+        train_nid = dgl.distributed.node_split(g.ndata['inference_target_mask'], pb, force_even=True)
+        val_nid = dgl.distributed.node_split(g.ndata['inference_target_mask'], pb, force_even=True)
+        test_nid = dgl.distributed.node_split(g.ndata['inference_target_mask'], pb, force_even=True)
     local_nid = pb.partid2nids(pb.partid).detach().numpy()
     print('part {}, train: {} (local: {}), val: {} (local: {}), test: {} (local: {})'.format(
         g.rank(), len(train_nid), len(np.intersect1d(train_nid.numpy(), local_nid)),
         len(val_nid), len(np.intersect1d(val_nid.numpy(), local_nid)),
         len(test_nid), len(np.intersect1d(test_nid.numpy(), local_nid))))
+    train_nid = th.from_numpy(np.setxor1d(np.intersect1d(train_nid.numpy(), local_nid), local_nid))
+    val_nid = th.from_numpy(np.setxor1d(np.intersect1d(train_nid.numpy(), local_nid), local_nid))
+    test_nid = th.from_numpy(np.setxor1d(np.intersect1d(train_nid.numpy(), local_nid), local_nid))
     if args.num_gpus == -1:
         device = th.device('cpu')
     else:
@@ -363,3 +366,4 @@ if __name__ == '__main__':
 
     print(args)
     main(args)
+

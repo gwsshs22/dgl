@@ -248,7 +248,7 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
       } else if (scheduled_batch->status == BatchStatus::kSampledStatus) {
         scheduled_batch->status = BatchStatus::kComputingStatus;
 
-        scheduler.LocalExecute(TaskType::kPrepareInput, batch_id, node_rank, local_rank);
+        scheduler.BroadcastExecute(TaskType::kPrepareInput, batch_id, /* param0 = owner_node_rank */ node_rank, /* param1 = owner_local_rank */ local_rank);
       } else if (scheduled_batch->status == BatchStatus::kComputingStatus && is_first_batch && !compute_running_) { // Only the first batch can proceed computation
         if (scheduled_batch->input_prepared && !scheduled_batch->input_computing) {
           scheduled_batch->input_computing = true;

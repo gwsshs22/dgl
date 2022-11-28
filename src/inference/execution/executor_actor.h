@@ -31,33 +31,19 @@ class executor_actor : public caf::event_based_actor {
     throw std::runtime_error("GetFeatureSplit not implemented");
   }
 
-  virtual void Sampling(int batch_id, int local_rank) {
-    throw std::runtime_error("Sampling not implemented");
-  }
+  virtual void Sampling(int batch_id, int local_rank) = 0;
 
-  virtual void PrepareInput(int batch_id, int local_rank) {
-    throw std::runtime_error("PrepareInput not implemented");
-  }
+  virtual void PrepareInput(int batch_id, int local_rank, int param0, int param1) = 0;
 
-  virtual void Compute(int batch_id, int local_rank, int param0, int param1) {
-    throw std::runtime_error("Compute not implemented");
-  }
+  virtual void Compute(int batch_id, int local_rank, int param0, int param1) = 0;
 
-  virtual void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) {
-    throw std::runtime_error("DirectFetchResult not implemented");
-  }
+  virtual void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) = 0;
 
-  virtual void FetchResult(int batch_id, int local_rank) {
-    throw std::runtime_error("FetchResult not implemented");
-  }
+  virtual void FetchResult(int batch_id, int local_rank) = 0;
 
-  virtual void Cleanup(int batch_id, int local_rank) {
-    throw std::runtime_error("Cleanup not implemented");
-  }
+  virtual void Cleanup(int batch_id, int local_rank) = 0;
 
-  virtual void WriteExecutorTraces(caf::response_promise rp) {
-    throw std::runtime_error("WriteTraces not implemented");
-  }
+  virtual void WriteExecutorTraces(caf::response_promise rp) = 0;
 
   void ReportTaskDone(TaskType task_type, int batch_id);
 
@@ -152,11 +138,11 @@ class data_parallel_executor : public executor_actor {
                          bool collect_stats);
 
  private:
-  void Sampling(int batch_id, int local_rank);
+  void Sampling(int batch_id, int local_rank) override;
 
-  void PrepareInput(int batch_id, int local_rank);
+  void PrepareInput(int batch_id, int local_rank, int param0, int param1) override;
 
-  void Compute(int batch_id, int local_rank, int param0, int param1);
+  void Compute(int batch_id, int local_rank, int param0, int param1) override;
 
   void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) override;
 
@@ -187,7 +173,7 @@ class p3_executor : public executor_actor {
 
   void Sampling(int batch_id, int local_rank) override;
 
-  void PrepareInput(int batch_id, int local_rank) override;
+  void PrepareInput(int batch_id, int local_rank, int param0, int param1) override;
 
   void Compute(int batch_id, int local_rank, int param0, int param1) override;
 
@@ -220,11 +206,11 @@ class vertex_cut_executor : public executor_actor {
  private:
   FeatureSplitMethod GetFeatureSplit(int batch_size, int feature_size) override;
 
-  void Sampling(int batch_id, int local_rank);
+  void Sampling(int batch_id, int local_rank) override;
 
-  void PrepareInput(int batch_id, int local_rank);
+  void PrepareInput(int batch_id, int local_rank, int param0, int param1) override;
 
-  void Compute(int batch_id, int local_rank, int param0, int param1);
+  void Compute(int batch_id, int local_rank, int param0, int param1) override;
 
   void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) override;
 

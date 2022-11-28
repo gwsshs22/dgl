@@ -96,7 +96,7 @@ void data_parallel_executor::Sampling(int batch_id, int local_rank) {
   RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
 }
 
-void data_parallel_executor::PrepareInput(int batch_id, int local_rank) {
+void data_parallel_executor::PrepareInput(int batch_id, int local_rank, int, int) {
   // Do nothing.
   ReportTaskDone(TaskType::kPrepareInput, batch_id);
 }

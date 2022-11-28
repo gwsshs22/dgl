@@ -114,7 +114,7 @@ void vertex_cut_executor::Sampling(int batch_id, int) {
   RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
 }
 
-void vertex_cut_executor::PrepareInput(int batch_id, int) {
+void vertex_cut_executor::PrepareInput(int batch_id, int, int, int) {
   ReportTaskDone(TaskType::kPrepareInput, batch_id);
 }
 

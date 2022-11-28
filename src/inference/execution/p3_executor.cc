@@ -25,6 +25,7 @@ void bsend_fn(caf::blocking_actor* self,
 
 void brecv_fn(caf::blocking_actor* self,
               const caf::actor& mpi_actor,
+              const caf::actor& object_storage_actor,
               const std::string name,
               int owner_node_rank,
               int batch_id,
@@ -32,38 +33,21 @@ void brecv_fn(caf::blocking_actor* self,
   auto tag = CreateMpiTag(batch_id, TaskType::kCompute, 0, 0, task_id);
   auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, owner_node_rank, tag);
   auto arr = receive_result<NDArray>(rh);
-  auto metadata_name = GetArrayMetadataName(batch_id, name);
-  assert(!runtime::SharedMemory::Exist(metadata_name));
-  auto meta_holder = CreateMetadataSharedMem(metadata_name, arr);
 
-  assert(arr->ctx.device_type == kDLCPU);
-  auto arr_holder = CopyToSharedMem(batch_id, name, arr);
-  self->receive([=](caf::get_atom) {
-    return std::make_pair(arr_holder, meta_holder);
-  });
+  auto rh2 = self->request(object_storage_actor, caf::infinite, caf::put_atom_v, name, arr);
+  receive_result<bool>(rh2);
+  rh2 = self->request(object_storage_actor, caf::infinite, caf::move_to_shared_atom_v, name);
+  receive_result<bool>(rh2);
+
+  self->receive([](caf::get_atom) { });
 }
 
-void p3_compute(caf::blocking_actor* self,
-                const caf::actor& mpi_actor,
-                const caf::actor& gnn_executor_group,
-                int batch_id,
-                int num_nodes,
-                int node_rank,
-                int num_devices_per_node,
-                int owner_node_rank,
-                int owner_local_rank) {
-  // For receive case. We should hold the shared memory until GNN computation finishes.
-  NDArray input_gnids;
-  std::shared_ptr<runtime::SharedMemory> input_gnids_meta;
-  NDArray b1_u;
-  std::shared_ptr<runtime::SharedMemory> b1_u_meta;
-  NDArray b1_v;
-  std::shared_ptr<runtime::SharedMemory> b1_v_meta;
-  NDArray num_src_nodes_list;
-  std::shared_ptr<runtime::SharedMemory> num_src_nodes_list_meta;
-  NDArray num_dst_nodes_list;
-  std::shared_ptr<runtime::SharedMemory> num_dst_nodes_list_meta;
-
+void p3_push_comp_graph(caf::blocking_actor* self,
+                        const caf::actor& mpi_actor,
+                        const caf::actor& object_storage_actor,
+                        int batch_id,
+                        int node_rank,
+                        int owner_node_rank) {
   if (node_rank == owner_node_rank) {
     TraceMe push_comp_graph(batch_id, "push_comp_graph");
 
@@ -85,7 +69,7 @@ void p3_compute(caf::blocking_actor* self,
   } else {
     std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
     auto brecv_lambda = [&](const std::string& name, int task_id) {
-      auto actor = self->spawn(brecv_fn, mpi_actor, name, owner_node_rank, batch_id, task_id);
+      auto actor = self->spawn(brecv_fn, mpi_actor, object_storage_actor, name, owner_node_rank, batch_id, task_id);
       auto rh = self->request(actor, caf::infinite, caf::get_atom_v);
       return rh;
     };
@@ -96,27 +80,22 @@ void p3_compute(caf::blocking_actor* self,
     rh_list.push_back(brecv_lambda("num_src_nodes_list", 3));
     rh_list.push_back(brecv_lambda("num_dst_nodes_list", 4));
 
-    auto input_gnids_result = receive_result<NDArrayWithSharedMeta>(rh_list[0]);
-    input_gnids = input_gnids_result.first;
-    input_gnids_meta = input_gnids_result.second;
-
-    auto b1_u_result = receive_result<NDArrayWithSharedMeta>(rh_list[1]);
-    b1_u = b1_u_result.first;
-    b1_u_meta = b1_u_result.second;
-
-    auto b1_v_result = receive_result<NDArrayWithSharedMeta>(rh_list[2]);
-    b1_v = b1_v_result.first;
-    b1_v_meta = b1_v_result.second;
-
-    auto num_src_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[3]);
-    num_src_nodes_list = num_src_nodes_list_result.first;
-    num_src_nodes_list_meta = num_src_nodes_list_result.second;
-
-    auto num_dst_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[4]);
-    num_dst_nodes_list = num_dst_nodes_list_result.first;
-    num_dst_nodes_list_meta = num_dst_nodes_list_result.second;
+    for (int i = 0; i < rh_list.size(); i++) {
+      receive_result<void>(rh_list[i]);
+    }
   }
 
+  self->receive([](caf::get_atom) { });
+}
+
+void p3_compute(caf::blocking_actor* self,
+                const caf::actor& mpi_actor,
+                const caf::actor& gnn_executor_group,
+                int batch_id,
+                int node_rank,
+                int num_devices_per_node,
+                int owner_node_rank,
+                int owner_local_rank) {
   int owner_gpu_global_rank = num_devices_per_node * owner_node_rank + owner_local_rank;
 
   std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
@@ -203,8 +182,6 @@ void write_traces_fn(caf::blocking_actor* self,
 
   rp.deliver(true);  
 }
-
-
 }
 
 p3_executor::p3_executor(caf::actor_config& config,
@@ -242,13 +219,14 @@ void p3_executor::Sampling(int batch_id, int local_rank) {
   RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
 }
 
-void p3_executor::PrepareInput(int batch_id, int local_rank) {
-  // Do nothing.
-  ReportTaskDone(TaskType::kPrepareInput, batch_id);
+void p3_executor::PrepareInput(int batch_id, int, int owner_node_rank, int owner_local_rank) {
+  auto object_storage_actor = object_storages_[batch_id];
+  auto push_comp_graph_task = spawn(p3_push_comp_graph, mpi_actor_, object_storage_actor, batch_id, node_rank_, owner_node_rank);
+  RequestAndReportTaskDone(push_comp_graph_task, TaskType::kPrepareInput, batch_id);
 }
 
 void p3_executor::Compute(int batch_id, int, int owner_node_rank, int owner_local_rank) {
-  auto compute_task = spawn(p3_compute, mpi_actor_, gnn_executor_group_, batch_id, num_nodes_, node_rank_, num_devices_per_node_, owner_node_rank, owner_local_rank);
+  auto compute_task = spawn(p3_compute, mpi_actor_, gnn_executor_group_, batch_id, node_rank_, num_devices_per_node_, owner_node_rank, owner_local_rank);
   RequestAndReportTaskDone(compute_task, TaskType::kCompute, batch_id);
 }
 

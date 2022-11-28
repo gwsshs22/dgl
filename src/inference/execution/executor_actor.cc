@@ -79,7 +79,7 @@ caf::behavior executor_actor::make_running_behavior() {
           Sampling(batch_id, local_rank);
           break;
         case TaskType::kPrepareInput:
-          PrepareInput(batch_id, local_rank);
+          PrepareInput(batch_id, local_rank, param0, param1);
           break;
         case TaskType::kCompute:
           Compute(batch_id, local_rank, param0, param1);

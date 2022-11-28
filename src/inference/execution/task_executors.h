@@ -5,16 +5,42 @@
 namespace dgl {
 namespace inference {
 
-void input_bsend_fn(caf::blocking_actor* self,
-                    const caf::actor& mpi_actor,
-                    int batch_id,
-                    const NDArray& new_gnids,
-                    const NDArray& new_features,
-                    const NDArray& src_gnids,
-                    const NDArray& dst_gnids,
-                    const uint32_t tag);
+void input_bsend_all_fn(caf::blocking_actor* self,
+                        const caf::actor& mpi_actor,
+                        const caf::actor& object_storage_actor,
+                        int batch_id,
+                        const NDArray& new_gnids,
+                        const NDArray& new_features,
+                        const NDArray& src_gnids,
+                        const NDArray& dst_gnids,
+                        const uint32_t tag);
 
-void input_brecv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag);
+void input_brecv_all_fn(caf::blocking_actor* self,
+                        const caf::actor& mpi_actor,
+                        const caf::actor& object_storage_actor,
+                        int batch_id,
+                        const uint32_t tag);
+
+void input_bsend_scatter_fn(caf::blocking_actor* self,
+                            const caf::actor& mpi_actor,
+                            const caf::actor& object_storage_actor,
+                            int num_nodes,
+                            BroadcastInitType init_type,
+                            int batch_id,
+                            const NDArray& new_gnids,
+                            const NDArray& new_features,
+                            const NDArray& src_gnids,
+                            const NDArray& dst_gnids,
+                            const FeatureSplitMethod& split_method,
+                            const uint32_t tag);
+
+void input_brecv_scatter_fn(caf::blocking_actor* self,
+                            const caf::actor& mpi_actor,
+                            const caf::actor& object_storage_actor,
+                            int node_rank,
+                            BroadcastInitType init_type,
+                            int batch_id,
+                            const uint32_t tag);
 
 void input_send_fn(caf::blocking_actor *self,
                    const caf::actor& mpi_actor,
@@ -26,7 +52,11 @@ void input_send_fn(caf::blocking_actor *self,
                    const NDArray& dst_gnids,
                    const uint32_t tag);
 
-void input_recv_fn(caf::blocking_actor* self, const caf::actor& mpi_actor, const uint32_t tag);
+void input_recv_fn(caf::blocking_actor* self,
+                   const caf::actor& mpi_actor,
+                   const caf::actor& object_storage_actor,
+                   int batch_id,
+                   const uint32_t tag);
 
 void move_input_to_shared_mem_fn(caf::blocking_actor *self,
                                  const caf::actor& object_storage_actor,

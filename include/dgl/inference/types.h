@@ -26,17 +26,25 @@ enum ActorSystemType {
   kActorProcess = 2,
 };
 
+enum BroadcastInitType {
+  kAll = 0,
+  kScatter = 1,
+  kScatterFeatureOnly = 1,
+};
+
 enum TaskType {
   kNone = 0,
   kInitialize = 1,
   kSampling = 2,
   kPrepareInput = 3,
   kCompute = 4,
-  kPrepareAggregations = 5,
-  kRecomputeAggregations = 6,
-  kComputeRemaining = 7,
-  kFetchResult = 14,
-  kCleanup = 15,
+  kFetchResult = 5,
+  kCleanup = 6,
+};
+
+struct FeatureSplitMethod {
+  int split_dimension;
+  std::vector<int> split;
 };
 
 struct RequestStats {

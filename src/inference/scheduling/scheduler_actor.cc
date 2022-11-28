@@ -28,8 +28,8 @@ void scheduler_actor::LocalFetchResult(int batch_id, int node_rank, int local_ra
   send(exec_ctl_actor_, caf::fetch_result_atom_v, batch_id, node_rank, local_rank);
 }
 
-void scheduler_actor::BroadcastInitialize(int batch_id, const BatchInput& batch_input) {
-  send(exec_ctl_actor_, caf::broadcast_init_atom_v, batch_id, 
+void scheduler_actor::BroadcastInitialize(int batch_id, BroadcastInitType init_type, const BatchInput& batch_input) {
+  send(exec_ctl_actor_, caf::broadcast_init_atom_v, batch_id, init_type,
        batch_input.new_gnids, batch_input.new_features, batch_input.src_gnids, batch_input.dst_gnids);
 }
 

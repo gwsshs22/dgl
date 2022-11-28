@@ -5,11 +5,6 @@
 namespace dgl {
 namespace inference {
 
-enum BroadcastInitType {
-  kAll = 0,
-  kScatter = 1,
-};
-
 struct BatchInput {
   int req_id;
   NDArray new_gnids;
@@ -27,7 +22,7 @@ class Scheduler {
 
   virtual void LocalFetchResult(int batch_id, int node_rank, int local_rank) = 0;
 
-  virtual void BroadcastInitialize(int batch_id, const BatchInput& batch_input) = 0;
+  virtual void BroadcastInitialize(int batch_id, BroadcastInitType init_type, const BatchInput& batch_input) = 0;
   
   virtual void BroadcastExecute(TaskType task_type, int batch_id, int param0=-1, int param1=-1) = 0;
 

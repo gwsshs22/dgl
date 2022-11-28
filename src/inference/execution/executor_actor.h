@@ -26,6 +26,11 @@ class executor_actor : public caf::event_based_actor {
                  int required_init_count);
 
  protected:
+
+  virtual FeatureSplitMethod GetFeatureSplit(int batch_size, int feature_size) {
+    throw std::runtime_error("GetFeatureSplit not implemented");
+  }
+
   virtual void Sampling(int batch_id, int local_rank) {
     throw std::runtime_error("Sampling not implemented");
   }
@@ -36,18 +41,6 @@ class executor_actor : public caf::event_based_actor {
 
   virtual void Compute(int batch_id, int local_rank, int param0, int param1) {
     throw std::runtime_error("Compute not implemented");
-  }
-
-  virtual void PrepareAggregations(int batch_id, int local_rank) {
-    throw std::runtime_error("PrepareAggregations not implemented");
-  }
-
-  virtual void RecomputeAggregations(int batch_id, int local_rank) {
-    throw std::runtime_error("RecomputeAggregations not implemented");
-  }
-
-  virtual void ComputeRemaining(int batch_id, int local_rank) {
-    throw std::runtime_error("ComputeRemaining not implemented");
   }
 
   virtual void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) {
@@ -97,6 +90,23 @@ class executor_actor : public caf::event_based_actor {
   caf::behavior make_behavior() override;
   caf::behavior make_initializing_behavior();
   caf::behavior make_running_behavior();
+
+  void InputRecvFromSameMachine(int batch_id,
+                                const NDArray& new_gnids,
+                                const NDArray& new_features,
+                                const NDArray& src_gnids,
+                                const NDArray& dst_gnids);
+
+  void InputRecv(int batch_id);
+
+  void BroadcastInputSend(BroadcastInitType init_type,
+                          int batch_id,
+                          const NDArray& new_gnids,
+                          const NDArray& new_features,
+                          const NDArray& src_gnids,
+                          const NDArray& dst_gnids);
+
+  void BroadcastInputRecv(BroadcastInitType init_type, int batch_id);
 
   int required_init_count_;
 };
@@ -173,6 +183,8 @@ class p3_executor : public executor_actor {
               bool collect_stats);
 
  private:
+  FeatureSplitMethod GetFeatureSplit(int batch_size, int feature_size) override;
+
   void Sampling(int batch_id, int local_rank) override;
 
   void PrepareInput(int batch_id, int local_rank) override;
@@ -188,6 +200,7 @@ class p3_executor : public executor_actor {
   void WriteExecutorTraces(caf::response_promise rp) override;
 
   std::vector<caf::actor> samplers_;
+  std::unordered_map<int, int> assigned_local_rank_;
 };
 
 class vertex_cut_executor : public executor_actor {
@@ -205,17 +218,13 @@ class vertex_cut_executor : public executor_actor {
                       bool using_precomputed_aggs);
 
  private:
+  FeatureSplitMethod GetFeatureSplit(int batch_size, int feature_size) override;
+
   void Sampling(int batch_id, int local_rank);
 
   void PrepareInput(int batch_id, int local_rank);
 
   void Compute(int batch_id, int local_rank, int param0, int param1);
-
-  void PrepareAggregations(int batch_id, int local_rank);
-
-  void RecomputeAggregations(int batch_id, int local_rank);
-
-  void ComputeRemaining(int batch_id, int local_rank);
 
   void DirectFetchResult(int batch_id, int local_rank, caf::response_promise rp) override;
 

@@ -9,21 +9,18 @@ std::shared_ptr<SchedulingPolicy> CreatePolicy(ParallelizationType type,
                                                bool using_precomputed_aggs,
                                                int num_nodes,
                                                int num_devices_per_node) {
-  bool using_precomputed_aggs_tmp = false; // Revisit here after implementing P^3 and vcut with precomputed aggrs.
   if (type == ParallelizationType::kData) {
-    return std::make_shared<DataSchedulingPolicy>(using_precomputed_aggs_tmp, num_nodes, num_devices_per_node);
+    return std::make_shared<DataSchedulingPolicy>(num_nodes, num_devices_per_node);
   } else if (type == ParallelizationType::kP3) {
-    return std::make_shared<P3SchedulingPolicy>(using_precomputed_aggs_tmp, num_nodes, num_devices_per_node);
+    return std::make_shared<P3SchedulingPolicy>(num_nodes, num_devices_per_node);
   } else {
-    return std::make_shared<VertexCutSchedulingPolicy>(using_precomputed_aggs_tmp, num_nodes, num_devices_per_node);
+    return std::make_shared<VertexCutSchedulingPolicy>(num_nodes, num_devices_per_node, using_precomputed_aggs);
   }
 }
 
-BaseSchedulingPolicy::BaseSchedulingPolicy(bool using_precomputed_aggs,
-                                           int num_nodes,
+BaseSchedulingPolicy::BaseSchedulingPolicy(int num_nodes,
                                            int num_devices_per_node)
-    : using_precomputed_aggs_(using_precomputed_aggs),
-      num_nodes_(num_nodes),
+    : num_nodes_(num_nodes),
       num_devices_per_node_(num_devices_per_node) {
 }
 
@@ -51,10 +48,9 @@ void BaseSchedulingPolicy::ReportRequestDone(Scheduler& scheduler, int req_id, c
 //////////////////////////
 // DataSchedulingPolicy //
 //////////////////////////
-DataSchedulingPolicy::DataSchedulingPolicy(bool using_precomputed_aggs,
-                                           int num_nodes,
+DataSchedulingPolicy::DataSchedulingPolicy(int num_nodes,
                                            int num_devices_per_node)
-   : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node),
+   : BaseSchedulingPolicy(num_nodes, num_devices_per_node),
      sampling_running_(false),
      init_running_(false) {
   
@@ -114,22 +110,11 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
         scheduled_batch->status = BatchStatus::kComputingStatus;
 
         scheduler.LocalExecute(TaskType::kPrepareInput, batch_id, node_rank, local_rank);
-        if (using_precomputed_aggs_) { 
-          scheduler.LocalExecute(TaskType::kPrepareAggregations, batch_id, node_rank, local_rank);
-        }
       } else if (scheduled_batch->status == BatchStatus::kComputingStatus && is_first_batch) { // Only the first batch can proceed computation
         if (scheduled_batch->input_prepared && !scheduled_batch->input_computing) {
           scheduled_batch->input_computing = true;
           scheduler.LocalExecute(TaskType::kCompute, batch_id, node_rank, local_rank);
         }
-
-        if (using_precomputed_aggs_ && scheduled_batch->aggregation_prepared && !scheduled_batch->aggregation_recomputing) {
-          scheduled_batch->aggregation_recomputing = true;
-          scheduler.LocalExecute(TaskType::kRecomputeAggregations, batch_id, node_rank, local_rank);
-        }
-      } else if (scheduled_batch->status == BatchStatus::kFirstLayerComputedStatus) { // Only for precomputed aggregations
-        scheduled_batch->status = BatchStatus::kComputeRemainingStatus;
-        scheduler.LocalExecute(TaskType::kComputeRemaining, batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kComputedStatus) {
         scheduled_batch->status = BatchStatus::kResultFetchingStatus;
         scheduler.LocalFetchResult(batch_id, node_rank, local_rank);
@@ -160,34 +145,12 @@ void DataSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskTy
   if (task_type == TaskType::kSampling) {
     sampling_running_ = false;
     scheduled_batch->status = kSampledStatus;
-    TryScheduling(scheduler);
-    return;
-  }
-
-  if (task_type == TaskType::kPrepareInput) {
+  } else if (task_type == TaskType::kPrepareInput) {
     scheduled_batch->input_prepared = true;
   } else if (task_type == TaskType::kCompute) {
     assert(scheduled_batch->input_prepared && scheduled_batch->input_computing);
     scheduled_batch->input_computed = true;
-  } else if (task_type == TaskType::kPrepareAggregations) {
-    scheduled_batch->aggregation_prepared = true;
-  } else if (task_type == TaskType::kRecomputeAggregations) {
-    assert(scheduled_batch->aggregation_prepared && scheduled_batch->aggregation_recomputing);
-    scheduled_batch->aggregation_recomputed = true;
-  } else if (task_type == TaskType::kComputeRemaining) {
-    assert(using_precomputed_aggs_);
     scheduled_batch->status = BatchStatus::kComputedStatus;
-  }
-
-  if (using_precomputed_aggs_) {
-    if (scheduled_batch->input_computed && scheduled_batch->aggregation_recomputed &&
-        scheduled_batch->status == BatchStatus::kComputingStatus) {
-      scheduled_batch->status = BatchStatus::kFirstLayerComputedStatus;
-    }
-  } else {
-    if (scheduled_batch->input_computed) {
-      scheduled_batch->status = BatchStatus::kComputedStatus;
-    }
   }
 
   TryScheduling(scheduler);
@@ -223,10 +186,9 @@ void DataSchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const 
 ////////////////////////
 // P3SchedulingPolicy //
 ////////////////////////
-P3SchedulingPolicy::P3SchedulingPolicy(bool using_precomputed_aggs,
-                                       int num_nodes,
+P3SchedulingPolicy::P3SchedulingPolicy(int num_nodes,
                                        int num_devices_per_node)
-    : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node),
+    : BaseSchedulingPolicy(num_nodes, num_devices_per_node),
       compute_running_(false),
       sampling_running_(false),
       init_running_(false) {
@@ -257,9 +219,9 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int node_rank = global_rank / num_devices_per_node_;
     auto front = input_queue_.front();
     batch_id_to_req_id_[batch_id] = front.req_id;
-    scheduler.LocalInitialize(batch_id, node_rank, front);
+    scheduler.BroadcastInitialize(batch_id, BroadcastInitType::kScatterFeatureOnly, front);
     input_queue_.pop();
- 
+
     scheduled_batches_[global_rank].emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));
     batch_id_to_global_rank_[batch_id] = global_rank;
 
@@ -293,14 +255,11 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
           compute_running_ = true;
           scheduler.BroadcastExecute(TaskType::kCompute, batch_id, /* param0 = owner_node_rank */ node_rank, /* param1 = owner_local_rank */ local_rank);
         }
-      } else if (scheduled_batch->status == BatchStatus::kFirstLayerComputedStatus) { // Only for precomputed aggregations
-        scheduled_batch->status = BatchStatus::kComputeRemainingStatus;
-        scheduler.LocalExecute(TaskType::kComputeRemaining, batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kComputedStatus) {
         scheduled_batch->status = BatchStatus::kResultFetchingStatus;
         scheduler.LocalFetchResult(batch_id, node_rank, local_rank);
       } else if (scheduled_batch->status == BatchStatus::kFinishedStatus) {
-        scheduler.LocalExecute(TaskType::kCleanup, batch_id, node_rank, local_rank);
+        scheduler.BroadcastExecute(TaskType::kCleanup, batch_id, node_rank, local_rank);
         batch_finished = true;
       }
 
@@ -326,11 +285,7 @@ void P3SchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, TaskType
   if (task_type == TaskType::kSampling) {
     sampling_running_ = false;
     scheduled_batch->status = kSampledStatus;
-    TryScheduling(scheduler);
-    return;
-  }
-
-  if (task_type == TaskType::kPrepareInput) {
+  } else if (task_type == TaskType::kPrepareInput) {
     scheduled_batch->input_prepared = true;
   } else if (task_type == TaskType::kCompute) {
     assert(scheduled_batch->input_prepared && scheduled_batch->input_computing);
@@ -375,10 +330,11 @@ void P3SchedulingPolicy::OnFinished(Scheduler& scheduler, int batch_id, const ND
 ///////////////////////////////
 // VertexCutSchedulingPolicy //
 ///////////////////////////////
-VertexCutSchedulingPolicy::VertexCutSchedulingPolicy(bool using_precomputed_aggs,
-                            int num_nodes,
-                            int num_devices_per_node)
-      : BaseSchedulingPolicy(using_precomputed_aggs, num_nodes, num_devices_per_node),
+VertexCutSchedulingPolicy::VertexCutSchedulingPolicy(int num_nodes,
+                                                     int num_devices_per_node,
+                                                     bool using_precomputed_aggs)
+      : BaseSchedulingPolicy(num_nodes, num_devices_per_node),
+        using_precomputed_aggs_(using_precomputed_aggs),
         sampling_running_(false),
         init_running_(false) {
 
@@ -393,7 +349,13 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int batch_id = IssueBatchId();
     auto front = input_queue_.front();
     batch_id_to_req_id_[batch_id] = front.req_id;
-    scheduler.BroadcastInitialize(batch_id, front);
+
+    if (using_precomputed_aggs_) {
+      scheduler.BroadcastInitialize(batch_id, BroadcastInitType::kAll, front);
+    } else {
+      scheduler.BroadcastInitialize(batch_id, BroadcastInitType::kScatter, front);
+    }
+
     input_queue_.pop();
  
     scheduled_batches_.emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));
@@ -416,22 +378,11 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
       scheduled_batch->status = BatchStatus::kComputingStatus;
 
       scheduler.BroadcastExecute(TaskType::kPrepareInput, batch_id);
-      if (using_precomputed_aggs_) { 
-        scheduler.BroadcastExecute(TaskType::kPrepareAggregations, batch_id);
-      }
     } else if (scheduled_batch->status == BatchStatus::kComputingStatus && is_first_batch) { // Only the first batch can proceed computation
       if (scheduled_batch->input_prepared && !scheduled_batch->input_computing) {
         scheduled_batch->input_computing = true;
         scheduler.BroadcastExecute(TaskType::kCompute, batch_id);
       }
-
-      if (using_precomputed_aggs_ && scheduled_batch->aggregation_prepared && !scheduled_batch->aggregation_recomputing) {
-        scheduled_batch->aggregation_recomputing = true;
-        scheduler.BroadcastExecute(TaskType::kRecomputeAggregations, batch_id);
-      }
-    } else if (scheduled_batch->status == BatchStatus::kFirstLayerComputedStatus) { // Only for precomputed aggregations
-      scheduled_batch->status = BatchStatus::kComputeRemainingStatus;
-      scheduler.BroadcastExecute(TaskType::kComputeRemaining, batch_id);
     } else if (scheduled_batch->status == BatchStatus::kComputedStatus) {
       scheduled_batch->status = BatchStatus::kResultFetchingStatus;
       scheduler.BroadcastFetchResult(batch_id);
@@ -460,34 +411,12 @@ void VertexCutSchedulingPolicy::OnExecuted(Scheduler& scheduler, int batch_id, T
   if (task_type == TaskType::kSampling) {
     scheduled_batch->status = kSampledStatus;
     sampling_running_ = false;
-    TryScheduling(scheduler);
-    return;
-  }
-
-  if (task_type == TaskType::kPrepareInput) {
+  } else if (task_type == TaskType::kPrepareInput) {
     scheduled_batch->input_prepared = true;
   } else if (task_type == TaskType::kCompute) {
     assert(scheduled_batch->input_prepared && scheduled_batch->input_computing);
     scheduled_batch->input_computed = true;
-  } else if (task_type == TaskType::kPrepareAggregations) {
-    scheduled_batch->aggregation_prepared = true;
-  } else if (task_type == TaskType::kRecomputeAggregations) {
-    assert(scheduled_batch->aggregation_prepared && scheduled_batch->aggregation_recomputing);
-    scheduled_batch->aggregation_recomputed = true;
-  } else if (task_type == TaskType::kComputeRemaining) {
-    assert(using_precomputed_aggs_);
     scheduled_batch->status = BatchStatus::kComputedStatus;
-  }
-
-  if (using_precomputed_aggs_) {
-    if (scheduled_batch->input_computed && scheduled_batch->aggregation_recomputed &&
-        scheduled_batch->status == BatchStatus::kComputingStatus) {
-      scheduled_batch->status = BatchStatus::kFirstLayerComputedStatus;
-    }
-  } else {
-    if (scheduled_batch->input_computed) {
-      scheduled_batch->status = BatchStatus::kComputedStatus;
-    }
   }
 
   TryScheduling(scheduler);

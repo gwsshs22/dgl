@@ -7,7 +7,6 @@
 namespace dgl {
 namespace inference {
 
-
 executor_actor::executor_actor(caf::actor_config& config,
                                caf::strong_actor_ptr exec_ctl_actor_ptr,
                                caf::strong_actor_ptr mpi_actor_ptr,
@@ -62,53 +61,16 @@ void executor_actor::ReportTaskDone(TaskType task_type, int batch_id) {
 caf::behavior executor_actor::make_running_behavior() {
   return {
     [&](caf::init_atom, int batch_id, const NDArray& new_gnids, const NDArray& new_features, const NDArray& src_gnids, const NDArray& dst_gnids) {
-      TraceMe input_send(batch_id, "input_send");
-      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
-      object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
-      auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
-      RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
+      InputRecvFromSameMachine(batch_id, new_gnids, new_features, src_gnids, dst_gnids);
     },
     [&](caf::init_atom, int batch_id) {
-      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
-      object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
-      auto receiver = spawn(input_recv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
-      request(receiver, caf::infinite, caf::get_atom_v).then(
-        [=](const std::vector<NDArray>& ret) {
-          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, ret[0], ret[1], ret[2], ret[3]);
-          RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
-        },
-        [&](caf::error& err) {
-          // TODO: error handling
-          caf::aout(this) << caf::to_string(err) << std::endl;
-        });
+      InputRecv(batch_id);
     },
-    [&](caf::broadcast_init_atom, int batch_id, const NDArray& new_gnids, const NDArray& new_features, const NDArray& src_gnids, const NDArray& dst_gnids) {
-      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
-      object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
-      auto broadcaster = spawn(input_bsend_fn, mpi_actor_, batch_id, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
-      request(broadcaster, caf::infinite, caf::get_atom_v).then(
-        [=]() {
-          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
-          RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
-        },
-        [&](caf::error& err) {
-          // TODO: error handling
-          caf::aout(this) << caf::to_string(err) << std::endl;
-        });
+    [&](caf::broadcast_init_atom, BroadcastInitType init_type, int batch_id, const NDArray& new_gnids, const NDArray& new_features, const NDArray& src_gnids, const NDArray& dst_gnids) {
+      BroadcastInputSend(init_type, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
     },
-    [&](caf::broadcast_init_atom, int batch_id) {
-      auto obj_storage_actor = spawn(object_storage_actor, batch_id);
-      object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
-      auto receiver = spawn(input_brecv_fn, mpi_actor_, CreateMpiTag(batch_id, TaskType::kInitialize));
-      request(receiver, caf::infinite, caf::get_atom_v).then(
-        [=](const std::vector<NDArray>& ret) {
-          auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, ret[0], ret[1], ret[2], ret[3]);
-          RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
-        },
-        [&](caf::error& err) {
-          // TODO: error handling
-          caf::aout(this) << caf::to_string(err) << std::endl;
-        });
+    [&](caf::broadcast_init_atom, BroadcastInitType init_type, int batch_id) {
+      BroadcastInputRecv(init_type, batch_id);
     },
     // batch task execution
     [&](caf::exec_atom, TaskType task_type, int batch_id, int local_rank, int param0, int param1) {
@@ -121,15 +83,6 @@ caf::behavior executor_actor::make_running_behavior() {
           break;
         case TaskType::kCompute:
           Compute(batch_id, local_rank, param0, param1);
-          break;
-        case TaskType::kPrepareAggregations:
-          PrepareAggregations(batch_id, local_rank);
-          break;
-        case TaskType::kRecomputeAggregations:
-          RecomputeAggregations(batch_id, local_rank);
-          break;
-        case TaskType::kComputeRemaining:
-          ComputeRemaining(batch_id, local_rank);
           break;
         case TaskType::kCleanup:
           Cleanup(batch_id, local_rank);
@@ -150,6 +103,74 @@ caf::behavior executor_actor::make_running_behavior() {
       return rp;
     }
   };
+}
+
+void executor_actor::InputRecvFromSameMachine(int batch_id,
+                                              const NDArray& new_gnids,
+                                              const NDArray& new_features,
+                                              const NDArray& src_gnids,
+                                              const NDArray& dst_gnids) {
+  auto obj_storage_actor = spawn(object_storage_actor, batch_id);
+  object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
+  auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
+  RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
+}
+
+void executor_actor::InputRecv(int batch_id) {
+  auto obj_storage_actor = spawn(object_storage_actor, batch_id);
+  object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
+  auto receiver = spawn(input_recv_fn, mpi_actor_, obj_storage_actor, batch_id, CreateMpiTag(batch_id, TaskType::kInitialize));
+  RequestAndReportTaskDone(receiver, TaskType::kInitialize, batch_id);
+}
+
+void executor_actor::BroadcastInputSend(BroadcastInitType init_type,
+                                        int batch_id,
+                                        const NDArray& new_gnids,
+                                        const NDArray& new_features,
+                                        const NDArray& src_gnids,
+                                        const NDArray& dst_gnids) {
+  auto obj_storage_actor = spawn(object_storage_actor, batch_id);
+  object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
+  caf::actor broadcaster;
+  if (init_type == BroadcastInitType::kAll) {
+    broadcaster = spawn(input_bsend_all_fn,
+                        mpi_actor_,
+                        obj_storage_actor,
+                        batch_id,
+                        new_gnids,
+                        new_features,
+                        src_gnids,
+                        dst_gnids,
+                        CreateMpiTag(batch_id, TaskType::kInitialize));
+  } else {
+    broadcaster = spawn(input_bsend_scatter_fn,
+                        mpi_actor_,
+                        obj_storage_actor,
+                        num_nodes_,
+                        init_type,
+                        batch_id,
+                        new_gnids,
+                        new_features,
+                        src_gnids,
+                        dst_gnids,
+                        GetFeatureSplit(new_features->shape[0], new_features->shape[1]),
+                        CreateMpiTag(batch_id, TaskType::kInitialize));
+  }
+
+  RequestAndReportTaskDone(broadcaster, TaskType::kInitialize, batch_id);  
+}
+
+void executor_actor::BroadcastInputRecv(BroadcastInitType init_type, int batch_id) {
+  auto obj_storage_actor = spawn(object_storage_actor, batch_id);
+  object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
+  caf::actor receiver;
+  if (init_type == BroadcastInitType::kAll){
+    receiver = spawn(input_brecv_all_fn, mpi_actor_, obj_storage_actor, batch_id, CreateMpiTag(batch_id, TaskType::kInitialize));
+  } else {
+    receiver = spawn(input_brecv_scatter_fn, mpi_actor_, obj_storage_actor, node_rank_, init_type, batch_id, CreateMpiTag(batch_id, TaskType::kInitialize));
+  }
+
+  RequestAndReportTaskDone(receiver, TaskType::kInitialize, batch_id);
 }
 
 caf::actor spawn_executor_actor(caf::actor_system& system,

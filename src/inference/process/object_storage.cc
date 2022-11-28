@@ -24,12 +24,14 @@ void ObjectStorage::CopyToSharedMemory(int batch_id, const std::string& name, co
 void ObjectStorage::Cleanup(int batch_id) {
   std::lock_guard<std::mutex> lock(mtx_);
   auto it = per_batch_metadata_holder_.find(batch_id);
-  assert(it != per_batch_metadata_holder_.end());
-  per_batch_metadata_holder_.erase(it);
+  if (it != per_batch_metadata_holder_.end()) {
+    per_batch_metadata_holder_.erase(it);
+  }
 
   auto it2 = per_batch_data_holder_.find(batch_id);
-  assert(it2 != per_batch_data_holder_.end());
-  per_batch_data_holder_.erase(it2);
+  if (it2 != per_batch_data_holder_.end()) {
+    per_batch_data_holder_.erase(it2);
+  }
 }
 
 }

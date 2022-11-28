@@ -81,9 +81,9 @@ class GnnExecutorProcess:
         if self._load_p3_feature:
             self._dist_graph.load_p3_features(self._num_devices_per_node)
             self._p3_features = self._dist_graph.get_p3_features(self._local_rank)
-            self._p3_start_idx, self._p3_end_idx = self._get_p3_start_end_indices()
-            print(f"local_rank={self._local_rank}, p3_features shape={self._p3_features.shape}, p3_start_idx={self._p3_start_idx}, p3_end_idx={self._p3_end_idx}")
-            self._model.layers[0].p3_split(self._p3_start_idx, self._p3_end_idx)
+            self._p3_global_start_idx, self._p3_global_end_idx, \
+                self._p3_start_idx, self._p3_end_idx = self._get_start_end_indices(self._num_features)
+            self._model.layers[0].p3_split(self._p3_global_start_idx, self._p3_global_end_idx)
 
         global_rank = self._node_rank * self._num_devices_per_node + self._local_rank
         dist.init_process_group(
@@ -236,16 +236,16 @@ class GnnExecutorProcess:
         for k, v in mp_aggr.items():
             dist.reduce(v, owner_gpu_global_rank)
 
-    def _get_p3_start_end_indices(self):
-        feature_split_in_machines = [self._num_features // self._num_nodes] * self._num_nodes
-        for j in range(self._num_features % self._num_nodes):
+    def _get_start_end_indices(self, target_size):
+        feature_split_in_machines = [target_size // self._num_nodes] * self._num_nodes
+        for j in range(target_size % self._num_nodes):
             feature_split_in_machines[j] += 1
         
         num_features_in_machine = feature_split_in_machines[self._node_rank]
         feature_split_in_gpus = [num_features_in_machine // self._num_devices_per_node] * self._num_devices_per_node
         for j in range(num_features_in_machine % self._num_devices_per_node):
             feature_split_in_gpus[j] += 1 
-        
+
         local_start_idx = 0
         local_end_idx = feature_split_in_gpus[0]
         for j in range(self._local_rank):
@@ -259,17 +259,17 @@ class GnnExecutorProcess:
             global_start_idx += feature_split_in_machines[j]
             global_end_idx += feature_split_in_machines[j]
 
-        return global_start_idx, global_end_idx
+        return global_start_idx, global_end_idx, local_start_idx, local_end_idx
 
     def vertex_cut_compute(self, batch_id):
         with trace_me(batch_id, "compute"):
             with trace_me(batch_id, "compute/load_tensors"):
-                # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
+                # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & compute & computation graph build
                 new_gnids = load_tensor(batch_id, "new_gnids")
                 new_features = load_tensor(batch_id, "new_features")
                 batch_size = new_gnids.shape[0]
                 batch_split = self._get_batch_split_to_gpus(batch_size)
-                batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
+                _, _, feat_start_idx, feat_end_idx = self._get_start_end_indices(batch_size)
 
                 num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
@@ -292,7 +292,7 @@ class GnnExecutorProcess:
                 block1 = block1.to(self._device)
                 block2 = block2.to(self._device)
                 # Build source features
-                src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]].to(self._device)
+                src_new_feats = new_features[feat_start_idx:feat_end_idx].to(self._device)
                 existing_gnids = input_gnids[batch_split[self._gpu_global_rank]:]
                 src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
 
@@ -420,11 +420,19 @@ class GnnExecutorProcess:
                     split.append(num_assigned_to_machine // self._num_devices_per_node)
 
         return np.array(split, np.int64)
-    
-    def _cumsum_start_with_zero(self, arr):
-        ret = np.zeros(arr.shape[0] + 1, np.int64)
-        np.cumsum(arr, out=ret[1:])
-        return ret
+
+    def _get_vcut_feature_indices(self, batch_size):
+        feature_split_in_gpus = [batch_size // self._num_devices_per_node] * self._num_devices_per_node
+        for j in range(batch_size % self._num_devices_per_node):
+            feature_split_in_gpus[j] += 1
+
+        start_idx = 0
+        end_idx = feature_split_in_gpus[0]
+        for j in range(self._local_rank):
+            start_idx = end_idx
+            end_idx = start_idx + feature_split_in_gpus[j+1]
+
+        return start_idx, end_idx
 
     def vertex_cut_compute_with_precomputed_aggrs(self, batch_id):
         with trace_me(batch_id, "compute"):
@@ -497,3 +505,8 @@ class GnnExecutorProcess:
             aggrs[aggr_name] = torch.stack((new_nodes_aggregations[aggr_name], self._dist_graph.ndata[f"agg_{aggr_name}"][inc_dst_gnids].to(self._device)))
 
         return first_layer.merge(inc_block, dst_merge_init_values, aggrs)
+
+    def _cumsum_start_with_zero(self, arr):
+            ret = np.zeros(arr.shape[0] + 1, np.int64)
+            np.cumsum(arr, out=ret[1:])
+            return ret

@@ -29,7 +29,7 @@ class scheduler_actor : public caf::event_based_actor, Scheduler {
 
   void LocalFetchResult(int batch_id, int node_rank, int local_rank) override;
 
-  void BroadcastInitialize(int batch_id, const BatchInput& batch_input) override;
+  void BroadcastInitialize(int batch_id, BroadcastInitType init_type, const BatchInput& batch_input) override;
 
   void BroadcastExecute(TaskType task_type, int batch_id, int param0, int param1) override;
 

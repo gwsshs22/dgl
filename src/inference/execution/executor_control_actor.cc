@@ -232,14 +232,15 @@ caf::behavior executor_control_actor::running() {
     },
     [&](caf::broadcast_init_atom,
         int batch_id,
+        BroadcastInitType init_type,
         const NDArray& new_gnids,
         const NDArray& new_features,
         const NDArray& src_gnids,
         const NDArray& dst_gnids) {
-      send(executors_[0], caf::broadcast_init_atom_v, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
+      send(executors_[0], caf::broadcast_init_atom_v, init_type, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
       
       for (int i = 1; i < num_nodes_; i++) {
-        send(executors_[i], caf::broadcast_init_atom_v, batch_id);
+        send(executors_[i], caf::broadcast_init_atom_v, init_type, batch_id);
       }
 
       done_task_counter_.emplace(std::make_pair(TaskType::kInitialize, batch_id), num_nodes_);
@@ -274,7 +275,6 @@ caf::behavior executor_control_actor::running() {
       } else {
         send(scheduler_actor_, caf::done_atom_v, task_type, batch_id);
       }
-        
     },
     [&](caf::write_trace_atom) {
       auto rp = make_response_promise<bool>();

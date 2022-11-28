@@ -6,6 +6,7 @@
 #include "../process/process_control_actor.h"
 
 #include "mem_utils.h"
+#include "array_utils.h"
 
 namespace dgl {
 namespace inference {
@@ -103,6 +104,10 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
   sampler_ = spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, -1);
 }
 
+FeatureSplitMethod vertex_cut_executor::GetFeatureSplit(int batch_size, int feature_size) {
+  return GetVcutFeatureSplit(num_nodes_, batch_size, feature_size);
+}
+
 void vertex_cut_executor::Sampling(int batch_id, int) {
   // OPTIMIZATION TODO: Sampling in c++.
   auto sampling_task = spawn(sampling_fn, sampler_, batch_id);
@@ -116,18 +121,6 @@ void vertex_cut_executor::PrepareInput(int batch_id, int) {
 void vertex_cut_executor::Compute(int batch_id, int, int, int) {
   auto compute_task = spawn(gnn_broadcast_execute_fn, gnn_executor_group_, batch_id, gnn_executor_request_type::kComputeRequestType, /* param0 */ -1);
   RequestAndReportTaskDone(compute_task, TaskType::kCompute, batch_id);
-}
-
-void vertex_cut_executor::PrepareAggregations(int batch_id, int) {
-  ReportTaskDone(TaskType::kPrepareAggregations, batch_id);
-}
-
-void vertex_cut_executor::RecomputeAggregations(int batch_id, int) {
-  ReportTaskDone(TaskType::kRecomputeAggregations, batch_id);
-}
-
-void vertex_cut_executor::ComputeRemaining(int batch_id, int) {
-  ReportTaskDone(TaskType::kComputeRemaining, batch_id);
 }
 
 void vertex_cut_executor::DirectFetchResult(int batch_id, int, caf::response_promise rp) {

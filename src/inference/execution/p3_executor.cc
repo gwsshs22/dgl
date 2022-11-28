@@ -4,6 +4,7 @@
 #include "../process/process_control_actor.h"
 
 #include "mem_utils.h"
+#include "array_utils.h"
 
 namespace dgl {
 namespace inference {
@@ -52,8 +53,6 @@ void p3_compute(caf::blocking_actor* self,
                 int owner_node_rank,
                 int owner_local_rank) {
   // For receive case. We should hold the shared memory until GNN computation finishes.
-  NDArray new_features;
-  std::shared_ptr<runtime::SharedMemory> new_features_meta;
   NDArray input_gnids;
   std::shared_ptr<runtime::SharedMemory> input_gnids_meta;
   NDArray b1_u;
@@ -75,12 +74,11 @@ void p3_compute(caf::blocking_actor* self,
       return rh;
     };
 
-    rh_list.push_back(bsend_lambda("new_features", 0));
-    rh_list.push_back(bsend_lambda("input_gnids", 1));
-    rh_list.push_back(bsend_lambda("b1_u", 2));
-    rh_list.push_back(bsend_lambda("b1_v", 3));
-    rh_list.push_back(bsend_lambda("num_src_nodes_list", 4));
-    rh_list.push_back(bsend_lambda("num_dst_nodes_list", 5));
+    rh_list.push_back(bsend_lambda("input_gnids", 0));
+    rh_list.push_back(bsend_lambda("b1_u", 1));
+    rh_list.push_back(bsend_lambda("b1_v", 2));
+    rh_list.push_back(bsend_lambda("num_src_nodes_list", 3));
+    rh_list.push_back(bsend_lambda("num_dst_nodes_list", 4));
     for (int i = 0; i < rh_list.size(); i++) {
       receive_result<void>(rh_list[i]);
     }
@@ -92,34 +90,29 @@ void p3_compute(caf::blocking_actor* self,
       return rh;
     };
 
-    rh_list.push_back(brecv_lambda("new_features", 0));
-    rh_list.push_back(brecv_lambda("input_gnids", 1));
-    rh_list.push_back(brecv_lambda("b1_u", 2));
-    rh_list.push_back(brecv_lambda("b1_v", 3));
-    rh_list.push_back(brecv_lambda("num_src_nodes_list", 4));
-    rh_list.push_back(brecv_lambda("num_dst_nodes_list", 5));
+    rh_list.push_back(brecv_lambda("input_gnids", 0));
+    rh_list.push_back(brecv_lambda("b1_u", 1));
+    rh_list.push_back(brecv_lambda("b1_v", 2));
+    rh_list.push_back(brecv_lambda("num_src_nodes_list", 3));
+    rh_list.push_back(brecv_lambda("num_dst_nodes_list", 4));
 
-    auto new_features_result = receive_result<NDArrayWithSharedMeta>(rh_list[0]);
-    new_features = new_features_result.first;
-    new_features_meta = new_features_result.second;
-
-    auto input_gnids_result = receive_result<NDArrayWithSharedMeta>(rh_list[1]);
+    auto input_gnids_result = receive_result<NDArrayWithSharedMeta>(rh_list[0]);
     input_gnids = input_gnids_result.first;
     input_gnids_meta = input_gnids_result.second;
 
-    auto b1_u_result = receive_result<NDArrayWithSharedMeta>(rh_list[2]);
+    auto b1_u_result = receive_result<NDArrayWithSharedMeta>(rh_list[1]);
     b1_u = b1_u_result.first;
     b1_u_meta = b1_u_result.second;
 
-    auto b1_v_result = receive_result<NDArrayWithSharedMeta>(rh_list[3]);
+    auto b1_v_result = receive_result<NDArrayWithSharedMeta>(rh_list[2]);
     b1_v = b1_v_result.first;
     b1_v_meta = b1_v_result.second;
 
-    auto num_src_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[4]);
+    auto num_src_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[3]);
     num_src_nodes_list = num_src_nodes_list_result.first;
     num_src_nodes_list_meta = num_src_nodes_list_result.second;
 
-    auto num_dst_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[5]);
+    auto num_dst_nodes_list_result = receive_result<NDArrayWithSharedMeta>(rh_list[4]);
     num_dst_nodes_list = num_dst_nodes_list_result.first;
     num_dst_nodes_list_meta = num_dst_nodes_list_result.second;
   }
@@ -239,7 +232,12 @@ p3_executor::p3_executor(caf::actor_config& config,
   }
 }
 
+FeatureSplitMethod p3_executor::GetFeatureSplit(int batch_size, int feature_size) {
+  return GetP3FeatureSplit(num_nodes_, batch_size, feature_size);
+}
+
 void p3_executor::Sampling(int batch_id, int local_rank) {
+  assigned_local_rank_[batch_id] = local_rank;
   auto sampling_task = spawn(sampling_fn, samplers_[local_rank], batch_id);
   RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
 }
@@ -278,14 +276,21 @@ void p3_executor::FetchResult(int batch_id, int local_rank) {
     });
 }
 
-void p3_executor::Cleanup(int batch_id, int local_rank) {
-  send(samplers_[local_rank], caf::cleanup_atom_v, batch_id);
-  send(gnn_executor_group_,
-       caf::exec_atom_v,
-       batch_id,
-       static_cast<int>(gnn_executor_request_type::kCleanupRequestType),
-       local_rank,
-       /* param0 */ -1);
+void p3_executor::Cleanup(int batch_id, int) {
+  auto it = assigned_local_rank_.find(batch_id);
+  if (it != assigned_local_rank_.end()) {
+    auto local_rank = it->second;
+    send(samplers_[local_rank], caf::cleanup_atom_v, batch_id);
+
+    send(gnn_executor_group_,
+        caf::exec_atom_v,
+        batch_id,
+        static_cast<int>(gnn_executor_request_type::kCleanupRequestType),
+        local_rank,
+        /* param0 */ -1);
+
+    assigned_local_rank_.erase(it);
+  }
 
   object_storages_.erase(batch_id);
   ReportTaskDone(TaskType::kCleanup, batch_id);

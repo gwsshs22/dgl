@@ -71,6 +71,7 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::NDArrayWithSharedMeta))
   CAF_ADD_TYPE_ID(core_extension, (std::shared_ptr<dgl::runtime::SharedMemory>))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::TaskType))
+  CAF_ADD_TYPE_ID(core_extension, (dgl::inference::BroadcastInitType))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::RequestStats))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::EnvSetter))
   CAF_ADD_TYPE_ID(core_extension, (DLContext))
@@ -146,7 +147,7 @@ inline void receive_result(caf::response_handle<caf::blocking_actor, caf::messag
 inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank, int local_rank, int task_id) {
   assert(0 <= task_id && task_id < 0xF);
   return ((((uint32_t) batch_id) & 0xFF) << 24) + ((((uint32_t) task_type) & 0xF) << 20) +
-      ((((uint32_t) node_rank) & 0xFF) << 12) + ((((uint32_t) local_rank) & 0xFF) << 4) + (((uint32_t)task_id) & 0xF);
+      ((((uint32_t) node_rank) & 0xF) << 16) + ((((uint32_t) local_rank) & 0xFF) << 8) + (((uint32_t)task_id) & 0xFF);
 }
 
 inline uint32_t CreateMpiTag(int batch_id, TaskType task_type, int node_rank, int local_rank) {

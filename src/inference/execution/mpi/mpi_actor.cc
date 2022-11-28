@@ -52,7 +52,7 @@ caf::behavior mpi_actor::make_behavior() {
   ReportToInitMon(*this, "mpi", rank, num_nodes);
   return {
     [=](caf::mpi_bsend_atom, const NDArray& data, uint32_t tag) {
-      auto rp = make_response_promise<bool>();
+      auto rp = make_response_promise<void>();
       spawn(broadcast_send_, rp, this->gloo_executor_, rank, data, tag);
       return rp;
     },
@@ -62,7 +62,7 @@ caf::behavior mpi_actor::make_behavior() {
       return rp;
     },
     [=](caf::mpi_send_atom, int dst_rank, const NDArray& data, uint32_t tag) {
-      auto rp = make_response_promise<bool>();
+      auto rp = make_response_promise<void>();
       spawn(send_, rp, this->gloo_executor_, dst_rank, data, tag);
       return rp;
     },

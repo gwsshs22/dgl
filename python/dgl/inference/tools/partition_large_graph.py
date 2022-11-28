@@ -10,6 +10,8 @@ import os
 import gc
 import json
 
+import torch
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from .load_graph import load_reddit, load_ogb
 from .dist_partition import partition_graph
@@ -123,7 +125,9 @@ def fill_node_features(args, org_g):
         part_node_features = node_features[orig_ids]
 
         if args.for_training:
-            node_feats = { "_N/features": part_node_features, "_N/labels": labels[orig_ids], "_N/infer_target_mask": id_mappings["infer_target_mask"][orig_ids] }
+            infer_target_mask = id_mappings["infer_target_mask"][orig_ids]
+            train_mask = torch.logical_not(infer_target_mask)
+            node_feats = { "_N/features": part_node_features, "_N/labels": labels[orig_ids], "_N/infer_target_mask": infer_target_mask, "_N/train_mask": train_mask }
         else:
             node_feats = { "_N/features": part_node_features }
         dgl.data.save_tensors(str(Path(args.output) / f"part{part_id}" / "node_feat.dgl"), node_feats)
@@ -150,6 +154,8 @@ def delete_infer_edges(args, org_g):
 
         part_orig_id = part_graph.ndata["orig_id"]
         part_graph.ndata["infer_target_mask"] = infer_target_mask[part_orig_id]
+        if args.for_training:
+            part_graph.ndata["train_mask"] = torch.logical_not(part_graph.ndata["infer_target_mask"])
         infer_targets_orig_ids_in_part = np.intersect1d(infer_target_orig_ids, part_orig_id)
 
         sorter = np.argsort(part_orig_id)

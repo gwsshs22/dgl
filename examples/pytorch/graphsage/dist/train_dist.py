@@ -1,4 +1,4 @@
-iimport os
+import os
 os.environ['DGLBACKEND']='pytorch'
 from multiprocessing import Process
 import argparse, time, math

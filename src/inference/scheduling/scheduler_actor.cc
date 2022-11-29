@@ -9,10 +9,17 @@ scheduler_actor::scheduler_actor(caf::actor_config& config,
                                 ParallelizationType parallelization_type,
                                 bool using_precomputed_aggs,
                                 int num_nodes,
-                                int num_devices_per_node)
+                                int num_devices_per_node,
+                                int num_samplers_per_node,
+                                bool execute_one_by_one)
     : event_based_actor(config), result_collect_actor_(result_collect_actor) {
   exec_ctl_actor_ = caf::actor_cast<caf::actor>(exec_ctl_actor_ptr);
-  policy_ = CreatePolicy(parallelization_type, using_precomputed_aggs, num_nodes, num_devices_per_node);
+  policy_ = CreatePolicy(parallelization_type,
+                         using_precomputed_aggs,
+                         num_nodes,
+                         num_devices_per_node,
+                         num_samplers_per_node,
+                         execute_one_by_one);
 }
 
 void scheduler_actor::LocalInitialize(int batch_id, int node_rank, const BatchInput& batch_input) {

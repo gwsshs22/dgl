@@ -11,8 +11,7 @@ namespace inference {
 namespace {
 
 void direct_fetch_result_fn(caf::blocking_actor* self,
-                            int batch_id,
-                            int local_rank) {
+                            int batch_id) {
   auto src_arr = LoadFromSharedMemory(batch_id, "result");
   NDArray copied = NDArray::Empty(
       std::vector<int64_t>(src_arr->shape, src_arr->shape + src_arr->ndim),
@@ -27,8 +26,7 @@ void direct_fetch_result_fn(caf::blocking_actor* self,
 
 void fetch_result_fn(caf::blocking_actor* self,
                      const caf::actor& mpi_actor,
-                     int batch_id,
-                     int local_rank) {
+                     int batch_id) {
   auto result = LoadFromSharedMemory(batch_id, "result");
   auto rh2 = self->request(mpi_actor, caf::infinite, caf::mpi_send_atom_v, 0, result, CreateMpiTag(batch_id, TaskType::kFetchResult));
   receive_result<bool>(rh2);
@@ -73,6 +71,7 @@ data_parallel_executor::data_parallel_executor(caf::actor_config& config,
                                                int num_nodes,
                                                int num_backup_servers,
                                                int num_devices_per_node,
+                                               int num_samplers_per_node,
                                                std::string result_dir,
                                                bool collect_stats)
     : executor_actor(config,
@@ -84,21 +83,31 @@ data_parallel_executor::data_parallel_executor(caf::actor_config& config,
                      num_devices_per_node,
                      result_dir,
                      collect_stats,
-                     num_devices_per_node) {
+                     num_samplers_per_node) {
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
-  for (int i = 0; i < num_devices_per_node; i++) {
+  for (int i = 0; i < num_samplers_per_node; i++) {
     samplers_.emplace_back(spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, i));
+    sampler_running_.push_back(false);
   }
 }
 
-void data_parallel_executor::Sampling(int batch_id, int local_rank) {
-  auto sampling_task = spawn(sampling_fn, samplers_[local_rank], batch_id);
-  RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
-}
+void data_parallel_executor::Sampling(int batch_id, int, int) {
+  int idle_sampler_rank = -1;
+  for (int i = 0; i < sampler_running_.size(); i++) {
+    if (!sampler_running_[i]) {
+      idle_sampler_rank = i;
+      break;
+    }
+  }
 
-void data_parallel_executor::PrepareInput(int batch_id, int local_rank, int, int) {
-  // Do nothing.
-  ReportTaskDone(TaskType::kPrepareInput, batch_id);
+  CHECK(idle_sampler_rank != -1);
+  sampler_running_[idle_sampler_rank] = true;
+  batch_id_to_sampler_rank_[batch_id] = idle_sampler_rank;
+  auto sampling_task = spawn(sampling_fn, samplers_[idle_sampler_rank], batch_id);
+
+  RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id, [&, idle_sampler_rank]() {
+    sampler_running_[idle_sampler_rank] = false;
+  });
 }
 
 void data_parallel_executor::Compute(int batch_id, int local_rank, int, int) {
@@ -107,9 +116,9 @@ void data_parallel_executor::Compute(int batch_id, int local_rank, int, int) {
 }
 
 void data_parallel_executor::DirectFetchResult(int batch_id,
-                                               int local_rank,
+                                               int,
                                                caf::response_promise rp) {
-  auto task = spawn(direct_fetch_result_fn, batch_id, local_rank);
+  auto task = spawn(direct_fetch_result_fn, batch_id);
   request(task, caf::infinite, caf::get_atom_v).then(
     [=](NDArray result) mutable {
       rp.deliver(std::vector<NDArray>({result}));
@@ -120,8 +129,8 @@ void data_parallel_executor::DirectFetchResult(int batch_id,
     });
 }
 
-void data_parallel_executor::FetchResult(int batch_id, int local_rank) {
-  auto task = spawn(fetch_result_fn, mpi_actor_, batch_id, local_rank);
+void data_parallel_executor::FetchResult(int batch_id, int) {
+  auto task = spawn(fetch_result_fn, mpi_actor_, batch_id);
   request(task, caf::infinite, caf::get_atom_v).then(
     [=]() { },
     [=](caf::error& err) {
@@ -130,13 +139,17 @@ void data_parallel_executor::FetchResult(int batch_id, int local_rank) {
     });
 }
 
-void data_parallel_executor::Cleanup(int batch_id, int local_rank) {
-  send(samplers_[local_rank], caf::cleanup_atom_v, batch_id);
+void data_parallel_executor::Cleanup(int batch_id, int gpu_local_rank, int) {
+  auto it = batch_id_to_sampler_rank_.find(batch_id);
+  CHECK(it != batch_id_to_sampler_rank_.end());
+  int sampler_rank = it->second;
+  batch_id_to_sampler_rank_.erase(it);
+  send(samplers_[sampler_rank], caf::cleanup_atom_v, batch_id);
   send(gnn_executor_group_,
        caf::exec_atom_v,
        batch_id,
        static_cast<int>(gnn_executor_request_type::kCleanupRequestType),
-       local_rank,
+       gpu_local_rank,
        /* param0 */ -1);
 
   object_storages_.erase(batch_id);

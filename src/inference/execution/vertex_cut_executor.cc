@@ -56,12 +56,14 @@ void write_traces_fn(caf::blocking_actor* self,
                      int num_devices_per_node,
                      int node_rank,
                      const caf::actor& gnn_executor_group,
-                     const caf::actor& sampler,
+                     const std::vector<caf::actor>& samplers,
                      caf::response_promise rp) {
   WriteTraces(result_dir, node_rank);
 
-  auto rh = self->request(sampler, caf::infinite, caf::write_trace_atom_v);
-  receive_result<bool>(rh);
+  for (int i = 0; i < samplers.size(); i++) {
+    auto rh = self->request(samplers[i], caf::infinite, caf::write_trace_atom_v);
+    receive_result<bool>(rh);
+  }
 
   for (int i = 0; i < num_devices_per_node; i++) {
     auto rh = self->request(gnn_executor_group,
@@ -86,6 +88,7 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
                                          int num_nodes,
                                          int num_backup_servers,
                                          int num_devices_per_node,
+                                         int num_samplers_per_node,
                                          std::string result_dir,
                                          bool collect_stats,
                                          bool using_precomputed_aggs)
@@ -98,24 +101,22 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
                      num_devices_per_node,
                      result_dir,
                      collect_stats,
-                     1),
+                     num_samplers_per_node),
       using_precomputed_aggs_(using_precomputed_aggs) {
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
-  sampler_ = spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, -1);
+
+  for (int i = 0; i < num_samplers_per_node; i++) {
+    samplers_.emplace_back(spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, i));
+  }
 }
 
 FeatureSplitMethod vertex_cut_executor::GetFeatureSplit(int batch_size, int feature_size) {
   return GetVcutFeatureSplit(num_nodes_, batch_size, feature_size);
 }
 
-void vertex_cut_executor::Sampling(int batch_id, int) {
-  // OPTIMIZATION TODO: Sampling in c++.
-  auto sampling_task = spawn(sampling_fn, sampler_, batch_id);
+void vertex_cut_executor::Sampling(int batch_id, int, int sampler_rank) {
+  auto sampling_task = spawn(sampling_fn, samplers_[sampler_rank], batch_id);
   RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
-}
-
-void vertex_cut_executor::PrepareInput(int batch_id, int, int, int) {
-  ReportTaskDone(TaskType::kPrepareInput, batch_id);
 }
 
 void vertex_cut_executor::Compute(int batch_id, int, int, int) {
@@ -145,8 +146,8 @@ void vertex_cut_executor::FetchResult(int batch_id, int) {
     });
 }
 
-void vertex_cut_executor::Cleanup(int batch_id, int) {
-  send(sampler_, caf::cleanup_atom_v, batch_id);
+void vertex_cut_executor::Cleanup(int batch_id, int, int sampler_rank) {
+  send(samplers_[sampler_rank], caf::cleanup_atom_v, batch_id);
   send(gnn_executor_group_,
        caf::broadcast_exec_atom_v,
        batch_id,
@@ -158,7 +159,7 @@ void vertex_cut_executor::Cleanup(int batch_id, int) {
 }
 
 void vertex_cut_executor::WriteExecutorTraces(caf::response_promise rp) {
-  spawn(write_traces_fn, result_dir_, num_devices_per_node_, node_rank_, gnn_executor_group_, sampler_, rp);
+  spawn(write_traces_fn, result_dir_, num_devices_per_node_, node_rank_, gnn_executor_group_, samplers_, rp);
 }
 
 }

@@ -191,6 +191,7 @@ p3_executor::p3_executor(caf::actor_config& config,
                          int num_nodes,
                          int num_backup_servers,
                          int num_devices_per_node,
+                         int num_samplers_per_node,
                          std::string result_dir,
                          bool collect_stats)
     : executor_actor(config,
@@ -202,10 +203,11 @@ p3_executor::p3_executor(caf::actor_config& config,
                      num_devices_per_node,
                      result_dir,
                      collect_stats,
-                     num_devices_per_node) {
+                     num_samplers_per_node) {
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
-  for (int i = 0; i < num_devices_per_node; i++) {
+  for (int i = 0; i < num_samplers_per_node; i++) {
     samplers_.emplace_back(spawn<sampling_actor, caf::linked + caf::monitored>(self_ptr, i));
+    sampler_running_.push_back(false);
   }
 }
 
@@ -213,19 +215,36 @@ FeatureSplitMethod p3_executor::GetFeatureSplit(int batch_size, int feature_size
   return GetP3FeatureSplit(num_nodes_, batch_size, feature_size);
 }
 
-void p3_executor::Sampling(int batch_id, int local_rank) {
-  assigned_local_rank_[batch_id] = local_rank;
-  auto sampling_task = spawn(sampling_fn, samplers_[local_rank], batch_id);
-  RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id);
+void p3_executor::Sampling(int batch_id, int, int) {
+  int idle_sampler_rank = -1;
+  for (int i = 0; i < sampler_running_.size(); i++) {
+    if (!sampler_running_[i]) {
+      idle_sampler_rank = i;
+      break;
+    }
+  }
+
+  CHECK(idle_sampler_rank != -1);
+  sampler_running_[idle_sampler_rank] = true;
+  batch_id_to_sampler_rank_[batch_id] = idle_sampler_rank;
+  auto sampling_task = spawn(sampling_fn, samplers_[idle_sampler_rank], batch_id);
+
+  RequestAndReportTaskDone(sampling_task, TaskType::kSampling, batch_id, [&, idle_sampler_rank]() {
+    sampler_running_[idle_sampler_rank] = false;
+  });
 }
 
-void p3_executor::PrepareInput(int batch_id, int, int owner_node_rank, int owner_local_rank) {
+void p3_executor::PushComputationGraph(int batch_id, int, int owner_node_rank, int) {
   auto object_storage_actor = object_storages_[batch_id];
   auto push_comp_graph_task = spawn(p3_push_comp_graph, mpi_actor_, object_storage_actor, batch_id, node_rank_, owner_node_rank);
-  RequestAndReportTaskDone(push_comp_graph_task, TaskType::kPrepareInput, batch_id);
+  RequestAndReportTaskDone(push_comp_graph_task, TaskType::kPushComputationGraph, batch_id);
 }
 
 void p3_executor::Compute(int batch_id, int, int owner_node_rank, int owner_local_rank) {
+  if (owner_node_rank == node_rank_) {
+    batch_id_to_gpu_local_rank_[batch_id] = owner_local_rank;
+  }
+
   auto compute_task = spawn(p3_compute, mpi_actor_, gnn_executor_group_, batch_id, node_rank_, num_devices_per_node_, owner_node_rank, owner_local_rank);
   RequestAndReportTaskDone(compute_task, TaskType::kCompute, batch_id);
 }
@@ -254,12 +273,10 @@ void p3_executor::FetchResult(int batch_id, int local_rank) {
     });
 }
 
-void p3_executor::Cleanup(int batch_id, int) {
-  auto it = assigned_local_rank_.find(batch_id);
-  if (it != assigned_local_rank_.end()) {
+void p3_executor::Cleanup(int batch_id, int, int) {
+  auto it = batch_id_to_gpu_local_rank_.find(batch_id);
+  if (it != batch_id_to_gpu_local_rank_.end()) {
     auto local_rank = it->second;
-    send(samplers_[local_rank], caf::cleanup_atom_v, batch_id);
-
     send(gnn_executor_group_,
         caf::exec_atom_v,
         batch_id,
@@ -267,7 +284,13 @@ void p3_executor::Cleanup(int batch_id, int) {
         local_rank,
         /* param0 */ -1);
 
-    assigned_local_rank_.erase(it);
+    batch_id_to_gpu_local_rank_.erase(it);
+  }
+
+  auto sampler_it = batch_id_to_sampler_rank_.find(batch_id);
+  if (sampler_it != batch_id_to_sampler_rank_.end()) {
+    send(samplers_[sampler_it->second], caf::cleanup_atom_v, batch_id);
+    batch_id_to_sampler_rank_.erase(sampler_it);
   }
 
   object_storages_.erase(batch_id);

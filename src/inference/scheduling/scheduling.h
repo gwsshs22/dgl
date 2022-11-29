@@ -44,7 +44,9 @@ class SchedulingPolicy {
 std::shared_ptr<SchedulingPolicy> CreatePolicy(ParallelizationType type,
                                                bool using_precomputed_aggs,
                                                int num_nodes,
-                                               int num_devices_per_node);
+                                               int num_devices_per_node,
+                                               int num_samplers_per_node,
+                                               bool collect_stats);
 
 }
 }

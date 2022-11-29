@@ -31,9 +31,11 @@ class executor_actor : public caf::event_based_actor {
     throw std::runtime_error("GetFeatureSplit not implemented");
   }
 
-  virtual void Sampling(int batch_id, int local_rank) = 0;
+  virtual void Sampling(int batch_id, int local_rank, int param0) = 0;
 
-  virtual void PrepareInput(int batch_id, int local_rank, int param0, int param1) = 0;
+  virtual void PushComputationGraph(int batch_id, int local_rank, int param0, int param1) {
+    throw std::runtime_error("PushComputationGraph not implemented");
+  }
 
   virtual void Compute(int batch_id, int local_rank, int param0, int param1) = 0;
 
@@ -41,13 +43,13 @@ class executor_actor : public caf::event_based_actor {
 
   virtual void FetchResult(int batch_id, int local_rank) = 0;
 
-  virtual void Cleanup(int batch_id, int local_rank) = 0;
+  virtual void Cleanup(int batch_id, int local_rank, int param0) = 0;
 
   virtual void WriteExecutorTraces(caf::response_promise rp) = 0;
 
   void ReportTaskDone(TaskType task_type, int batch_id);
 
-  template <typename T, typename F>
+  template <typename F>
   void RequestAndReportTaskDone(caf::actor& task_executor,
                                 TaskType task_type,
                                 int batch_id,
@@ -97,14 +99,14 @@ class executor_actor : public caf::event_based_actor {
   int required_init_count_;
 };
 
-template <typename T, typename F>
+template <typename F>
 void executor_actor::RequestAndReportTaskDone(caf::actor& task_executor,
                                               TaskType task_type,
                                               int batch_id,
                                               F&& callback) {
   request(task_executor, caf::infinite, caf::get_atom_v).then(
-    [=](const T& ret) {
-      callback(ret);
+    [=]() {
+      callback();
       ReportTaskDone(task_type, batch_id);
     },
     [&](caf::error& err) {
@@ -134,13 +136,12 @@ class data_parallel_executor : public executor_actor {
                          int num_nodes,
                          int num_backup_servers,
                          int num_devices_per_node,
+                         int num_samplers_per_node,
                          std::string result_dir,
                          bool collect_stats);
 
  private:
-  void Sampling(int batch_id, int local_rank) override;
-
-  void PrepareInput(int batch_id, int local_rank, int param0, int param1) override;
+  void Sampling(int batch_id, int local_rank, int param0) override;
 
   void Compute(int batch_id, int local_rank, int param0, int param1) override;
 
@@ -148,11 +149,13 @@ class data_parallel_executor : public executor_actor {
 
   void FetchResult(int batch_id, int local_rank) override;
 
-  void Cleanup(int batch_id, int local_rank) override;
+  void Cleanup(int batch_id, int local_rank, int param0) override;
 
   void WriteExecutorTraces(caf::response_promise rp) override;
 
   std::vector<caf::actor> samplers_;
+  std::vector<bool> sampler_running_;
+  std::unordered_map<int, int> batch_id_to_sampler_rank_;
 };
 
 class p3_executor : public executor_actor {
@@ -165,15 +168,16 @@ class p3_executor : public executor_actor {
               int num_nodes,
               int num_backup_servers,
               int num_devices_per_node,
+              int num_samplers_per_node,
               std::string result_dir,
               bool collect_stats);
 
  private:
   FeatureSplitMethod GetFeatureSplit(int batch_size, int feature_size) override;
 
-  void Sampling(int batch_id, int local_rank) override;
+  void Sampling(int batch_id, int local_rank, int param0) override;
 
-  void PrepareInput(int batch_id, int local_rank, int param0, int param1) override;
+  void PushComputationGraph(int batch_id, int local_rank, int param0, int param1) override;
 
   void Compute(int batch_id, int local_rank, int param0, int param1) override;
 
@@ -181,12 +185,14 @@ class p3_executor : public executor_actor {
 
   void FetchResult(int batch_id, int local_rank) override;
 
-  void Cleanup(int batch_id, int local_rank) override;
+  void Cleanup(int batch_id, int local_rank, int param0) override;
 
   void WriteExecutorTraces(caf::response_promise rp) override;
 
   std::vector<caf::actor> samplers_;
-  std::unordered_map<int, int> assigned_local_rank_;
+  std::vector<bool> sampler_running_;
+  std::unordered_map<int, int> batch_id_to_sampler_rank_;
+  std::unordered_map<int, int> batch_id_to_gpu_local_rank_;
 };
 
 class vertex_cut_executor : public executor_actor {
@@ -199,6 +205,7 @@ class vertex_cut_executor : public executor_actor {
                       int num_nodes,
                       int num_backup_servers,
                       int num_devices_per_node,
+                      int num_samplers_per_node,
                       std::string result_dir,
                       bool collect_stats,
                       bool using_precomputed_aggs);
@@ -206,9 +213,7 @@ class vertex_cut_executor : public executor_actor {
  private:
   FeatureSplitMethod GetFeatureSplit(int batch_size, int feature_size) override;
 
-  void Sampling(int batch_id, int local_rank) override;
-
-  void PrepareInput(int batch_id, int local_rank, int param0, int param1) override;
+  void Sampling(int batch_id, int local_rank, int param0) override;
 
   void Compute(int batch_id, int local_rank, int param0, int param1) override;
 
@@ -216,13 +221,13 @@ class vertex_cut_executor : public executor_actor {
 
   void FetchResult(int batch_id, int local_rank) override;
 
-  void Cleanup(int batch_id, int) override;
+  void Cleanup(int batch_id, int, int param0) override;
 
   void WriteExecutorTraces(caf::response_promise rp) override;
 
   const bool using_precomputed_aggs_;
 
-  caf::actor sampler_;
+  std::vector<caf::actor> samplers_;
 };
 
 caf::actor spawn_executor_actor(caf::actor_system& system,
@@ -233,6 +238,7 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 int num_nodes,
                                 int num_backup_servers,
                                 int num_devices_per_node,
+                                int num_samplers_per_node,
                                 std::string result_dir,
                                 bool collect_stats,
                                 bool using_precomputed_aggs);

@@ -76,16 +76,16 @@ caf::behavior executor_actor::make_running_behavior() {
     [&](caf::exec_atom, TaskType task_type, int batch_id, int local_rank, int param0, int param1) {
       switch (task_type) {
         case TaskType::kSampling:
-          Sampling(batch_id, local_rank);
+          Sampling(batch_id, local_rank, param0);
           break;
-        case TaskType::kPrepareInput:
-          PrepareInput(batch_id, local_rank, param0, param1);
+        case TaskType::kPushComputationGraph:
+          PushComputationGraph(batch_id, local_rank, param0, param1);
           break;
         case TaskType::kCompute:
           Compute(batch_id, local_rank, param0, param1);
           break;
         case TaskType::kCleanup:
-          Cleanup(batch_id, local_rank);
+          Cleanup(batch_id, local_rank, param0);
           break;
       }
     },
@@ -181,18 +181,19 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 int num_nodes,
                                 int num_backup_servers,
                                 int num_devices_per_node,
+                                int num_samplers_per_node,
                                 std::string result_dir,
                                 bool collect_stats,
                                 bool using_precomputed_aggs) {
   if (parallelization_type == ParallelizationType::kData) {
     return system.spawn<data_parallel_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, result_dir, collect_stats);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats);
   } else if (parallelization_type == ParallelizationType::kP3) {
     return system.spawn<p3_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, result_dir, collect_stats);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats);
   } else {
     return system.spawn<vertex_cut_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, result_dir, collect_stats, using_precomputed_aggs);
+        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats, using_precomputed_aggs);
   }
 }
 

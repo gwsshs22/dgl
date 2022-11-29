@@ -71,7 +71,7 @@ class SamplerProcess:
         if self._parallel_type == ParallelizationType.VERTEX_CUT:
             dist.init_process_group(
                 backend='gloo',
-                init_method=f'tcp://{self._master_host}:41520',
+                init_method=f'tcp://{self._master_host}:{15000 + self._local_rank}',
                 rank=self._node_rank,
                 world_size=self._num_nodes)
 
@@ -201,7 +201,6 @@ class SamplerProcess:
                     with trace_me(batch_id, "sample/blocks/create_first_block/sample_neighbors"):
                         first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
                         sampled_edges = self.vcut_sample_neighbors(first_org_block_seed, -1, batch_id)
-                    
                     with trace_me(batch_id, "sample/blocks/create_first_block/to_block"):
                         base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
                         base_edges = LocalSampledGraph(base_src, base_dst)
@@ -210,7 +209,6 @@ class SamplerProcess:
                         u, v = self.merge_edges(sampled_edges)
                         first_block = fast_to_block(u, v, second_block.srcdata[dgl.NID])
                         first_block.dstdata[dgl.NID] = second_block.srcdata[dgl.NID]
-
                 with trace_me(batch_id, "sample/blocks/split_first_block"):
                     first_blocks, first_dst_split = split_blocks(first_block,
                                                 self._gpb.nid2partid(first_block.srcdata[dgl.NID]),
@@ -219,7 +217,6 @@ class SamplerProcess:
                                                 self._num_devices_per_node,
                                                 self._node_rank,
                                                 batch_size)
-
             with trace_me(batch_id, "sample/put_tensors"):
                 num_dst_nodes_list = torch.tensor((first_blocks[0].num_dst_nodes(), second_blocks[0].num_dst_nodes()))
 

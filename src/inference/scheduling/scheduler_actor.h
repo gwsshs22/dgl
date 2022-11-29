@@ -18,7 +18,9 @@ class scheduler_actor : public caf::event_based_actor, Scheduler {
                   ParallelizationType parallelization_type,
                   bool using_precomputed_aggs,
                   int num_nodes,
-                  int num_devices_per_node);
+                  int num_devices_per_node,
+                  int num_samplers_per_node,
+                  bool execute_one_by_one);
 
  private:
   caf::behavior make_behavior() override;

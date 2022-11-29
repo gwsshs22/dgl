@@ -36,7 +36,7 @@ enum TaskType {
   kNone = 0,
   kInitialize = 1,
   kSampling = 2,
-  kPrepareInput = 3,
+  kPushComputationGraph = 3,
   kCompute = 4,
   kFetchResult = 5,
   kCleanup = 6,

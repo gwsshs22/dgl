@@ -16,6 +16,7 @@ extern const char* DGL_INFER_LOCAL_RANK;
 extern const char* DGL_INFER_NUM_NODES;
 extern const char* DGL_INFER_NUM_BACKUP_SERVERS;
 extern const char* DGL_INFER_NUM_DEVICES_PER_NODE;
+extern const char* DGL_INFER_NUM_SAMPLERS_PER_NODE;
 extern const char* DGL_INFER_IFACE;
 extern const char* DGL_INFER_ACTOR_PROCESS_ROLE;
 extern const char* DGL_INFER_ACTOR_PROCESS_GLOBAL_ID;
@@ -29,6 +30,7 @@ extern const char* DGL_INFER_NUM_WARMUPS;
 extern const char* DGL_INFER_NUM_REQUESTS;
 extern const char* DGL_INFER_RESULT_DIR;
 extern const char* DGL_INFER_COLLECT_STATS;
+extern const char* DGL_INFER_EXECUTE_ONE_BY_ONE;
 
 enum ParallelizationType {
   kData = 0,

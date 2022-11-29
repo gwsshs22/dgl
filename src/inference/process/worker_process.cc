@@ -20,12 +20,14 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto num_nodes = GetEnv<int>(DGL_INFER_NUM_NODES, -1);
   auto num_backup_servers = GetEnv<int>(DGL_INFER_NUM_BACKUP_SERVERS, -1);
   auto num_devices_per_node = GetEnv<int>(DGL_INFER_NUM_DEVICES_PER_NODE, -1);
+  auto num_samplers_per_node = GetEnv<int>(DGL_INFER_NUM_SAMPLERS_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
 
   auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
   auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
   auto result_dir = GetEnv<std::string>(DGL_INFER_RESULT_DIR, "");
   auto collect_stats = GetEnv<bool>(DGL_INFER_COLLECT_STATS, false);
+  auto execute_one_by_one = GetEnv<bool>(DGL_INFER_EXECUTE_ONE_BY_ONE, false);
   // TODO: env variables validation
 
   if (collect_stats) {
@@ -74,6 +76,7 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
       num_nodes,
       num_backup_servers,
       num_devices_per_node,
+      num_samplers_per_node,
       result_dir,
       collect_stats,
       using_precomputed_aggregations);

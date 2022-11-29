@@ -159,7 +159,6 @@ class GnnExecutorProcess:
                 put_tensor(batch_id, "result", result)
 
     def p3_owner_compute(self, batch_id, owner_gpu_global_rank):
-        print(f"p3_owner_compute: self._gpu_global_rank={self._gpu_global_rank}, owner_gpu_global_rank={owner_gpu_global_rank}")
         assert(self._gpu_global_rank == owner_gpu_global_rank)
 
         with trace_me(batch_id, "compute"):
@@ -175,11 +174,11 @@ class GnnExecutorProcess:
                 b2_v = load_tensor(batch_id, "b2_v")
                 num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list").tolist()
                 num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
-            
+
             with trace_me(batch_id, "compute/block_creation"):
                 block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0], check_uv_range=False)
                 block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=num_dst_nodes_list[1], num_src_nodes=num_src_nodes_list[1], check_uv_range=False)
-            
+
             with trace_me(batch_id, "compute/prepare_input"):
                 block1 = block1.to(self._device)
                 block2 = block2.to(self._device)

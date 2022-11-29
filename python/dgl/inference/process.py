@@ -25,7 +25,8 @@ def main():
     parser.add_argument("--node-rank", type=int, required=False, default=0)
     parser.add_argument("--num-nodes", type=int)
     parser.add_argument("--num-backup-servers", type=int, default=3)
-    parser.add_argument("--num-devices-per-node", type=int,  required=True)
+    parser.add_argument("--num-devices-per-node", type=int, required=True)
+    parser.add_argument("--num-samplers-per-node", type=int, required=True)
     parser.add_argument("--ip-config-path", required=True)
     parser.add_argument("--graph-name", required=True)
     parser.add_argument("--graph-config-path", required=True)
@@ -49,6 +50,7 @@ def main():
     parser.add_argument('--num-requests', type=int, default=258)
     parser.add_argument('--result-dir', type=str, default="")
     parser.add_argument('--collect-stats', action='store_true')
+    parser.add_argument('--execute-one-by-one', action='store_true')
 
     args = parser.parse_args()
 
@@ -74,6 +76,7 @@ def main():
     os.environ[envs.DGL_INFER_NUM_BACKUP_SERVERS] = str(args.num_backup_servers)
     os.environ[envs.DGL_INFER_NUM_NODES] = str(args.num_nodes)
     os.environ[envs.DGL_INFER_NUM_DEVICES_PER_NODE] = str(args.num_devices_per_node)
+    os.environ[envs.DGL_INFER_NUM_SAMPLERS_PER_NODE] = str(args.num_samplers_per_node)
     os.environ[envs.DGL_INFER_IP_CONFIG_PATH] = args.ip_config_path
     os.environ[envs.DGL_INFER_GRAPH_NAME] = args.graph_name
     os.environ[envs.DGL_INFER_GRAPH_CONFIG_PATH] = args.graph_config_path
@@ -93,6 +96,7 @@ def main():
 
     os.environ[envs.DGL_INFER_RESULT_DIR] = args.result_dir
     os.environ[envs.DGL_INFER_COLLECT_STATS] = "1" if args.collect_stats else "0"
+    os.environ[envs.DGL_INFER_EXECUTE_ONE_BY_ONE] = "1" if args.execute_one_by_one else "0"
 
     os.makedirs(args.result_dir, exist_ok=True)
 
@@ -127,6 +131,7 @@ def fork():
     master_host = os.environ[envs.DGL_INFER_MASTER_HOST]
     master_torch_port = int(os.environ[envs.DGL_INFER_MASTER_TORCH_PORT])
     num_devices_per_node = int(os.environ[envs.DGL_INFER_NUM_DEVICES_PER_NODE])
+    num_samplers_per_node = int(os.environ[envs.DGL_INFER_NUM_SAMPLERS_PER_NODE])
     ip_config_path = os.environ[envs.DGL_INFER_IP_CONFIG_PATH]
     graph_name = os.environ[envs.DGL_INFER_GRAPH_NAME]
     graph_config_path = os.environ[envs.DGL_INFER_GRAPH_CONFIG_PATH]
@@ -187,6 +192,7 @@ def fork():
                                            num_backup_servers,
                                            node_rank,
                                            num_devices_per_node,
+                                           num_samplers_per_node,
                                            local_rank,
                                            ip_config_path,
                                            graph_config_path,

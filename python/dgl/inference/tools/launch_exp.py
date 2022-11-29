@@ -171,7 +171,7 @@ def get_available_port(ip):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     num_trials = 1000
     for _ in range(num_trials):
-        port = random.randint(12340, 65535)
+        port = random.randint(30000, 65535)
         try:
             sock.connect((ip, port))
         except:
@@ -179,7 +179,9 @@ def get_available_port(ip):
     raise RuntimeError("Failed to get available port for ip~{}".format(ip))
 
 def make_master_process_cmd(args, master_host, master_port, master_torch_port, num_nodes):
-    num_backup_servers = (args.num_backup_servers if args.num_backup_servers else num_nodes * args.num_devices_per_node) * 2
+    num_backup_servers = args.num_backup_servers if args.num_backup_servers else num_nodes * args.num_samplers_per_node
+    if args.parallelization_type == "vcut":
+        num_backup_servers = 0
     python_exec = args.python_exec
     iface = args.iface
     if os.environ.get("PYTHONPATH", ""):
@@ -199,6 +201,7 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
 --num-nodes {num_nodes} \
 --num-backup-servers {num_backup_servers} \
 --num-devices-per-node {args.num_devices_per_node} \
+--num-samplers-per-node {args.num_samplers_per_node} \
 --ip-config-path {args.ip_config} \
 --graph-name {args.graph_name} \
 --graph-config-path {args.part_config} \
@@ -214,11 +217,15 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
         cmd += f" --precom-filename {args.precom_filename}"
     if args.collect_stats:
         cmd += " --collect-stats"
+    if args.execute_one_by_one:
+        cmd += " --execute-one-by-one"
 
     return cmd
 
 def make_worker_process_cmd(args, master_host, master_port, master_torch_port, num_nodes, worker_idx):
-    num_backup_servers = (args.num_backup_servers if args.num_backup_servers else num_nodes * args.num_devices_per_node) * 2
+    num_backup_servers = args.num_backup_servers if args.num_backup_servers else num_nodes * args.num_samplers_per_node
+    if args.parallelization_type == "vcut":
+        num_backup_servers = 0    
     python_exec = args.python_exec
     iface = args.iface
     if os.environ.get("PYTHONPATH", ""):
@@ -235,6 +242,7 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
 --num-nodes {num_nodes} \
 --num-backup-servers {num_backup_servers} \
 --num-devices-per-node {args.num_devices_per_node} \
+--num-samplers-per-node {args.num_samplers_per_node} \
 --ip-config-path {args.ip_config} \
 --graph-name {args.graph_name} \
 --graph-config-path {args.part_config} \
@@ -250,6 +258,8 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
         cmd += f" --precom-filename {args.precom_filename}"
     if args.collect_stats:
         cmd += " --collect-stats"
+    if args.execute_one_by_one:
+        cmd += " --execute-one-by-one"
 
     return cmd
 
@@ -350,6 +360,7 @@ def main():
     parser.add_argument('--python_exec', type=str, required=True)
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--num_devices_per_node', type=int, required=True)
+    parser.add_argument('--num_samplers_per_node', type=int, required=True)
     parser.add_argument('--ip_config', type=str, required=True)
     parser.add_argument('--num_backup_servers', type=int)
     parser.add_argument('--part_config', type=str, required=True)
@@ -369,6 +380,7 @@ def main():
     parser.add_argument('--num_requests', type=int, required=True)
     parser.add_argument('--result_dir', type=str, required=True)
     parser.add_argument('--collect_stats', action='store_true')
+    parser.add_argument('--execute_one_by_one', action='store_true')
 
     args = parser.parse_args()
     submit_jobs(args, dry_run=args.dry_run)

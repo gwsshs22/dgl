@@ -382,7 +382,7 @@ def heterograph(data_dict,
 
     return retg.to(device)
 
-def create_block(data_dict, num_src_nodes=None, num_dst_nodes=None, idtype=None, device=None):
+def create_block(data_dict, num_src_nodes=None, num_dst_nodes=None, idtype=None, device=None, check_uv_range=True):
     """Create a message flow graph (MFG) as a :class:`DGLBlock` object.
 
     Parameters
@@ -521,6 +521,7 @@ def create_block(data_dict, num_src_nodes=None, num_dst_nodes=None, idtype=None,
                 "num_src_nodes must be a dict if data_dict is a dict"
             assert isinstance(num_dst_nodes, Mapping), \
                 "num_dst_nodes must be a dict if data_dict is a dict"
+    assert not need_infer or check_uv_range, "Check uv range can be turned off when you specify num_src_nodes and num_dst_nodes"
 
     if need_infer:
         num_src_nodes = defaultdict(int)
@@ -530,12 +531,14 @@ def create_block(data_dict, num_src_nodes=None, num_dst_nodes=None, idtype=None,
     node_tensor_dict = {}
     for (sty, ety, dty), data in data_dict.items():
         (sparse_fmt, arrays), urange, vrange = utils.graphdata2tensors(
-            data, idtype, bipartite=True)
+            data, idtype, bipartite=True, check_uv_range=check_uv_range)
+
         node_tensor_dict[(sty, ety, dty)] = (sparse_fmt, arrays)
         if need_infer:
             num_src_nodes[sty] = max(num_src_nodes[sty], urange)
             num_dst_nodes[dty] = max(num_dst_nodes[dty], vrange)
-        else:  # sanity check
+
+        elif check_uv_range:  # sanity check
             if num_src_nodes[sty] < urange:
                 raise DGLError('The given number of nodes of source node type {} must be larger'
                                ' than the max ID in the data, but got {} and {}.'.format(

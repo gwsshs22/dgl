@@ -106,7 +106,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
                                                  num_samplers_per_node,
                                                  execute_one_by_one);
   caf::scoped_actor self { system };
-  auto res_hdl = self->request(init_mon_actor, std::chrono::seconds(120), caf::wait_atom_v, required_actors);
+  auto res_hdl = self->request(init_mon_actor, std::chrono::minutes(10), caf::wait_atom_v, required_actors);
   receive_result<bool>(res_hdl);
 
   std::cerr << "All services initialized." << std::endl;
@@ -122,7 +122,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   self->send(input_feader, caf::start_atom_v);
 
   std::cout << "Wait for the experiment finished" << std::endl;
-  auto exp_fin_rh = self->request(result_receiver, std::chrono::minutes(10), caf::wait_atom_v);
+  auto exp_fin_rh = self->request(result_receiver, std::chrono::minutes(20), caf::wait_atom_v);
   receive_result<bool>(exp_fin_rh);
 
   if (collect_stats) {

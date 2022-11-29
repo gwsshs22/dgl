@@ -36,39 +36,5 @@ void EnableTracing() {
   TRACE_ENABLED = true;
 }
 
-class TraceCollector {
-
- public:
-  inline void Add(const TraceMe& trace_me) {
-    std::lock_guard<std::mutex> guard(mtx_);
-    traces_.push_back(std::make_tuple(trace_me.batch_id(), trace_me.name(), trace_me.GetElapsedMicro()));
-  }
-
-  void Write(const std::string result_dir, int node_rank) {
-    std::lock_guard<std::mutex> guard(mtx_);
-    std::string file_path = result_dir + "/node_" + std::to_string(node_rank) + ".txt";
-    remove(file_path.c_str());
-    std::fstream fs(file_path, std::fstream::out);
-    for (const auto& t : traces_) {
-      fs << std::get<0>(t) << "," << std::get<1>(t) << "," << std::get<2>(t) << std::endl;
-    }
-    fs.close();
-  }
-
- private:
-  std::vector<std::tuple<int, const char*, int>> traces_;
-  std::mutex mtx_;
-};
-
-static TraceCollector trace_collector;
-
-void AddTrace(const TraceMe& trace_me) {
-  trace_collector.Add(trace_me);
-}
-
-void WriteTraces(const std::string result_dir, int node_rank) {
-  trace_collector.Write(result_dir, node_rank);
-}
-
 }
 }

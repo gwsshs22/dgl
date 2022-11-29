@@ -52,13 +52,15 @@ void fetch_result_fn(caf::blocking_actor* self,
 }
 
 void write_traces_fn(caf::blocking_actor* self,
+                     caf::actor trace_actor,
                      const std::string& result_dir,
                      int num_devices_per_node,
                      int node_rank,
                      const caf::actor& gnn_executor_group,
                      const std::vector<caf::actor>& samplers,
                      caf::response_promise rp) {
-  WriteTraces(result_dir, node_rank);
+  auto rh = self->request(trace_actor, caf::infinite, caf::write_trace_atom_v);
+  receive_result<bool>(rh);
 
   for (int i = 0; i < samplers.size(); i++) {
     auto rh = self->request(samplers[i], caf::infinite, caf::write_trace_atom_v);
@@ -84,6 +86,7 @@ void write_traces_fn(caf::blocking_actor* self,
 vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
                                          caf::strong_actor_ptr exec_ctl_actor_ptr,
                                          caf::strong_actor_ptr mpi_actor_ptr,
+                                         caf::strong_actor_ptr trace_actor_ptr,
                                          int node_rank,
                                          int num_nodes,
                                          int num_backup_servers,
@@ -95,6 +98,7 @@ vertex_cut_executor::vertex_cut_executor(caf::actor_config& config,
     : executor_actor(config,
                      exec_ctl_actor_ptr,
                      mpi_actor_ptr,
+                     trace_actor_ptr,
                      node_rank,
                      num_nodes,
                      num_backup_servers,
@@ -159,7 +163,7 @@ void vertex_cut_executor::Cleanup(int batch_id, int, int sampler_rank) {
 }
 
 void vertex_cut_executor::WriteExecutorTraces(caf::response_promise rp) {
-  spawn(write_traces_fn, result_dir_, num_devices_per_node_, node_rank_, gnn_executor_group_, samplers_, rp);
+  spawn(write_traces_fn, trace_actor_, result_dir_, num_devices_per_node_, node_rank_, gnn_executor_group_, samplers_, rp);
 }
 
 }

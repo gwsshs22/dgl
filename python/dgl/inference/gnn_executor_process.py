@@ -74,7 +74,8 @@ class GnnExecutorProcess:
         set_num_threads(self._num_omp_threads)
         connect_to_server(self._ip_config_path, self._num_servers, MAX_QUEUE_SIZE, self._net_type, group_id=self._group_id)
         init_role('default')
-        init_kvstore(self._ip_config_path, self._num_servers, 'default', load_p3_feature=self._load_p3_feature)
+        is_vcut = (self._parallel_type == ParallelizationType.VERTEX_CUT)
+        init_kvstore(self._ip_config_path, self._num_servers, 'default', load_p3_feature=self._load_p3_feature, is_vcut=is_vcut)
 
         self._dist_graph = dgl.distributed.DistGraph(self._graph_name, part_config=self._graph_config_path)
 

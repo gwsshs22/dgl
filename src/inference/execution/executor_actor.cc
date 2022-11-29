@@ -10,6 +10,7 @@ namespace inference {
 executor_actor::executor_actor(caf::actor_config& config,
                                caf::strong_actor_ptr exec_ctl_actor_ptr,
                                caf::strong_actor_ptr mpi_actor_ptr,
+                               caf::strong_actor_ptr trace_actor_ptr,
                                int node_rank,
                                int num_nodes,
                                int num_backup_servers,
@@ -27,6 +28,7 @@ executor_actor::executor_actor(caf::actor_config& config,
       required_init_count_(required_init_count + 1 + (1 + num_backup_servers)) { // Include the common graph_server_actor and gnn_executor_group
   exec_ctl_actor_ = caf::actor_cast<caf::actor>(exec_ctl_actor_ptr);
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
+  trace_actor_ = caf::actor_cast<caf::actor>(trace_actor_ptr);
   auto self_ptr = caf::actor_cast<caf::strong_actor_ptr>(this);
   gnn_executor_group_ = spawn<caf::linked + caf::monitored>(
         gnn_executor_group, self_ptr, num_devices_per_node);
@@ -112,7 +114,7 @@ void executor_actor::InputRecvFromSameMachine(int batch_id,
                                               const NDArray& dst_gnids) {
   auto obj_storage_actor = spawn(object_storage_actor, batch_id);
   object_storages_.emplace(std::make_pair(batch_id, caf::actor_cast<caf::actor>(obj_storage_actor)));
-  auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
+  auto shared_mem_copier = spawn(move_input_to_shared_mem_fn, obj_storage_actor, trace_actor_, batch_id, new_gnids, new_features, src_gnids, dst_gnids);
   RequestAndReportTaskDone(shared_mem_copier, TaskType::kInitialize, batch_id);
 }
 
@@ -135,6 +137,7 @@ void executor_actor::BroadcastInputSend(BroadcastInitType init_type,
   if (init_type == BroadcastInitType::kAll) {
     broadcaster = spawn(input_bsend_all_fn,
                         mpi_actor_,
+                        trace_actor_,
                         obj_storage_actor,
                         batch_id,
                         new_gnids,
@@ -145,6 +148,7 @@ void executor_actor::BroadcastInputSend(BroadcastInitType init_type,
   } else {
     broadcaster = spawn(input_bsend_scatter_fn,
                         mpi_actor_,
+                        trace_actor_,
                         obj_storage_actor,
                         num_nodes_,
                         init_type,
@@ -177,6 +181,7 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 ParallelizationType parallelization_type,
                                 const caf::strong_actor_ptr& exec_ctl_actor_ptr,
                                 const caf::strong_actor_ptr& mpi_actor_ptr,
+                                const caf::strong_actor_ptr& trace_actor_ptr,
                                 int node_rank,
                                 int num_nodes,
                                 int num_backup_servers,
@@ -187,13 +192,13 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 bool using_precomputed_aggs) {
   if (parallelization_type == ParallelizationType::kData) {
     return system.spawn<data_parallel_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats);
+        exec_ctl_actor_ptr, mpi_actor_ptr, trace_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats);
   } else if (parallelization_type == ParallelizationType::kP3) {
     return system.spawn<p3_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats);
+        exec_ctl_actor_ptr, mpi_actor_ptr, trace_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats);
   } else {
     return system.spawn<vertex_cut_executor>(
-        exec_ctl_actor_ptr, mpi_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats, using_precomputed_aggs);
+        exec_ctl_actor_ptr, mpi_actor_ptr, trace_actor_ptr, node_rank, num_nodes, num_backup_servers, num_devices_per_node, num_samplers_per_node, result_dir, collect_stats, using_precomputed_aggs);
   }
 }
 

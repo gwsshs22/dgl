@@ -17,6 +17,7 @@ class executor_actor : public caf::event_based_actor {
   executor_actor(caf::actor_config& config,
                  caf::strong_actor_ptr exec_ctl_actor_ptr,
                  caf::strong_actor_ptr mpi_actor_ptr,
+                 caf::strong_actor_ptr trace_actor_ptr,
                  int node_rank,
                  int num_nodes,
                  int num_backup_servers,
@@ -61,6 +62,7 @@ class executor_actor : public caf::event_based_actor {
 
   caf::actor exec_ctl_actor_;
   caf::actor mpi_actor_;
+  caf::actor trace_actor_;
   caf::actor gnn_executor_group_;
   caf::actor graph_server_actor_;
 
@@ -132,6 +134,7 @@ class data_parallel_executor : public executor_actor {
   data_parallel_executor(caf::actor_config& config,
                          caf::strong_actor_ptr exec_ctl_actor_ptr,
                          caf::strong_actor_ptr mpi_actor_ptr,
+                         caf::strong_actor_ptr trace_actor_ptr,
                          int node_rank,
                          int num_nodes,
                          int num_backup_servers,
@@ -164,6 +167,7 @@ class p3_executor : public executor_actor {
   p3_executor(caf::actor_config& config,
               caf::strong_actor_ptr exec_ctl_actor_ptr,
               caf::strong_actor_ptr mpi_actor_ptr,
+              caf::strong_actor_ptr trace_actor_ptr,
               int node_rank,
               int num_nodes,
               int num_backup_servers,
@@ -201,6 +205,7 @@ class vertex_cut_executor : public executor_actor {
   vertex_cut_executor(caf::actor_config& config,
                       caf::strong_actor_ptr exec_ctl_actor_ptr,
                       caf::strong_actor_ptr mpi_actor_ptr,
+                      caf::strong_actor_ptr trace_actor_ptr,
                       int node_rank,
                       int num_nodes,
                       int num_backup_servers,
@@ -234,6 +239,7 @@ caf::actor spawn_executor_actor(caf::actor_system& system,
                                 ParallelizationType parallelization_type,
                                 const caf::strong_actor_ptr& exec_ctl_actor_ptr,
                                 const caf::strong_actor_ptr& mpi_actor_ptr,
+                                const caf::strong_actor_ptr& trace_actor_ptr,
                                 int node_rank,
                                 int num_nodes,
                                 int num_backup_servers,

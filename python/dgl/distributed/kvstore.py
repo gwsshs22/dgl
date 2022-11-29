@@ -10,6 +10,7 @@ from .standalone_kvstore import KVClient as SA_KVClient
 from .. import backend as F
 from .. import utils
 from .._ffi.ndarray import empty_shared_mem
+from ..utils import measure
 
 ############################ Register KVStore Requsts and Responses ###############################
 
@@ -862,7 +863,7 @@ class KVClient(object):
     role : str
         We can set different role for kvstore.
     """
-    def __init__(self, ip_config, num_servers, role='default', load_p3_feature=False):
+    def __init__(self, ip_config, num_servers, role='default', load_p3_feature=False, is_vcut=False):
         assert rpc.get_rank() != -1, \
                 'Please invoke rpc.connect_to_server() before creating KVClient.'
         assert os.path.exists(ip_config), 'Cannot open file: %s' % ip_config
@@ -928,6 +929,7 @@ class KVClient(object):
         # register role on server-0
         self._role = role
         self._load_p3_feature = load_p3_feature
+        self._is_vcut = is_vcut
 
     @property
     def all_possible_part_policy(self):
@@ -1313,6 +1315,10 @@ class KVClient(object):
         assert len(name) > 0, 'name cannot be empty.'
         id_tensor = utils.toindex(id_tensor)
         id_tensor = id_tensor.tousertensor()
+        if self._is_vcut:
+            local_id_tensor = self._part_policy[name].to_local(id_tensor)
+            return self._data_store[name][local_id_tensor]
+
         assert F.ndim(id_tensor) == 1, 'ID must be a vector.'
         if self._pull_handlers[name] is default_pull_handler: # Use fast-pull
             part_id = self._part_policy[name].to_partid(id_tensor)
@@ -1401,14 +1407,14 @@ class KVClient(object):
 
 KVCLIENT = None
 
-def init_kvstore(ip_config, num_servers, role, load_p3_feature=False):
+def init_kvstore(ip_config, num_servers, role, load_p3_feature=False, is_vcut=False):
     """initialize KVStore"""
     global KVCLIENT
     if KVCLIENT is None:
         if os.environ.get('DGL_DIST_MODE', 'standalone') == 'standalone':
             KVCLIENT = SA_KVClient()
         else:
-            KVCLIENT = KVClient(ip_config, num_servers, role, load_p3_feature)
+            KVCLIENT = KVClient(ip_config, num_servers, role, load_p3_feature, is_vcut)
 
 def close_kvstore():
     """Close the current KVClient"""

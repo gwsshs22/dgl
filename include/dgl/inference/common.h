@@ -184,6 +184,7 @@ class TraceMe {
 
   ~TraceMe() {
     if (TRACE_ENABLED) {
+      elapsed_micro_ = GetElapsedMicro();
       AddTrace(*this);
     }
   }
@@ -196,6 +197,10 @@ class TraceMe {
     return name_;
   }
 
+  inline const int elapsed_micro() const {
+    return elapsed_micro_;
+  }
+
   inline const int GetElapsedMicro() const {
     return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_point_).count();
   }
@@ -204,6 +209,7 @@ class TraceMe {
   int batch_id_;
   const char* name_;
   std::chrono::time_point<std::chrono::steady_clock> start_point_;
+  int elapsed_micro_ = 0;
 };
 
 

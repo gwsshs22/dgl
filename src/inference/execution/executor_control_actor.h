@@ -10,6 +10,7 @@ class executor_control_actor : public caf::event_based_actor {
  public:
   executor_control_actor(caf::actor_config& config,
                          caf::strong_actor_ptr mpi_actor_ptr,
+                         caf::strong_actor_ptr trace_actor_ptr,
                          int num_devices_per_node);
 
  protected:
@@ -30,6 +31,7 @@ class executor_control_actor : public caf::event_based_actor {
   bool scheduler_connected_ = false;
 
   caf::actor mpi_actor_;
+  caf::actor trace_actor_;
 
   std::map<std::pair<TaskType, int>, int> done_task_counter_;
 };

@@ -8,6 +8,7 @@
 #include "../execution/mpi/mpi_actor.h"
 #include "../execution/mpi/gloo_rendezvous_actor.h"
 #include "../execution/gnn/gnn_executor.h"
+#include "../execution/trace_actor.h"
 
 #include "init_monitor_actor.h"
 #include "process_control_actor.h"
@@ -74,9 +75,11 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
     .iface = iface,
   });
 
+  auto trace_act = system.spawn(trace_actor, result_dir, node_rank);
+  auto trace_actor_ptr = caf::actor_cast<caf::strong_actor_ptr>(trace_act);
   auto mpi_actor_ptr = caf::actor_cast<caf::strong_actor_ptr>(mpi_a);
 
-  auto exec_ctl_actor = system.spawn<executor_control_actor>(mpi_actor_ptr, num_devices_per_node);
+  auto exec_ctl_actor = system.spawn<executor_control_actor>(mpi_actor_ptr, trace_actor_ptr, num_devices_per_node);
   system.registry().put(caf::exec_control_atom_v, exec_ctl_actor);
   auto exec_ctl_actor_ptr = system.registry().get(caf::exec_control_atom_v);
 
@@ -85,6 +88,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
       parallel_type,
       exec_ctl_actor_ptr,
       mpi_actor_ptr,
+      trace_actor_ptr,
       node_rank,
       num_nodes,
       num_backup_servers,

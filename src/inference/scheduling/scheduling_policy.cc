@@ -411,6 +411,8 @@ void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
       scheduler.BroadcastInitialize(batch_id, BroadcastInitType::kScatter, front);
     }
 
+    machine_.num_allocated_batches++;
+    machine_.num_initializing++;
     input_queue_.pop();
  
     scheduled_batches_.emplace(std::make_pair(batch_id, std::make_shared<ScheduledBatch>(batch_id)));

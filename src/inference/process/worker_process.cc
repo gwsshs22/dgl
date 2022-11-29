@@ -6,6 +6,7 @@
 #include "../execution/executor_actor.h"
 #include "../execution/mpi/mpi_actor.h"
 #include "../execution/mpi/gloo_rendezvous_actor.h"
+#include "../execution/trace_actor.h"
 
 #include "init_monitor_actor.h"
 #include "process_control_actor.h"
@@ -23,6 +24,7 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
   auto num_samplers_per_node = GetEnv<int>(DGL_INFER_NUM_SAMPLERS_PER_NODE, -1);
   auto iface = GetEnv<std::string>(DGL_INFER_IFACE, "");
 
+  auto num_warmup_reqs = GetEnv<int>(DGL_INFER_NUM_WARMUPS, 1);
   auto parallel_type = GetEnumEnv<ParallelizationType>(DGL_INFER_PARALLELIZATION_TYPE);
   auto using_precomputed_aggregations = GetEnv<bool>(DGL_INFER_USING_PRECOMPUTED_AGGREGATIONS, false);
   auto result_dir = GetEnv<std::string>(DGL_INFER_RESULT_DIR, "");
@@ -43,6 +45,9 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
     std::cerr << "*** connect failed: " << caf::to_string(node.error()) << std::endl;
     return;
   }
+
+  auto trace_act = system.spawn(trace_actor, result_dir, node_rank);
+  auto trace_actor_ptr = caf::actor_cast<caf::strong_actor_ptr>(trace_act);
 
   auto global_init_mon_ptr = system.middleman().remote_lookup(caf::init_mon_atom_v, node.value());
   auto local_init_mon_proxy = system.spawn<init_monitor_proxy_actor>(global_init_mon_ptr);
@@ -72,6 +77,7 @@ void WorkerProcessMain(caf::actor_system& system, const config& cfg) {
       parallel_type,
       exec_ctl_actor_ptr,
       caf::actor_cast<caf::strong_actor_ptr>(mpi_a),
+      trace_actor_ptr,
       node_rank,
       num_nodes,
       num_backup_servers,

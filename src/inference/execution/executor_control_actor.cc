@@ -14,10 +14,11 @@ void fetch_result_fn(caf::blocking_actor* self,
                      const caf::actor& scheduler,
                      const caf::actor& executor,
                      const caf::actor& mpi_actor,
+                     const caf::actor& trace_actor,
                      int batch_id,
                      int node_rank,
                      int local_rank) {
-  TraceMe fetch(batch_id, "fetch_result");
+  auto start_time = std::chrono::steady_clock::now();
   if (node_rank == 0) {
     auto rh = self->request(executor, caf::infinite, caf::direct_fetch_result_atom_v, batch_id, local_rank);
     auto result = receive_result<std::vector<NDArray>>(rh);
@@ -30,6 +31,11 @@ void fetch_result_fn(caf::blocking_actor* self,
   auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, node_rank, CreateMpiTag(batch_id, TaskType::kFetchResult));
   auto result = receive_result<NDArray>(rh);
   self->send(scheduler, caf::finished_atom_v, batch_id, result);
+
+  if (TRACE_ENABLED) {
+    int elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
+    self->send(trace_actor, caf::put_atom_v, batch_id, "fetch_result", elapsed);
+  }
 }
 
 void copy_fn_(caf::blocking_actor* self,
@@ -59,10 +65,11 @@ void broadcast_fetch_result_fn(caf::blocking_actor* self,
                                const caf::actor& scheduler,
                                const std::vector<caf::actor>& executors,
                                const caf::actor& mpi_actor,
+                               const caf::actor& trace_actor,
                                const int num_nodes,
                                const int num_devices_per_node,
                                int batch_id) {
-  TraceMe fetch(batch_id, "fetch_result");
+  auto start_time = std::chrono::steady_clock::now();
   auto rhs = std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>>();
   for (int i = 0; i < num_nodes; i++) {
     if (i == 0) {
@@ -126,6 +133,11 @@ void broadcast_fetch_result_fn(caf::blocking_actor* self,
   int loop_idx = 0;
   self->receive_for(loop_idx, num_nodes * num_devices_per_node) ([&](caf::done_atom) {});
   self->send(scheduler, caf::finished_atom_v, batch_id, result);
+
+  if (TRACE_ENABLED) {
+    int elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
+    self->send(trace_actor, caf::put_atom_v, batch_id, "fetch_result", elapsed);
+  }
 }
 
 void write_traces_fn(caf::blocking_actor* self,
@@ -148,9 +160,11 @@ void write_traces_fn(caf::blocking_actor* self,
 
 executor_control_actor::executor_control_actor(caf::actor_config& config,
                                                caf::strong_actor_ptr mpi_actor_ptr,
+                                               caf::strong_actor_ptr trace_actor_ptr,
                                                int num_devices_per_node)
     : event_based_actor(config), num_devices_per_node_(num_devices_per_node) {
   mpi_actor_ = caf::actor_cast<caf::actor>(mpi_actor_ptr);
+  trace_actor_ = caf::actor_cast<caf::actor>(trace_actor_ptr);
 }
 
 caf::behavior executor_control_actor::make_behavior() {
@@ -211,7 +225,7 @@ caf::behavior executor_control_actor::running() {
       if (node_rank == 0) {
         send(executors_[node_rank], caf::init_atom_v, batch_id, new_gnids, new_features, src_gnids, dst_gnids);  
       } else {
-        spawn(input_send_fn, mpi_actor_, node_rank, batch_id, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
+        spawn(input_send_fn, mpi_actor_, trace_actor_, node_rank, batch_id, new_gnids, new_features, src_gnids, dst_gnids, CreateMpiTag(batch_id, TaskType::kInitialize));
         send(executors_[node_rank], caf::init_atom_v, batch_id);
       }
 
@@ -226,6 +240,7 @@ caf::behavior executor_control_actor::running() {
             scheduler_actor_,
             executors_[node_rank],
             mpi_actor_,
+            trace_actor_,
             batch_id,
             node_rank,
             local_rank);
@@ -257,6 +272,7 @@ caf::behavior executor_control_actor::running() {
             scheduler_actor_,
             executors_,
             mpi_actor_,
+            trace_actor_,
             num_nodes_,
             num_devices_per_node_,
             batch_id);

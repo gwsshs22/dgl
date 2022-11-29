@@ -58,6 +58,7 @@ void _move_input_to_shared_mem_one_tensor(caf::blocking_actor *self,
 
 void input_bsend_all_fn(caf::blocking_actor* self,
                         const caf::actor& mpi_actor,
+                        const caf::actor& trace_actor,
                         const caf::actor& object_storage_actor,
                         int batch_id,
                         const NDArray& new_gnids,
@@ -65,8 +66,8 @@ void input_bsend_all_fn(caf::blocking_actor* self,
                         const NDArray& src_gnids,
                         const NDArray& dst_gnids,
                         const uint32_t tag) {
-  TraceMe send(batch_id, "input_send");
-
+  // TraceMe send(batch_id, "input_send");
+  auto start_time = std::chrono::steady_clock::now();
   std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
 
   rh_list.push_back(self->request(mpi_actor, caf::infinite, caf::mpi_bsend_atom_v, new_gnids, tag));
@@ -88,6 +89,10 @@ void input_bsend_all_fn(caf::blocking_actor* self,
     receive_result<bool>(rh_list[i]);
   }
 
+  if (TRACE_ENABLED) {
+    int elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
+    self->send(trace_actor, caf::put_atom_v, batch_id, "input_send", elapsed);
+  }
   self->receive([](caf::get_atom) { });
 }
 
@@ -144,6 +149,7 @@ void _move_feature_split(caf::blocking_actor* self,
 
 void input_bsend_scatter_fn(caf::blocking_actor* self,
                             const caf::actor& mpi_actor,
+                            const caf::actor& trace_actor,
                             const caf::actor& object_storage_actor,
                             int num_nodes,
                             BroadcastInitType init_type,
@@ -154,7 +160,8 @@ void input_bsend_scatter_fn(caf::blocking_actor* self,
                             const NDArray& dst_gnids,
                             const FeatureSplitMethod& split_method,
                             const uint32_t tag) {
-  TraceMe send(batch_id, "input_send");
+  // TraceMe send(batch_id, "input_send");
+  auto start_time = std::chrono::steady_clock::now();
   assert(init_type == BroadcastInitType::kScatter || init_type == BroadcastInitType::kScatterFeatureOnly);
 
   std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
@@ -183,6 +190,11 @@ void input_bsend_scatter_fn(caf::blocking_actor* self,
 
   for (int i = 0; i < rh_list.size(); i++) {
     receive_result<bool>(rh_list[i]);
+  }
+
+  if (TRACE_ENABLED) {
+    int elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
+    self->send(trace_actor, caf::put_atom_v, batch_id, "input_send", elapsed);
   }
 
   self->receive([](caf::get_atom) { });
@@ -227,6 +239,7 @@ void input_brecv_scatter_fn(caf::blocking_actor* self,
 
 void input_send_fn(caf::blocking_actor *self,
                    const caf::actor& mpi_actor,
+                   const caf::actor& trace_actor,
                    int node_rank,
                    int batch_id,
                    const NDArray& new_gnids,
@@ -234,8 +247,8 @@ void input_send_fn(caf::blocking_actor *self,
                    const NDArray& src_gnids,
                    const NDArray& dst_gnids,
                    const uint32_t tag) {
-  TraceMe send(batch_id, "input_send");
-
+  // TraceMe send(batch_id, "input_send");
+  auto start_time = std::chrono::steady_clock::now();
   std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
 
   rh_list.push_back(self->request(mpi_actor, caf::infinite, caf::mpi_send_atom_v, node_rank, new_gnids, tag));
@@ -245,6 +258,11 @@ void input_send_fn(caf::blocking_actor *self,
 
   for (int i = 0; i < rh_list.size(); i++) {
     receive_result<bool>(rh_list[i]);
+  }
+
+  if (TRACE_ENABLED) {
+    int elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
+    self->send(trace_actor, caf::put_atom_v, batch_id, "input_send", elapsed);
   }
 }
 
@@ -280,12 +298,14 @@ void input_recv_fn(caf::blocking_actor* self,
 
 void move_input_to_shared_mem_fn(caf::blocking_actor *self,
                                  const caf::actor& object_storage_actor,
+                                 const caf::actor& trace_actor,
                                  int batch_id,
                                  const NDArray& new_gnids,
                                  const NDArray& new_features,
                                  const NDArray& src_gnids,
                                  const NDArray& dst_gnids) {
-  TraceMe move_input(batch_id, "input_send");
+  // TraceMe move_input(batch_id, "input_send");
+  auto start_time = std::chrono::steady_clock::now();
   std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
 
   auto fn = [&](const std::string& name, const NDArray& arr) {
@@ -303,7 +323,11 @@ void move_input_to_shared_mem_fn(caf::blocking_actor *self,
     receive_result<bool>(rh_list[i]);
   }
 
-  self->receive([](caf::get_atom) { });
+  if (TRACE_ENABLED) {
+    int elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
+    self->send(trace_actor, caf::put_atom_v, batch_id, "input_send", elapsed);
+  }
+  self->receive([](caf::get_atom) { }); 
 }
 
 void sampling_fn(caf::blocking_actor* self,

@@ -144,18 +144,33 @@ class SamplerProcess:
 
                         u, v = self.merge_edges(sampled_edges)
                         first_block = fast_to_block(u, v, second_block.srcdata[dgl.NID])
+                        input_gnids = first_block.srcdata[dgl.NID]
+
+            if self._parallel_type == ParallelizationType.DATA:
+                with trace_me(batch_id, "sample/pull_features"):
+                    new_features = load_tensor(batch_id, "new_features")
+                    org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
 
             with trace_me(batch_id, "sample/put_tensors"):
                 b1_u, b1_v = first_block.edges()
                 b2_u, b2_v = second_block.edges()
 
-                put_tensor(batch_id, "input_gnids", first_block.srcdata[dgl.NID])
-                put_tensor(batch_id, "b1_u", b1_u)
-                put_tensor(batch_id, "b1_v", b1_v)
-                put_tensor(batch_id, "b2_u", b2_u)
-                put_tensor(batch_id, "b2_v", b2_v)
-                put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
-                put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
+                if self._parallel_type == ParallelizationType.DATA:
+                    put_tensor(batch_id, "org_features", org_features)
+                    put_tensor(batch_id, "b1_u", b1_u)
+                    put_tensor(batch_id, "b1_v", b1_v)
+                    put_tensor(batch_id, "b2_u", b2_u)
+                    put_tensor(batch_id, "b2_v", b2_v)
+                    put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
+                    put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
+                else:
+                    put_tensor(batch_id, "input_gnids", input_gnids)
+                    put_tensor(batch_id, "b1_u", b1_u)
+                    put_tensor(batch_id, "b1_v", b1_v)
+                    put_tensor(batch_id, "b2_u", b2_u)
+                    put_tensor(batch_id, "b2_v", b2_v)
+                    put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
+                    put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
 
     def vcut_sample(self, batch_id):
         with trace_me(batch_id, "sample"):

@@ -22,7 +22,7 @@ import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 import socket
-CH_PATH = "/home/lightkhan/workspace/dgl/examples/pytorch/graphsage/dist/checkpoints/"
+CH_PATH = "/home/lightkhan/workspace/dgl/examples/pytorch/graphsage/dist/checkpoints_ogbn/"
 state = {}
 def load_subtensor(g, seeds, input_nodes, device, load_feat=True):
     """
@@ -301,24 +301,24 @@ def main(args):
 
     pb = g.get_partition_book()
     if 'trainer_id' in g.ndata:
-        train_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True,
+        train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
                                                node_trainer_ids=g.ndata['trainer_id'])
-        val_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True,
+        val_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
                                              node_trainer_ids=g.ndata['trainer_id'])
-        test_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True,
+        test_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
                                               node_trainer_ids=g.ndata['trainer_id'])
     else:
-        train_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True)
-        val_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True)
-        test_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True)
+        train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
+        val_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
+        test_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
     local_nid = pb.partid2nids(pb.partid).detach().numpy()
     print('part {}, train: {} (local: {}), val: {} (local: {}), test: {} (local: {})'.format(
         g.rank(), len(train_nid), len(np.intersect1d(train_nid.numpy(), local_nid)),
         len(val_nid), len(np.intersect1d(val_nid.numpy(), local_nid)),
         len(test_nid), len(np.intersect1d(test_nid.numpy(), local_nid))))
-    train_nid = th.from_numpy(np.setxor1d(np.intersect1d(train_nid.numpy(), local_nid), local_nid))
-    val_nid = th.from_numpy(np.setxor1d(np.intersect1d(val_nid.numpy(), local_nid), local_nid))
-    test_nid = th.from_numpy(np.setxor1d(np.intersect1d(test_nid.numpy(), local_nid), local_nid))
+    #train_nid = th.from_numpy(np.setxor1d(np.intersect1d(train_nid.numpy(), local_nid), local_nid))
+    #val_nid = th.from_numpy(np.setxor1d(np.intersect1d(val_nid.numpy(), local_nid), local_nid))
+    #test_nid = th.from_numpy(np.setxor1d(np.intersect1d(test_nid.numpy(), local_nid), local_nid))
     if args.num_gpus == -1:
         device = th.device('cpu')
     else:

@@ -20,6 +20,7 @@ def save_infer_graph(args, org_g):
     output_path = Path(args.output)
     os.makedirs(output_path, exist_ok=True)
     infer_prob = args.infer_prob
+    val_prob = args.val_prob
     # Save infer_target_graph
     print("Build inference target graph.")
 
@@ -28,7 +29,9 @@ def save_infer_graph(args, org_g):
     num_infer_targets = infer_target_mask.sum()
     org_g.ndata['infer_target_mask'] = infer_target_mask
 
-    infer_target_nids = th.masked_select(th.arange(org_g.number_of_nodes()), infer_target_mask)
+    id_arr = th.arange(org_g.number_of_nodes())
+
+    infer_target_nids = th.masked_select(id_arr, infer_target_mask)
     infer_target_in_eids = org_g.in_edges(infer_target_nids, 'eid')
     infer_target_out_eids = org_g.out_edges(infer_target_nids, 'eid')
     infer_target_eids = np.union1d(infer_target_in_eids, infer_target_out_eids)
@@ -42,6 +45,24 @@ def save_infer_graph(args, org_g):
     else:
         id_mappings = {}
     id_mappings["infer_target_mask"] = infer_target_mask
+
+    if args.for_training:
+        train_mask = th.logical_not(infer_target_mask)
+        train_nids = th.masked_select(id_arr, train_mask)
+
+        # Split validation ids 
+        val_mask_in_train_nids = th.BoolTensor(np.random.choice([False, True], size=(train_nids.shape[0],), p=[1 - val_prob, val_prob]))
+        val_nids = th.masked_select(train_nids, val_mask_in_train_nids)
+        train_nids = th.masked_select(train_nids, th.logical_not(val_mask_in_train_nids))
+
+        mask_arr = th.zeros(org_g.number_of_nodes(), dtype=th.bool)
+        mask_arr[train_nids] = True
+        id_mappings["train_mask"] = mask_arr
+
+        mask_arr = th.zeros(org_g.number_of_nodes(), dtype=th.bool)
+        mask_arr[val_nids] = True
+        id_mappings["val_mask"] = mask_arr
+
     id_mappings["infer_target_orig_ids"] = infer_target_nids
     dgl.data.save_tensors(id_mappings_path, id_mappings)
 
@@ -126,8 +147,9 @@ def fill_node_features(args, org_g):
 
         if args.for_training:
             infer_target_mask = id_mappings["infer_target_mask"][orig_ids]
-            train_mask = torch.logical_not(infer_target_mask)
-            node_feats = { "_N/features": part_node_features, "_N/labels": labels[orig_ids], "_N/infer_target_mask": infer_target_mask, "_N/train_mask": train_mask }
+            train_mask = id_mappings["train_mask"][orig_ids]
+            val_mask = id_mappings["val_mask"][orig_ids]
+            node_feats = { "_N/features": part_node_features, "_N/labels": labels[orig_ids], "_N/infer_target_mask": infer_target_mask, "_N/train_mask": train_mask, "_N/val_mask": val_mask }
         else:
             node_feats = { "_N/features": part_node_features }
         dgl.data.save_tensors(str(Path(args.output) / f"part{part_id}" / "node_feat.dgl"), node_feats)
@@ -188,6 +210,7 @@ if __name__ == '__main__':
     argparser.add_argument('--output', type=str, default='data',
                            help='Output path of partitioned graph.')
     argparser.add_argument('--infer_prob', type=float, default=0.1)
+    argparser.add_argument('--val_prob', type=float, default=0.1)
     argparser.add_argument('--target_part', type=int, default=-1)
     argparser.add_argument('--for_training', action="store_true")
     argparser.add_argument('--stage', type=str, default="all", choices=["save_infer_graph", "partition", "finalize"])

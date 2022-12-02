@@ -13,6 +13,7 @@ from dgl.data.utils import load_graphs
 import dgl.function as fn
 import dgl.nn.pytorch as dglnn
 from dgl.distributed import DistDataLoader
+from dgl.inference.models.sage import DistSAGE
 
 import torch as th
 import torch.nn as nn
@@ -61,81 +62,60 @@ class NeighborSampler(object):
         blocks[-1].dstdata['labels'] = batch_labels
         return blocks
 
-class DistSAGE(nn.Module):
-    def __init__(self, in_feats, n_hidden, n_classes, n_layers,
-                 activation, dropout):
-        super().__init__()
-        self.n_layers = n_layers
-        self.n_hidden = n_hidden
-        self.n_classes = n_classes
-        self.layers = nn.ModuleList()
-        self.layers.append(dglnn.SAGEConv(in_feats, n_hidden, 'mean'))
-        for i in range(1, n_layers - 1):
-            self.layers.append(dglnn.SAGEConv(n_hidden, n_hidden, 'mean'))
-        self.layers.append(dglnn.SAGEConv(n_hidden, n_classes, 'mean'))
-        self.dropout = nn.Dropout(dropout)
-        self.activation = activation
+def inference(model, g, x, batch_size, device):
+    """
+    Inference with the GraphSAGE model on full neighbors (i.e. without neighbor sampling).
+    g : the entire graph.
+    x : the input of entire node set.
+    The inference code is written in a fashion that it could handle any number of nodes and
+    layers.
+    """
+    # During inference with sampling, multi-layer blocks are very inefficient because
+    # lots of computations in the first few layers are repeated.
+    # Therefore, we compute the representation of all nodes layer by layer.  The nodes
+    # on each layer are of course splitted in batches.
+    # TODO: can we standardize this?
+    nodes = dgl.distributed.node_split(np.arange(g.number_of_nodes()),
+                                        g.get_partition_book(), force_even=True)
+    y = dgl.distributed.DistTensor((g.number_of_nodes(), model.n_hidden), th.float32, 'h',
+                                    persistent=True)
+    for l, layer in enumerate(model.layers):
+        if l == len(model.layers) - 1:
+            y = dgl.distributed.DistTensor((g.number_of_nodes(), model.n_classes),
+                                            th.float32, 'h_last', persistent=True)
 
-    def forward(self, blocks, x):
-        h = x
-        for l, (layer, block) in enumerate(zip(self.layers, blocks)):
-            h = layer(block, h)
-            if l != len(self.layers) - 1:
-                h = self.activation(h)
-                h = self.dropout(h)
-        return h
+        sampler = NeighborSampler(g, [-1], dgl.distributed.sample_neighbors, device)
+        print('|V|={}, eval batch size: {}'.format(g.number_of_nodes(), batch_size))
+        # Create PyTorch DataLoader for constructing blocks
+        dataloader = DistDataLoader(
+            dataset=nodes,
+            batch_size=batch_size,
+            collate_fn=sampler.sample_blocks,
+            shuffle=False,
+            drop_last=False)
 
-    def inference(self, g, x, batch_size, device):
-        """
-        Inference with the GraphSAGE model on full neighbors (i.e. without neighbor sampling).
-        g : the entire graph.
-        x : the input of entire node set.
+        for blocks in tqdm.tqdm(dataloader):
+            block = blocks[0].to(device)
+            input_nodes = block.srcdata[dgl.NID]
+            output_nodes = block.dstdata[dgl.NID]
+            h = x[input_nodes].to(device)
+            h_dst = h[:block.number_of_dst_nodes()]
+            h = layer(block, (h, h_dst))
+            if l == 1:  # last layer 
+                h = h.mean(1)
+            else:       # other layer(s)
+                h = h.flatten(1)
+            # if l != len(model.layers) - 1:
+            #     h = model.activation(h)
+            #     h = model.dropout(h)
 
-        The inference code is written in a fashion that it could handle any number of nodes and
-        layers.
-        """
-        # During inference with sampling, multi-layer blocks are very inefficient because
-        # lots of computations in the first few layers are repeated.
-        # Therefore, we compute the representation of all nodes layer by layer.  The nodes
-        # on each layer are of course splitted in batches.
-        # TODO: can we standardize this?
-        nodes = dgl.distributed.node_split(np.arange(g.number_of_nodes()),
-                                           g.get_partition_book(), force_even=True)
-        y = dgl.distributed.DistTensor((g.number_of_nodes(), self.n_hidden), th.float32, 'h',
-                                       persistent=True)
-        for l, layer in enumerate(self.layers):
-            if l == len(self.layers) - 1:
-                y = dgl.distributed.DistTensor((g.number_of_nodes(), self.n_classes),
-                                               th.float32, 'h_last', persistent=True)
+            y[output_nodes] = h.cpu()
 
-            sampler = NeighborSampler(g, [-1], dgl.distributed.sample_neighbors, device)
-            print('|V|={}, eval batch size: {}'.format(g.number_of_nodes(), batch_size))
-            # Create PyTorch DataLoader for constructing blocks
-            dataloader = DistDataLoader(
-                dataset=nodes,
-                batch_size=batch_size,
-                collate_fn=sampler.sample_blocks,
-                shuffle=False,
-                drop_last=False)
-
-            for blocks in tqdm.tqdm(dataloader):
-                block = blocks[0].to(device)
-                input_nodes = block.srcdata[dgl.NID]
-                output_nodes = block.dstdata[dgl.NID]
-                h = x[input_nodes].to(device)
-                h_dst = h[:block.number_of_dst_nodes()]
-                h = layer(block, (h, h_dst))
-                if l != len(self.layers) - 1:
-                    h = self.activation(h)
-                    h = self.dropout(h)
-
-                y[output_nodes] = h.cpu()
-
-            x = y
-            g.barrier()
-        if(g.rank()==0):
-            state['predictions'] = y
-        return y
+        x = y
+        g.barrier()
+    if(g.rank()==0):
+        state['predictions'] = y
+    return y
 
 def compute_acc(pred, labels):
     """
@@ -156,7 +136,7 @@ def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device):
     """
     model.eval()
     with th.no_grad():
-        pred = model.inference(g, inputs, batch_size, device)
+        pred = inference(model, g, inputs, batch_size, device)
     model.train()
     return pred, compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid])
 
@@ -178,7 +158,7 @@ def run(args, device, data):
         drop_last=False)
 
     # Define model and optimizer
-    model = DistSAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
+    model = DistSAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu)
     model = model.to(device)
     if not args.standalone:
         if args.num_gpus == -1:
@@ -355,7 +335,6 @@ if __name__ == '__main__':
     parser.add_argument('--log_every', type=int, default=20)
     parser.add_argument('--eval_every', type=int, default=5)
     parser.add_argument('--lr', type=float, default=0.003)
-    parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--local_rank', type=int, help='get rank of the process')
     parser.add_argument('--standalone', action='store_true', help='run in the standalone mode')
     parser.add_argument('--pad-data', default=False, action='store_true',

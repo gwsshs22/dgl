@@ -20,7 +20,8 @@ def main(args):
     infer_g = dgl.load_graphs(str(config_path / "infer_target_graph.dgl"))[0][0]
     id_mappings = dgl.data.load_tensors(str(config_path / "id_mappings.dgl"))
 
-    infer_target_orig_ids = torch.masked_select(infer_g.ndata[dgl.NID], infer_g.ndata["infer_target_mask"])
+    infer_target_mask = infer_g.ndata["infer_target_mask"].bool()
+    infer_target_orig_ids = torch.masked_select(infer_g.ndata[dgl.NID], infer_target_mask)
     infer_target_features = id_mappings["infer_target_features"]
     orig_ids_in_partitions = id_mappings["orig_ids_in_partitions"]
     orig_ids_in_partitions_sorter = np.argsort(orig_ids_in_partitions)
@@ -30,7 +31,7 @@ def main(args):
 
     new_nodes_start_id = orig_ids_in_partitions.shape[0]
 
-    non_infer_target_ids_in_infer_g = torch.masked_select(torch.arange(infer_g.number_of_nodes()), torch.logical_not(infer_g.ndata["infer_target_mask"]))
+    non_infer_target_ids_in_infer_g = torch.masked_select(torch.arange(infer_g.number_of_nodes()), torch.logical_not(infer_target_mask))
     non_infer_target_ids_in_infer_g = set(non_infer_target_ids_in_infer_g.tolist())
 
     with open(trace_output_dir / "num_traces.txt", "w") as f:
@@ -48,7 +49,7 @@ def main(args):
         target_eids = np.union1d(in_edge_eids, out_edge_eids)
         u, v = infer_g.find_edges(target_eids)
 
-        assert(infer_g.ndata["infer_target_mask"][selected_ids_in_infer_g].all())
+        assert(infer_target_mask[selected_ids_in_infer_g].all())
         filter_set = non_infer_target_ids_in_infer_g.union(set(selected_ids_in_infer_g.tolist()))
 
         def get_mask(infer_g_node_ids):

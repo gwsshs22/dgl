@@ -162,6 +162,14 @@ inline uint32_t CreateMpiTag(int batch_id, TaskType task_type) {
   return CreateMpiTag(batch_id, task_type, 0);
 }
 
+inline uint64_t hash(uint64_t h) {
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccdL;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53L;
+  h ^= h >> 33;
+  return h;
+}
 
 extern bool TRACE_ENABLED;
 

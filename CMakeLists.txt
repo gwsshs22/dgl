@@ -309,6 +309,9 @@ if(MSVC)
     ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:dgl>" "$<TARGET_FILE_DIR:dgl>/..")
 endif(MSVC)
 
+add_executable(partitionFacebookDataset ${CMAKE_SOURCE_DIR}/tools/inference/partition_facebook_dataset.cc)
+target_link_libraries(partitionFacebookDataset dgl)
+
 # Tensor adapter libraries
 # Linking against LibTorch involves linking against a bunch of other libraries
 # returned by PyTorch's CMake (e.g. C10 or NVTools).  Because CMake caches

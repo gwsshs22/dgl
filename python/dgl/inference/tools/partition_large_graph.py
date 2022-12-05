@@ -86,7 +86,8 @@ def finalize(args, org_g):
     collect_id_mappings(args)
     fill_node_features(args, org_g)
     save_infer_target_features(args, org_g)
-    delete_infer_edges(args, org_g)
+    if not args.save_infer_edges:
+        delete_infer_edges(args, org_g)
 
 def merge_config_files(args):
     if os.path.exists(Path(args.output) / f'{args.dataset}.json'):
@@ -213,6 +214,7 @@ if __name__ == '__main__':
     argparser.add_argument('--val_prob', type=float, default=0.1)
     argparser.add_argument('--target_part', type=int, default=-1)
     argparser.add_argument('--for_training', action="store_true")
+    argparser.add_argument('--save_infer_edges', action="store_true")
     argparser.add_argument('--stage', type=str, default="all", choices=["save_infer_graph", "partition", "finalize"])
     args = argparser.parse_args()
     np.random.seed(args.random_seed)

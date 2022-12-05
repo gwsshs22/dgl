@@ -303,14 +303,14 @@ def main(args):
     if 'trainer_id' in g.ndata:
         train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
                                                node_trainer_ids=g.ndata['trainer_id'])
-        val_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
+        val_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True,
                                              node_trainer_ids=g.ndata['trainer_id'])
-        test_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
+        test_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True,
                                               node_trainer_ids=g.ndata['trainer_id'])
     else:
         train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
-        val_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
-        test_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
+        val_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True)
+        test_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True)
     local_nid = pb.partid2nids(pb.partid).detach().numpy()
     print('part {}, train: {} (local: {}), val: {} (local: {}), test: {} (local: {})'.format(
         g.rank(), len(train_nid), len(np.intersect1d(train_nid.numpy(), local_nid)),
@@ -347,7 +347,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_gpus', type=int, default=-1,
                         help="the number of GPU device. Use -1 for CPU training")
     parser.add_argument('--num_epochs', type=int, default=20)
-    parser.add_argument('--num_hidden', type=int, default=16)
+    parser.add_argument('--num_hidden', type=int, default=32)
     parser.add_argument('--num_layers', type=int, default=2)
     parser.add_argument('--fan_out', type=str, default='10,25')
     parser.add_argument('--batch_size', type=int, default=1000)

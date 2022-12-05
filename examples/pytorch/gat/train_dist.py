@@ -21,7 +21,7 @@ import torch.optim as optim
 import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
 import socket
-CH_PATH = "/home/lightkhan/workspace/dgl/examples/pytorch/gcn/checkpoints/"
+CH_PATH = "/home/lightkhan/workspace/dgl/examples/pytorch/gat/checkpoints/"
 state = {}
 def load_subtensor(g, seeds, input_nodes, device, load_feat=True):
     """
@@ -101,7 +101,8 @@ class DistGAT(nn.Module):
         # TODO: can we standardize this?
         nodes = dgl.distributed.node_split(np.arange(g.number_of_nodes()),
                                            g.get_partition_book(), force_even=True)
-        y = dgl.distributed.DistTensor((g.number_of_nodes(), self.n_hidden), th.float32, 'h',
+        heads = [32,1] #self.heads[0] 
+        y = dgl.distributed.DistTensor((g.number_of_nodes(), self.n_hidden * heads[0]), th.float32, 'h',
                                        persistent=True)
         for l, layer in enumerate(self.layers):
             if l == len(self.layers) - 1:
@@ -182,7 +183,7 @@ def run(args, device, data):
         drop_last=False)
 
     # Define model and optimizer
-    model = DistGAT(in_feats, args.num_hidden, n_classes, args.num_layers, [8,1], F.elu, args.dropout)
+    model = DistGAT(in_feats, args.num_hidden, n_classes, args.num_layers, [32,1], F.elu, args.dropout)
     model = model.to(device)
     if not args.standalone:
         if args.num_gpus == -1:
@@ -297,24 +298,24 @@ def main(args):
 
     pb = g.get_partition_book()
     if 'trainer_id' in g.ndata:
-        train_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True,
+        train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True,
                                                node_trainer_ids=g.ndata['trainer_id'])
-        val_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True,
+        val_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True,
                                              node_trainer_ids=g.ndata['trainer_id'])
-        test_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True,
+        test_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True,
                                               node_trainer_ids=g.ndata['trainer_id'])
     else:
-        train_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True)
-        val_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True)
-        test_nid = dgl.distributed.node_split(g.ndata['infer_target_mask'], pb, force_even=True)
+        train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
+        val_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True)
+        test_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True)
     local_nid = pb.partid2nids(pb.partid).detach().numpy()
     print('part {}, train: {} (local: {}), val: {} (local: {}), test: {} (local: {})'.format(
         g.rank(), len(train_nid), len(np.intersect1d(train_nid.numpy(), local_nid)),
         len(val_nid), len(np.intersect1d(val_nid.numpy(), local_nid)),
         len(test_nid), len(np.intersect1d(test_nid.numpy(), local_nid))))
-    train_nid = th.from_numpy(np.setxor1d(np.intersect1d(train_nid.numpy(), local_nid), local_nid))
-    val_nid = th.from_numpy(np.setxor1d(np.intersect1d(val_nid.numpy(), local_nid), local_nid))
-    test_nid = th.from_numpy(np.setxor1d(np.intersect1d(test_nid.numpy(), local_nid), local_nid))
+    #train_nid = th.from_numpy(np.setxor1d(np.intersect1d(train_nid.numpy(), local_nid), local_nid))
+    #val_nid = th.from_numpy(np.setxor1d(np.intersect1d(val_nid.numpy(), local_nid), local_nid))
+    #test_nid = th.from_numpy(np.setxor1d(np.intersect1d(test_nid.numpy(), local_nid), local_nid))
     if args.num_gpus == -1:
         device = th.device('cpu')
     else:
@@ -343,7 +344,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_gpus', type=int, default=-1,
                         help="the number of GPU device. Use -1 for CPU training")
     parser.add_argument('--num_epochs', type=int, default=20)
-    parser.add_argument('--num_hidden', type=int, default=8)
+    parser.add_argument('--num_hidden', type=int, default=32)
     parser.add_argument('--num_layers', type=int, default=2)
     parser.add_argument('--fan_out', type=str, default='10,25')
     parser.add_argument('--batch_size', type=int, default=1000)

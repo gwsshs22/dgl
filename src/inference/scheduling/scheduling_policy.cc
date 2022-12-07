@@ -298,6 +298,7 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
         scheduled_batch->status = BatchStatus::kComputingStatus;
         scheduler.BroadcastExecute(TaskType::kCompute, batch_id, /* param0 = owner_node_rank */ node_rank, /* param1 = owner_local_rank */ 0);
       } else if (scheduled_batch->status == BatchStatus::kComputedStatus && machine.num_fetching_result < max_concurrent_batches_) {
+        machine.num_fetching_result++;
         scheduled_batch->status = BatchStatus::kFetchingResultStatus;
         scheduler.LocalFetchResult(batch_id, node_rank, -1);
       } else if (scheduled_batch->status == BatchStatus::kFinishedStatus) {

@@ -79,7 +79,7 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int node_rank = -1;
 
     if (execute_one_by_one_) {
-      if (machines_[1].num_initializing > max_concurrent_batches_) {
+      if (machines_[1].num_allocated_batches > max_concurrent_batches_) {
         break;
       }
 
@@ -235,7 +235,7 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int node_rank = -1;
 
     if (execute_one_by_one_) {
-      if (machines_[1].num_initializing > max_concurrent_batches_) {
+      if (machines_[1].num_allocated_batches > max_concurrent_batches_) {
         break;
       }
 
@@ -398,7 +398,7 @@ VertexCutSchedulingPolicy::VertexCutSchedulingPolicy(int num_nodes,
 
 void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
   while (!input_queue_.empty()) {
-    if (machine_.num_initializing > max_concurrent_batches_) {
+    if (machine_.num_allocated_batches > max_concurrent_batches_) {
       break;
     }
 

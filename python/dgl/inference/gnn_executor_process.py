@@ -483,24 +483,40 @@ class GnnExecutorProcess:
                 put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
 
     def inc_compute(self, first_layer, batch_id, inc_block, inc_dst_gnids, new_features):
-        div_names = first_layer.div_names()
-        dmiv_names = first_layer.dmiv_names()
+        with trace_me(batch_id, "compute/inc_compute/prepare_input"):
+            div_names = first_layer.div_names()
+            dmiv_names = first_layer.dmiv_names()
+            aggr_names = first_layer.aggr_names()
 
-        dst_init_values = {}
-        for div_name in div_names:
-            dst_init_values[div_name] = self._dist_graph.ndata[f"div_{div_name}"][inc_dst_gnids].to(self._device)
+            dst_init_values = {}
+            for div_name in div_names:
+                dst_init_values[div_name] = self._dist_graph.ndata[f"div_{div_name}"][inc_dst_gnids].to(self._device)
 
-        dst_merge_init_values = {}
-        for dmiv_name in dmiv_names:
-            dst_merge_init_values[dmiv_name] = self._dist_graph.ndata[f"dmiv_{dmiv_name}"][inc_dst_gnids].to(self._device)
+            dst_merge_init_values = {}
+            for dmiv_name in dmiv_names:
+                dst_merge_init_values[dmiv_name] = self._dist_graph.ndata[f"dmiv_{dmiv_name}"][inc_dst_gnids].to(self._device)
 
-        new_nodes_aggregations = first_layer.compute_aggregations(inc_block, new_features, dst_init_values)
+            precomputed_aggregations = {}
+            for aggr_name in aggr_names:
+                precomputed_aggregations[aggr_name] = self._dist_graph.ndata[f"agg_{aggr_name}"][inc_dst_gnids].to(self._device)
 
-        aggrs = {}
-        for aggr_name in first_layer.aggr_names():
-            aggrs[aggr_name] = torch.stack((new_nodes_aggregations[aggr_name], self._dist_graph.ndata[f"agg_{aggr_name}"][inc_dst_gnids].to(self._device)))
+            if self._collect_stats:
+                torch.cuda.synchronize(device=self._device)
 
-        return first_layer.merge(inc_block, dst_merge_init_values, aggrs)
+        with trace_me(batch_id, "compute/inc_compute/compute_new_nodes_aggregations"):
+            new_nodes_aggregations = first_layer.compute_aggregations(inc_block, new_features, dst_init_values)
+
+            aggrs = {}
+            for aggr_name in aggr_names:
+                aggrs[aggr_name] = torch.stack((new_nodes_aggregations[aggr_name], precomputed_aggregations[aggr_name]))
+            if self._collect_stats:
+                torch.cuda.synchronize(device=self._device)
+
+        with trace_me(batch_id, "compute/inc_compute/merge"):
+            merged_ret = first_layer.merge(inc_block, dst_merge_init_values, aggrs)
+            if self._collect_stats:
+                torch.cuda.synchronize(device=self._device)
+            return merged_ret
 
     def _cumsum_start_with_zero(self, arr):
             ret = np.zeros(arr.shape[0] + 1, np.int64)

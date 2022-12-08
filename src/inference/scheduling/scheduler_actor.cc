@@ -59,9 +59,10 @@ caf::behavior scheduler_actor::make_behavior() {
         const NDArray& new_gnids,
         const NDArray& new_features,
         const NDArray& src_gnids,
-        const NDArray& dst_gnids) {
+        const NDArray& dst_gnids,
+        const std::chrono::time_point<std::chrono::steady_clock>& enqueue_time_point) {
       int request_id = request_id_counter_++;
-      policy_->OnNewBatch(*this, BatchInput { request_id, new_gnids, new_features, src_gnids, dst_gnids });
+      policy_->OnNewBatch(*this, BatchInput { request_id, new_gnids, new_features, src_gnids, dst_gnids }, enqueue_time_point);
       return request_id;
     },
     [&](caf::initialized_atom, int batch_id) {

@@ -35,7 +35,7 @@ class Scheduler {
 class SchedulingPolicy {
 
  public:
-  virtual void OnNewBatch(Scheduler& scheduler, BatchInput&& input) = 0;
+  virtual void OnNewBatch(Scheduler& scheduler, BatchInput&& input, const std::chrono::time_point<std::chrono::steady_clock>& enqueue_time_point) = 0;
   virtual void OnInitialized(Scheduler& scheduler, int batch_id) = 0;
   virtual void OnExecuted(Scheduler& scheduler, int batch_id, TaskType task_type) = 0;
   virtual void OnFinished(Scheduler& scheduler, int batch_id, const NDArray& result) = 0;

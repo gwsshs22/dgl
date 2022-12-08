@@ -99,7 +99,7 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
       using_precomputed_aggregations);
 
   auto required_actors = std::vector<std::string>({ "mpi", "exec_ctrl" });
-  auto result_receiver = system.spawn(result_receiver_fn, num_warmup_reqs, num_reqs);
+  auto result_receiver = system.spawn(result_receiver_fn, trace_act, num_warmup_reqs, num_reqs);
 
   auto scheduler = system.spawn<scheduler_actor>(exec_ctl_actor_ptr,
                                                  result_receiver,
@@ -129,10 +129,8 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto exp_fin_rh = self->request(result_receiver, std::chrono::minutes(360), caf::wait_atom_v);
   receive_result<bool>(exp_fin_rh);
 
-  if (collect_stats) {
-    auto rh = self->request(exec_ctl_actor, caf::infinite, caf::write_trace_atom_v);
-    receive_result<bool>(rh);
-  }
+  auto rh = self->request(exec_ctl_actor, caf::infinite, caf::write_trace_atom_v);
+  receive_result<bool>(rh);
 
   auto fin_rh = self->request(fin_mon_actor, caf::infinite, caf::done_atom_v);
   receive_result<bool>(fin_rh);

@@ -29,6 +29,7 @@ struct result_receiver_state {
 };
 
 caf::behavior result_receiver_fn(caf::stateful_actor<result_receiver_state>* self,
+                                 const caf::actor& trace_actor,
                                  int num_warmup_reqs,
                                  int num_reqs);
 

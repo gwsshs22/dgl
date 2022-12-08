@@ -59,7 +59,7 @@ void input_feader_fn(caf::blocking_actor* self,
 
   for (int i = 0; i < num_warmup_reqs; i++) {
     auto idx = i % num_traces;
-    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids_vec[idx], new_features_vec[idx], src_gnids_vec[idx], dst_gnids_vec[idx]);
+    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids_vec[idx], new_features_vec[idx], src_gnids_vec[idx], dst_gnids_vec[idx], std::chrono::steady_clock::now());
     receive_result<int>(rh);
   }
 
@@ -69,7 +69,7 @@ void input_feader_fn(caf::blocking_actor* self,
 
   for (int i = 0; i < num_reqs; i++) {
     auto idx = i % num_traces;
-    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids_vec[idx], new_features_vec[idx], src_gnids_vec[idx], dst_gnids_vec[idx]);
+    auto rh = self->request(scheduler, caf::infinite, caf::enqueue_atom_v, new_gnids_vec[idx], new_features_vec[idx], src_gnids_vec[idx], dst_gnids_vec[idx], std::chrono::steady_clock::now());
     receive_result<int>(rh);
   }
 
@@ -78,6 +78,7 @@ void input_feader_fn(caf::blocking_actor* self,
 }
 
 caf::behavior result_receiver_fn(caf::stateful_actor<result_receiver_state>* self,
+                                 const caf::actor& trace_actor,
                                  int num_warmup_reqs,
                                  int num_reqs) {
   self->state.num_warmups_reqs = num_warmup_reqs;
@@ -92,7 +93,10 @@ caf::behavior result_receiver_fn(caf::stateful_actor<result_receiver_state>* sel
   return  {
     [=](caf::done_atom, int req_id, const NDArray& result, const RequestStats& stats) {
       if (!self->state.warmup_finished) {
-        std::cout << "[WARMUP] req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << ", result=" << result << std::endl;
+        auto elapsed_time_in_micros = stats.ElapsedTimeInMicros();
+        caf::aout(self) << "[WARMUP] req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << ", result=" << result << std::endl;
+        self->send(trace_actor, caf::put_atom_v, req_id, "total", elapsed_time_in_micros);
+
         self->state.num_done_warmups_reqs++;
         if (self->state.num_done_warmups_reqs == self->state.num_warmups_reqs) {
           self->state.warmup_finished = true;
@@ -100,9 +104,11 @@ caf::behavior result_receiver_fn(caf::stateful_actor<result_receiver_state>* sel
             self->state.warmup_rp.deliver(true);
           }
         }
-
       } else {
-        std::cout << "req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << ", result=" << result << std::endl;
+        auto elapsed_time_in_micros = stats.ElapsedTimeInMicros();
+        caf::aout(self) << "req_id=" << req_id << " elapsed_time_in_micros=" << elapsed_time_in_micros << std::endl;
+        self->send(trace_actor, caf::put_atom_v, req_id, "total", elapsed_time_in_micros);
+
         self->state.num_done_reqs++;
         if (self->state.num_done_reqs == self->state.num_reqs) {
           self->state.finished = true;

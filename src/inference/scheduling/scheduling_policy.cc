@@ -32,8 +32,9 @@ BaseSchedulingPolicy::BaseSchedulingPolicy(int num_nodes,
 }
 
 void BaseSchedulingPolicy::OnNewBatch(Scheduler& scheduler, 
-                                      BatchInput&& input) {
-  stats_.emplace(std::make_pair(input.req_id, RequestStats()));
+                                      BatchInput&& input,
+                                      const std::chrono::time_point<std::chrono::steady_clock>& enqueue_time_point) {
+  stats_.emplace(std::make_pair(input.req_id, RequestStats(enqueue_time_point)));
   input_queue_.push(std::move(input));
   TryScheduling(scheduler);
 }
@@ -79,14 +80,14 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int node_rank = -1;
 
     if (execute_one_by_one_) {
-      if (machines_[1].num_allocated_batches > max_concurrent_batches_) {
+      if (machines_[1].num_allocated_batches >= max_concurrent_batches_) {
         break;
       }
 
       node_rank = 1;
     } else {
       for (int i = 0; i < num_nodes_; i++) {
-        if (machines_[i].num_initializing > max_concurrent_batches_) {
+        if (machines_[i].num_initializing >= max_concurrent_batches_) {
           continue;
         }
         if (machines_[i].num_allocated_batches < min_allocated_num) {
@@ -108,6 +109,7 @@ void DataSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int batch_id = IssueBatchId();
     auto front = input_queue_.front();
     batch_id_to_req_id_[batch_id] = front.req_id;
+    CHECK_EQ(batch_id, front.req_id);
     scheduler.LocalInitialize(batch_id, node_rank, front);
     input_queue_.pop();
  
@@ -235,14 +237,14 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int node_rank = -1;
 
     if (execute_one_by_one_) {
-      if (machines_[1].num_allocated_batches > max_concurrent_batches_) {
+      if (machines_[1].num_allocated_batches >= max_concurrent_batches_) {
         break;
       }
 
       node_rank = 1;
     } else {
       for (int i = 0; i < num_nodes_; i++) {
-        if (machines_[i].num_initializing > max_concurrent_batches_) {
+        if (machines_[i].num_initializing >= max_concurrent_batches_) {
           continue;
         }
 
@@ -265,6 +267,7 @@ void P3SchedulingPolicy::TryScheduling(Scheduler& scheduler) {
     int batch_id = IssueBatchId();
     auto front = input_queue_.front();
     batch_id_to_req_id_[batch_id] = front.req_id;
+    CHECK_EQ(batch_id, front.req_id);
     scheduler.BroadcastInitialize(batch_id, BroadcastInitType::kScatterFeatureOnly, front);
     input_queue_.pop();
 
@@ -398,13 +401,14 @@ VertexCutSchedulingPolicy::VertexCutSchedulingPolicy(int num_nodes,
 
 void VertexCutSchedulingPolicy::TryScheduling(Scheduler& scheduler) {
   while (!input_queue_.empty()) {
-    if (machine_.num_allocated_batches > max_concurrent_batches_) {
+    if (machine_.num_allocated_batches >= max_concurrent_batches_) {
       break;
     }
 
     int batch_id = IssueBatchId();
     auto front = input_queue_.front();
     batch_id_to_req_id_[batch_id] = front.req_id;
+    CHECK_EQ(batch_id, front.req_id);
 
     if (using_precomputed_aggs_) {
       scheduler.BroadcastInitialize(batch_id, BroadcastInitType::kAll, front);

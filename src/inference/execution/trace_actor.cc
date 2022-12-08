@@ -10,9 +10,7 @@ caf::behavior trace_actor(caf::stateful_actor<trace_actor_state>* self,
   self->state.node_rank = node_rank;
   return {
     [=](caf::put_atom, int batch_id, const std::string& name, int elapsed_micro) {
-      if (TRACE_ENABLED) {
-        self->state.traces.push_back(std::make_tuple(batch_id, name, elapsed_micro));
-      }
+      self->state.traces.push_back(std::make_tuple(batch_id, name, elapsed_micro));
     },
     [=](caf::write_trace_atom) {
       std::string file_path = self->state.result_dir + "/node_" + std::to_string(self->state.node_rank) + ".txt";

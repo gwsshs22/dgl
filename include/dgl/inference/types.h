@@ -50,7 +50,10 @@ struct FeatureSplitMethod {
 struct RequestStats {
   std::chrono::time_point<std::chrono::steady_clock> enqueued_time;
 
-  RequestStats() : enqueued_time(std::chrono::steady_clock::now()) {}
+  RequestStats(const std::chrono::time_point<std::chrono::steady_clock>& enqueue_time_point) : enqueued_time(enqueue_time_point) {}
+
+  RequestStats() = default;
+  RequestStats(const RequestStats& other) = default;
 
   int ElapsedTimeInMicros() const {
     return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - enqueued_time).count();

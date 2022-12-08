@@ -66,6 +66,7 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   CAF_ADD_ATOM(core_extension, caf, exec_control_atom, "exec_ctl") // executor_control_actor
   CAF_ADD_ATOM(core_extension, caf, gloo_ra_atom, "gloo_ra") // gloo_rendezvous_actor
 
+  CAF_ADD_TYPE_ID(core_extension, (std::chrono::time_point<std::chrono::steady_clock>))
   CAF_ADD_TYPE_ID(core_extension, (dgl::runtime::NDArray))
   CAF_ADD_TYPE_ID(core_extension, (std::vector<dgl::runtime::NDArray>))
   CAF_ADD_TYPE_ID(core_extension, (dgl::inference::NDArrayWithSharedMeta))
@@ -78,6 +79,7 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
 
 CAF_END_TYPE_ID_BLOCK(core_extension)
 
+CAF_ALLOW_UNSAFE_MESSAGE_TYPE(std::chrono::time_point<std::chrono::steady_clock>)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::runtime::NDArray)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(std::shared_ptr<dgl::runtime::SharedMemory>)
 CAF_ALLOW_UNSAFE_MESSAGE_TYPE(dgl::inference::NDArrayWithSharedMeta)

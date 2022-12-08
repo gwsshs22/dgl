@@ -16,7 +16,8 @@ class BaseSchedulingPolicy : public SchedulingPolicy {
                        bool execute_one_by_one);
 
   void OnNewBatch(Scheduler& scheduler,
-                  BatchInput&& input) override;
+                  BatchInput&& input,
+                  const std::chrono::time_point<std::chrono::steady_clock>& enqueue_time_point) override;
 
  protected:
   virtual void TryScheduling(Scheduler& scheduler) = 0;

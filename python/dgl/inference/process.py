@@ -152,6 +152,7 @@ def fork():
     result_dir = os.environ[envs.DGL_INFER_RESULT_DIR]
     collect_stats = envs.get_collect_stats()
 
+    print(f"#### collect_stats={collect_stats}")
     if collect_stats:
         enable_tracing()
 

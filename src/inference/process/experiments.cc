@@ -94,7 +94,7 @@ caf::behavior result_receiver_fn(caf::stateful_actor<result_receiver_state>* sel
     [=](caf::done_atom, int req_id, const NDArray& result, const RequestStats& stats) {
       if (!self->state.warmup_finished) {
         auto elapsed_time_in_micros = stats.ElapsedTimeInMicros();
-        caf::aout(self) << "[WARMUP] req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << ", result=" << result << std::endl;
+        std::cout << "[WARMUP] req_id=" << req_id << " elapsed_time_in_micros=" << stats.ElapsedTimeInMicros() << ", result=" << result << std::endl;
         self->send(trace_actor, caf::put_atom_v, req_id, "total", elapsed_time_in_micros);
 
         self->state.num_done_warmups_reqs++;

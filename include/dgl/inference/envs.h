@@ -32,6 +32,8 @@ extern const char* DGL_INFER_RESULT_DIR;
 extern const char* DGL_INFER_COLLECT_STATS;
 extern const char* DGL_INFER_EXECUTE_ONE_BY_ONE;
 
+extern const char* DGL_INFER_EXP_LAMBDA;
+
 enum ParallelizationType {
   kData = 0,
   kP3 = 1,

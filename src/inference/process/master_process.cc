@@ -34,6 +34,8 @@ void MasterProcessMain(caf::actor_system& system, const config& cfg) {
   auto collect_stats = GetEnv<bool>(DGL_INFER_COLLECT_STATS, false);
   auto execute_one_by_one = GetEnv<bool>(DGL_INFER_EXECUTE_ONE_BY_ONE, false);
 
+  auto exp_labmda = GetEnv<float>(DGL_INFER_EXP_LAMBDA, 0.0);
+
   if (collect_stats) {
     EnableTracing();
   }

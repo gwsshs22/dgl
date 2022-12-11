@@ -197,6 +197,7 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
 --num-warmups {args.num_warmups} \
 --num-requests {args.num_requests} \
 --result-dir {args.result_dir} \
+--exp-lambda {args.exp_lambda} \
 --node-rank 0 \
 --num-nodes {num_nodes} \
 --num-backup-servers {num_backup_servers} \
@@ -238,6 +239,7 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
 --master-port {master_port} \
 --master-torch-port {master_torch_port} \
 --result-dir {args.result_dir} \
+--exp-lambda {args.exp_lambda} \
 --node-rank {worker_idx} \
 --num-nodes {num_nodes} \
 --num-backup-servers {num_backup_servers} \
@@ -381,6 +383,7 @@ def main():
     parser.add_argument('--result_dir', type=str, required=True)
     parser.add_argument('--collect_stats', action='store_true')
     parser.add_argument('--execute_one_by_one', action='store_true')
+    parser.add_argument('--exp_lambda', type=float, default=0.0)
 
     args = parser.parse_args()
     submit_jobs(args, dry_run=args.dry_run)

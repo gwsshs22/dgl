@@ -52,6 +52,9 @@ def main():
     parser.add_argument('--collect-stats', action='store_true')
     parser.add_argument('--execute-one-by-one', action='store_true')
 
+    # Exp params
+    parser.add_argument('--exp-lambda', type=float, default=0.0)
+
     args = parser.parse_args()
 
     if args.role == "master":
@@ -97,6 +100,8 @@ def main():
     os.environ[envs.DGL_INFER_RESULT_DIR] = args.result_dir
     os.environ[envs.DGL_INFER_COLLECT_STATS] = "1" if args.collect_stats else "0"
     os.environ[envs.DGL_INFER_EXECUTE_ONE_BY_ONE] = "1" if args.execute_one_by_one else "0"
+
+    os.environ[envs.DGL_INFER_EXP_LAMBDA] = str(args.exp_lambda)
 
     os.makedirs(args.result_dir, exist_ok=True)
 
@@ -151,6 +156,8 @@ def fork():
 
     result_dir = os.environ[envs.DGL_INFER_RESULT_DIR]
     collect_stats = envs.get_collect_stats()
+
+    exp_lambda = float(os.environ[envs.DGL_INFER_EXP_LAMBDA])
 
     print(f"#### collect_stats={collect_stats}")
     if collect_stats:

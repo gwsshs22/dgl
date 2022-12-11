@@ -139,7 +139,8 @@ class SamplerProcess:
                         sampled_edges = self.sample_neighbors(first_org_block_seed, -1)
 
                     with trace_me(batch_id, "sample/blocks/create_first_block/to_block"):
-                        base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
+                        # base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
+                        base_src, base_dst = fast_in_edges(src_gnids, dst_gnids, second_block.srcdata[dgl.NID])
                         base_edges = LocalSampledGraph(base_src, base_dst)
                         sampled_edges.insert(0, base_edges)
 
@@ -204,7 +205,7 @@ class SamplerProcess:
                         first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
                         sampled_edges = self.vcut_sample_neighbors(first_org_block_seed, -1, batch_id)
                     with trace_me(batch_id, "sample/blocks/create_first_block/to_block"):
-                        base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
+                        base_src, base_dst = fast_in_edges(src_gnids, dst_gnids, second_block.srcdata[dgl.NID])
                         base_edges = LocalSampledGraph(base_src, base_dst)
                         sampled_edges.insert(0, base_edges)
 

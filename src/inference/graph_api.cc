@@ -7,6 +7,36 @@
 namespace dgl {
 namespace inference {
 
+std::pair<IdArray, IdArray> FastInEdges(const IdArray& u,
+                                        const IdArray& v,
+                                        const IdArray& dst_ids) {
+  auto dst_ids_set = phmap::flat_hash_set<int64_t>();
+  auto dst_ids_ptr = (int64_t*) dst_ids->data;
+  for (int i = 0; i < dst_ids->shape[0]; i++) {
+    dst_ids_set.insert(*dst_ids_ptr++);
+  }
+
+  auto new_u_vector = std::vector<int64_t>();
+  auto new_v_vector = std::vector<int64_t>();
+
+  auto num_edges = u->shape[0];
+  CHECK_EQ(u->shape[0], v->shape[0]);
+  auto u_ptr = (int64_t*) u->data;
+  auto v_ptr = (int64_t*) v->data;
+  
+  for (int i = 0; i < num_edges; i++) {
+    auto x = *u_ptr++;
+    auto y = *v_ptr++;
+    if (dst_ids_set.find(y) != dst_ids_set.end()) {
+      new_u_vector.emplace_back(x);
+      new_v_vector.emplace_back(y);
+    }
+  }
+
+  return std::make_pair(NDArray::FromVector(new_u_vector), NDArray::FromVector(new_v_vector));
+}
+
+
 std::pair<HeteroGraphPtr, IdArray> FastToBlock(const HeteroGraphRef& empty_graph_ref,
                                                const IdArray& u,
                                                const IdArray& v,

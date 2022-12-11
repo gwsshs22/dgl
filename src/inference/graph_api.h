@@ -7,6 +7,10 @@
 namespace dgl {
 namespace inference {
 
+std::pair<IdArray, IdArray> FastInEdges(const IdArray& u,
+                                        const IdArray& v,
+                                        const IdArray& dst_ids);
+
 std::pair<HeteroGraphPtr, IdArray> FastToBlock(const HeteroGraphRef& empty_graph_ref,
                                                const IdArray& u,
                                                const IdArray& v,

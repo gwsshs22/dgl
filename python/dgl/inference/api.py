@@ -18,6 +18,13 @@ def load_tensor(batch_id, name):
 def put_tensor(batch_id, name, tensor):
     _CAPI_DGLInferencePutTensor(batch_id, name, F.zerocopy_to_dgl_ndarray(tensor))
 
+def fast_in_edges(u, v, dst_ids):
+    ret_list = _CAPI_DGLInferenceFastInEdges(F.zerocopy_to_dgl_ndarray(u),
+                                             F.zerocopy_to_dgl_ndarray(v),
+                                             F.zerocopy_to_dgl_ndarray(dst_ids))
+
+    return (F.zerocopy_from_dgl_ndarray(ret_list[0]), F.zerocopy_from_dgl_ndarray(ret_list[1]))
+
 def fast_to_block(u, v, dst_ids, src_ids=None):
     if src_ids == None:
         src_ids = empty_tensor

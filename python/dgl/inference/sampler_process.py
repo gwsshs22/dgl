@@ -128,8 +128,9 @@ class SamplerProcess:
                 with trace_me(batch_id, "sample/blocks/create_second_block"):
                     batch_size = new_gnids.shape[0]
 
-                    input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
-                    u, v = input_graph.in_edges(new_gnids, 'uv')
+                    # input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
+                    # u, v = input_graph.in_edges(new_gnids, 'uv')
+                    u, v = fast_in_edges(src_gnids, dst_gnids, new_gnids)
                     second_block = fast_to_block(u, v, new_gnids)
 
                 with trace_me(batch_id, "sample/blocks/create_first_block"):
@@ -183,8 +184,9 @@ class SamplerProcess:
                 with trace_me(batch_id, "sample/blocks/create_second_block"):
                     batch_size = new_gnids.shape[0]
 
-                    input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
-                    u, v = input_graph.in_edges(new_gnids, 'uv')
+                    # input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
+                    # u, v = input_graph.in_edges(new_gnids, 'uv')
+                    u, v = fast_in_edges(src_gnids, dst_gnids, new_gnids)
                     second_block = fast_to_block(u, v, new_gnids)
                     second_block.dstdata[dgl.NID] = new_gnids
 
@@ -311,8 +313,9 @@ class SamplerProcess:
 
             with trace_me(batch_id, "sample/blocks"):
                 with trace_me(batch_id, "sample/blocks/create_second_block"):
-                    input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
-                    u, v = input_graph.in_edges(new_gnids, 'uv')
+                    # input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
+                    # u, v = input_graph.in_edges(new_gnids, 'uv')
+                    u, v = fast_in_edges(src_gnids, dst_gnids, new_gnids)
                     second_block = fast_to_block(u, v, new_gnids)
                     second_block.dstdata[dgl.NID] = new_gnids
 
@@ -330,7 +333,7 @@ class SamplerProcess:
                     inc_comp_blocks = []
                     for i in range(self._num_devices_per_node):
                         inc_comp_dst_gnids = second_blocks[i].srcdata[dgl.NID][second_dst_split[i]:]
-                        inc_comp_u, inc_comp_v = input_graph.in_edges(inc_comp_dst_gnids, 'uv')
+                        inc_comp_u, inc_comp_v = fast_in_edges(src_gnids, dst_gnids, inc_comp_dst_gnids)
                         inc_comp_block = fast_to_block(inc_comp_u, inc_comp_v, inc_comp_dst_gnids, new_gnids)
                         inc_comp_blocks.append(inc_comp_block)
 

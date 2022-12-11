@@ -104,6 +104,19 @@ DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferencePutTensor")
     inference::ObjectStorage::GetInstance()->CopyToSharedMemory(batch_id, name, src_arr);
   });
 
+DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceFastInEdges")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    IdArray u = args[0];
+    IdArray v = args[1];
+    IdArray dst_ids = args[2];
+
+    runtime::List<runtime::ObjectRef> ret_list;
+    auto ret = inference::FastInEdges(u, v, dst_ids);
+    ret_list.push_back(runtime::Value(MakeValue(ret.first)));
+    ret_list.push_back(runtime::Value(MakeValue(ret.second)));
+    *rv = ret_list;
+  });
+
 DGL_REGISTER_GLOBAL("inference.api._CAPI_DGLInferenceFastToBlock")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
     const HeteroGraphRef empty_graph_ref = args[0];

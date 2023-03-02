@@ -40,10 +40,11 @@ def main():
     # Model parameters
     parser.add_argument("--model", type=str, required=True, choices=["gcn", "sage", "gat"])
     parser.add_argument('--num-layers', type=int, default=2)
+    parser.add_argument('--fanouts', type=str, default=" -1,-1") # -1 indicates full sampling
     parser.add_argument('--num-inputs', type=int, default=32)
     parser.add_argument('--num-hiddens', type=int, default=32)
     parser.add_argument('--num-outputs', type=int, default=32)
-    parser.add_argument('--heads', type=str, default="8,8", help="The number of attention heads for two-layer gat models")
+    parser.add_argument('--num-heads', type=str, default=" 8,8", help="The number of attention heads for two-layer gat models")
 
     parser.add_argument('--input-trace-dir', type=str, default="")
     parser.add_argument('--num-warmups', type=int, default=32)
@@ -88,10 +89,11 @@ def main():
 
     os.environ[envs.DGL_INFER_MODEL_TYPE] = args.model
     os.environ[envs.DGL_INFER_NUM_LAYERS] = str(args.num_layers)
+    os.environ[envs.DGL_INFER_FANOUTS] = str(args.fanouts)
     os.environ[envs.DGL_INFER_NUM_INPUTS] = str(args.num_inputs)
     os.environ[envs.DGL_INFER_NUM_HIDDENS] = str(args.num_hiddens)
     os.environ[envs.DGL_INFER_NUM_OUTPUTS] = str(args.num_outputs)
-    os.environ[envs.DGL_INFER_HEADS] = args.heads
+    os.environ[envs.DGL_INFER_HEADS] = args.num_heads
 
     os.environ[envs.DGL_INFER_INPUT_TRACE_DIR] = args.input_trace_dir
     os.environ[envs.DGL_INFER_NUM_WARMUPS] = str(args.num_warmups)
@@ -146,6 +148,10 @@ def fork():
 
     model_type = os.environ[envs.DGL_INFER_MODEL_TYPE]
     num_layers = int(os.environ[envs.DGL_INFER_NUM_LAYERS])
+    fanouts = os.environ[envs.DGL_INFER_FANOUTS]
+    fanouts = list(map(lambda x: int(x), fanouts.strip().split(",")))
+    assert len(fanouts) == num_layers
+
     num_inputs = int(os.environ[envs.DGL_INFER_NUM_INPUTS])
     num_hiddens = int(os.environ[envs.DGL_INFER_NUM_HIDDENS])
     num_outputs = int(os.environ[envs.DGL_INFER_NUM_OUTPUTS])
@@ -169,10 +175,6 @@ def fork():
     np.random.seed(random_seed)
     torch.random.manual_seed(random_seed)
 
-    if num_layers != 2:
-        print(f"Currently only num_layers = 2 is allowed. Given={num_layers}")
-        exit(-1)
-
     os.environ["DGL_DIST_MODE"] = "distributed"
 
     if actor_process_role == "gnn_executor":
@@ -191,6 +193,7 @@ def fork():
                                            graph_name,
                                            graph_config_path,
                                            model,
+                                           num_layers,
                                            num_inputs,
                                            result_dir,
                                            collect_stats)
@@ -220,6 +223,8 @@ def fork():
                                        using_precomputed_aggregations,
                                        graph_name,
                                        graph_config_path,
+                                       num_layers,
+                                       fanouts,
                                        result_dir)
     else:
         print(f"Unknown actor_process_role: {actor_process_role}")

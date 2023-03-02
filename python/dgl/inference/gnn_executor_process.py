@@ -28,6 +28,7 @@ class GnnExecutorProcess:
                  graph_name,
                  graph_config_path,
                  model,
+                 num_layers,
                  num_features,
                  result_dir,
                  collect_stats):
@@ -51,6 +52,7 @@ class GnnExecutorProcess:
         self._device = torch.device(f"cuda:{local_rank}")
         self._cpu_device = torch.device("cpu")
         self._model = model.to(self._device)
+        self._num_layers = num_layers
         self._num_features = num_features
         self._model.eval()
 
@@ -128,30 +130,33 @@ class GnnExecutorProcess:
 
     def data_parallel_compute(self, batch_id):
         with trace_me(batch_id, "compute"):
+            u_list = []
+            v_list = []
+            blocks = []
             with trace_me(batch_id, "compute/load_tensors"):
                 new_features = load_tensor(batch_id, "new_features")
                 org_features = load_tensor(batch_id, "org_features")
-                b1_u = load_tensor(batch_id, "b1_u")
-                b1_v = load_tensor(batch_id, "b1_v")
-                b2_u = load_tensor(batch_id, "b2_u")
-                b2_v = load_tensor(batch_id, "b2_v")
+                for block_idx in range(self._num_layers):
+                    u_list.append(load_tensor(batch_id, f"b{block_idx}_u"))
+                    v_list.append(load_tensor(batch_id, f"b{block_idx}_v"))
+
                 num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list").tolist()
                 num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
             with trace_me(batch_id, "compute/block_creation"):
-                block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0], check_uv_range=False)
-                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=num_dst_nodes_list[1], num_src_nodes=num_src_nodes_list[1], check_uv_range=False)
+                for block_idx in range(self._num_layers):
+                    block = dgl.create_block((u_list[block_idx], v_list[block_idx]), num_dst_nodes=num_dst_nodes_list[block_idx], num_src_nodes=num_src_nodes_list[block_idx], check_uv_range=False)
+                    blocks.append(block)
 
             with trace_me(batch_id, "compute/prepare_input"):
-                block1 = block1.to(self._device)
-                block2 = block2.to(self._device)
+                blocks = list(map(lambda b: b.to(self._device), blocks))
                 h = torch.concat((new_features, org_features)).to(self._device)
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 
             with trace_me(batch_id, "compute/gnn"):
-                h = self._model.layers[0](block1, h)
-                h = self._model.layers[1](block2, h)
+                for block_idx in range(self._num_layers):
+                    h = self._model.layers[block_idx](blocks[block_idx], h)
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 

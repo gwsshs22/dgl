@@ -30,6 +30,8 @@ class SamplerProcess:
                  using_precomputed_aggregations,
                  graph_name,
                  graph_config_path,
+                 num_layers,
+                 fanouts,
                  result_dir):
         self._channel = channel
         self._num_nodes = num_nodes
@@ -44,6 +46,8 @@ class SamplerProcess:
         self._using_precomputed_aggregations = using_precomputed_aggregations
         self._graph_name = graph_name
         self._graph_config_path = graph_config_path
+        self._num_layers = num_layers
+        self._fanouts = fanouts
         self._result_dir = result_dir
 
         self._num_servers = 1 + num_backup_servers # Number of servers for one machin including backup servers
@@ -117,7 +121,8 @@ class SamplerProcess:
 
         return src_tensor, dst_tensor
 
-    def sample(self, batch_id):
+    def sample(self, batch_id): 
+        blocks = []
         with trace_me(batch_id, "sample"):
             with trace_me(batch_id, "sample/load_tensors"):
                 new_gnids = load_tensor(batch_id, "new_gnids")
@@ -125,54 +130,56 @@ class SamplerProcess:
                 dst_gnids = load_tensor(batch_id, "dst_gnids")
 
             with trace_me(batch_id, "sample/blocks"):
-                with trace_me(batch_id, "sample/blocks/create_second_block"):
+                with trace_me(batch_id, f"sample/blocks/create_block_{self._num_layers - 1}"):
                     batch_size = new_gnids.shape[0]
 
                     # input_graph = dgl.graph((src_gnids, dst_gnids), num_nodes=new_gnids[-1] + 1)
                     # u, v = input_graph.in_edges(new_gnids, 'uv')
                     u, v = fast_in_edges(src_gnids, dst_gnids, new_gnids)
-                    second_block = fast_to_block(u, v, new_gnids)
+                    last_block = fast_to_block(u, v, new_gnids)
+                    blocks.insert(0, last_block)
 
-                with trace_me(batch_id, "sample/blocks/create_first_block"):
-                    with trace_me(batch_id, "sample/blocks/create_first_block/sample_neighbors"):
-                        first_org_block_seed = second_block.srcdata[dgl.NID][batch_size:]
-                        sampled_edges = self.sample_neighbors(first_org_block_seed, -1)
+                    base_src, base_dst = fast_in_edges(src_gnids, dst_gnids, last_block.srcdata[dgl.NID])
+                    base_edges = LocalSampledGraph(base_src, base_dst)
 
-                    with trace_me(batch_id, "sample/blocks/create_first_block/to_block"):
-                        # base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
-                        base_src, base_dst = fast_in_edges(src_gnids, dst_gnids, second_block.srcdata[dgl.NID])
-                        base_edges = LocalSampledGraph(base_src, base_dst)
-                        sampled_edges.insert(0, base_edges)
+                for block_idx in range(self._num_layers - 2, -1, -1):
+                    with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}"):
+                        with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}/sample_neighbors"):
+                            seed = blocks[0].srcdata[dgl.NID][batch_size:]
+                            sampled_edges = self.sample_neighbors(seed, -1)
 
-                        u, v = self.merge_edges(sampled_edges)
-                        first_block = fast_to_block(u, v, second_block.srcdata[dgl.NID])
-                        input_gnids = first_block.srcdata[dgl.NID]
+                        with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}/to_block"):
+                            # base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
+                            
+                            sampled_edges.insert(0, base_edges)
+
+                            u, v = self.merge_edges(sampled_edges)
+                            block = fast_to_block(u, v, blocks[0].srcdata[dgl.NID])
+                            blocks.insert(0, block)
 
             if self._parallel_type == ParallelizationType.DATA:
                 with trace_me(batch_id, "sample/pull_features"):
                     new_features = load_tensor(batch_id, "new_features")
+                    input_gnids = blocks[0].srcdata[dgl.NID]
                     org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
 
             with trace_me(batch_id, "sample/put_tensors"):
-                b1_u, b1_v = first_block.edges()
-                b2_u, b2_v = second_block.edges()
+                num_src_nodes_list = []
+                num_dst_nodes_list = []
+                for block_idx, block in enumerate(blocks):
+                    u, v = block.edges()
+                    put_tensor(batch_id, f"b{block_idx}_u", u)
+                    put_tensor(batch_id, f"b{block_idx}_v", v)
+                    num_src_nodes_list.append(block.number_of_src_nodes())
+                    num_dst_nodes_list.append(block.number_of_dst_nodes())
+
+                put_tensor(batch_id, "num_src_nodes_list", torch.tensor(num_src_nodes_list))
+                put_tensor(batch_id, "num_dst_nodes_list", torch.tensor(num_dst_nodes_list))
 
                 if self._parallel_type == ParallelizationType.DATA:
                     put_tensor(batch_id, "org_features", org_features)
-                    put_tensor(batch_id, "b1_u", b1_u)
-                    put_tensor(batch_id, "b1_v", b1_v)
-                    put_tensor(batch_id, "b2_u", b2_u)
-                    put_tensor(batch_id, "b2_v", b2_v)
-                    put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
-                    put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
                 else:
                     put_tensor(batch_id, "input_gnids", input_gnids)
-                    put_tensor(batch_id, "b1_u", b1_u)
-                    put_tensor(batch_id, "b1_v", b1_v)
-                    put_tensor(batch_id, "b2_u", b2_u)
-                    put_tensor(batch_id, "b2_v", b2_v)
-                    put_tensor(batch_id, "num_src_nodes_list", torch.tensor((first_block.number_of_src_nodes(), second_block.number_of_src_nodes())))
-                    put_tensor(batch_id, "num_dst_nodes_list", torch.tensor((first_block.number_of_dst_nodes(), second_block.number_of_dst_nodes())))
 
     def vcut_sample(self, batch_id):
         with trace_me(batch_id, "sample"):

@@ -8,7 +8,7 @@ def load_model(model_type, num_inputs, num_hiddens, num_outputs, num_layers, hea
     elif model_type == 'sage':
         model = DistSAGE(num_inputs, num_hiddens, num_outputs, num_layers)
     elif model_type == 'gat':
-        heads = list(map(lambda x: int(x), heads.split(",")))
+        heads = list(map(lambda x: int(x), heads.strip().split(",")))
         model = DistGAT(num_inputs, num_hiddens, num_outputs, num_layers, heads)
     else:
         print(f"Unknown model_type: {model_type}")

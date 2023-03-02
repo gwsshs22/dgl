@@ -210,6 +210,8 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
 --parallelization-type {args.parallelization_type} \
 --model {args.model} \
 --num-layers {args.num_layers} \
+--fanouts "{args.fanouts}" \
+--num-heads "{args.num_heads}" \
 --num-inputs {args.num_inputs} \
 --num-hiddens {args.num_hiddens} \
 --num-outputs {args.num_outputs}"""
@@ -252,6 +254,8 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
 --parallelization-type {args.parallelization_type} \
 --model {args.model} \
 --num-layers {args.num_layers} \
+--fanouts "{args.fanouts}" \
+--num-heads "{args.num_heads}" \
 --num-inputs {args.num_inputs} \
 --num-hiddens {args.num_hiddens} \
 --num-outputs {args.num_outputs}"""
@@ -371,7 +375,9 @@ def main():
     parser.add_argument('--parallelization_type', type=str, choices=["data", "p3", "vcut"], required=True)
     parser.add_argument('--model', type=str, choices=['gcn', 'sage', 'gat'], required=True)
     parser.add_argument('--num_layers', type=int, required=True)
+    parser.add_argument('--fanouts', type=str, default=" -1,-1", required=False)
     parser.add_argument('--num_inputs', type=int, required=True)
+    parser.add_argument('--num_heads', type=str, default=" 8,8", required=False)
     parser.add_argument('--num_hiddens', type=int, required=True)
     parser.add_argument('--num_outputs', type=int, required=True)
     parser.add_argument('--using_precomputed_aggregations', action='store_true')
@@ -386,6 +392,7 @@ def main():
     parser.add_argument('--exp_lambda', type=float, default=0.0)
 
     args = parser.parse_args()
+    print(args)
     submit_jobs(args, dry_run=args.dry_run)
 
 if __name__ == '__main__':

@@ -17,12 +17,14 @@ from dgl.utils.internal import expand_as_pair
 class DistGAT(nn.Module):
     def __init__(self, in_feats, n_hidden, n_outputs, num_layers, heads, activation=F.relu):
         super().__init__()
+        assert len(heads) == num_layers, f"Number of heads (heads={heads}) should be the same with num_layers={num_layers}"
         self.activation = activation
         self.layers = nn.ModuleList()
-        assert(num_layers == 2)
-        # two-layer GAT
+
         self.layers.append(GATConv(in_feats, n_hidden // heads[0], heads[0], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='flatten', activation=activation))
-        self.layers.append(GATConv(n_hidden, n_outputs, heads[1], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='mean', activation=None))
+        for i in range(num_layers - 2):
+            self.layers.append(GATConv(n_hidden, n_hidden // heads[i + 1], heads[i + 1], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='flatten', activation=activation))
+        self.layers.append(GATConv(n_hidden, n_outputs, heads[-1], feat_drop=0.6, attn_drop=0.6, allow_zero_in_degree=True, heads_aggregation='mean', activation=None))
 
     def forward(self, blocks, h):
         for i, (layer, block) in enumerate(zip(self.layers, blocks)):

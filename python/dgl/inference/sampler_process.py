@@ -103,7 +103,7 @@ class SamplerProcess:
             req.done()
 
     def sample_neighbors(self, seed, fanout):
-        return dgl.distributed.sample_neighbors(self._dist_graph, seed, -1, include_eid=False, return_only_edges=True)
+        return dgl.distributed.sample_neighbors(self._dist_graph, seed, fanout, include_eid=False, return_only_edges=True)
 
     def merge_edges(self, res_list):
         """Merge request from multiple servers"""
@@ -146,7 +146,7 @@ class SamplerProcess:
                     with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}"):
                         with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}/sample_neighbors"):
                             seed = blocks[0].srcdata[dgl.NID][batch_size:]
-                            sampled_edges = self.sample_neighbors(seed, -1)
+                            sampled_edges = self.sample_neighbors(seed, self._fanouts[block_idx])
 
                         with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}/to_block"):
                             # base_src, base_dst = input_graph.in_edges(second_block.srcdata[dgl.NID], 'uv')
@@ -157,10 +157,11 @@ class SamplerProcess:
                             block = fast_to_block(u, v, blocks[0].srcdata[dgl.NID])
                             blocks.insert(0, block)
 
+            input_gnids = blocks[0].srcdata[dgl.NID]
             if self._parallel_type == ParallelizationType.DATA:
                 with trace_me(batch_id, "sample/pull_features"):
                     new_features = load_tensor(batch_id, "new_features")
-                    input_gnids = blocks[0].srcdata[dgl.NID]
+                    
                     org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
 
             with trace_me(batch_id, "sample/put_tensors"):

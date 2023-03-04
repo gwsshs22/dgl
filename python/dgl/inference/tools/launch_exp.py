@@ -188,6 +188,7 @@ def make_master_process_cmd(args, master_host, master_port, master_torch_port, n
         cmd = f"PYTHONPATH={os.environ.get('PYTHONPATH')} "
     else:
         cmd = ""
+    cmd = cmd + "NCCL_IB_DISABLE=1 " # Fixme
     cmd = cmd + f"""NCCL_SOCKET_IFNAME={iface} GLOO_SOCKET_IFNAME={iface} {python_exec} -m dgl.inference.main \
 --role master \
 --master-host {master_host} \
@@ -235,6 +236,7 @@ def make_worker_process_cmd(args, master_host, master_port, master_torch_port, n
         cmd = f"PYTHONPATH={os.environ.get('PYTHONPATH')} "
     else:
         cmd = ""
+    cmd = cmd + "NCCL_IB_DISABLE=1 " # Fixme: this should be given as an argument
     cmd = cmd + f"""NCCL_SOCKET_IFNAME={iface} GLOO_SOCKET_IFNAME={iface} {python_exec} -m dgl.inference.main \
 --role worker \
 --master-host {master_host} \

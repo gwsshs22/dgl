@@ -60,8 +60,8 @@ void p3_push_comp_graph(caf::blocking_actor* self,
     };
 
     rh_list.push_back(bsend_lambda("input_gnids", 0));
-    rh_list.push_back(bsend_lambda("b1_u", 1));
-    rh_list.push_back(bsend_lambda("b1_v", 2));
+    rh_list.push_back(bsend_lambda("b0_u", 1));
+    rh_list.push_back(bsend_lambda("b0_v", 2));
     rh_list.push_back(bsend_lambda("num_src_nodes_list", 3));
     rh_list.push_back(bsend_lambda("num_dst_nodes_list", 4));
     for (int i = 0; i < rh_list.size(); i++) {
@@ -81,8 +81,8 @@ void p3_push_comp_graph(caf::blocking_actor* self,
     };
 
     rh_list.push_back(brecv_lambda("input_gnids", 0));
-    rh_list.push_back(brecv_lambda("b1_u", 1));
-    rh_list.push_back(brecv_lambda("b1_v", 2));
+    rh_list.push_back(brecv_lambda("b0_u", 1));
+    rh_list.push_back(brecv_lambda("b0_v", 2));
     rh_list.push_back(brecv_lambda("num_src_nodes_list", 3));
     rh_list.push_back(brecv_lambda("num_dst_nodes_list", 4));
 

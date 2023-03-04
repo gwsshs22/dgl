@@ -166,7 +166,9 @@ class GnnExecutorProcess:
 
     def p3_owner_compute(self, batch_id, owner_gpu_global_rank):
         assert(self._gpu_global_rank == owner_gpu_global_rank)
-
+        u_list = []
+        v_list = []
+        blocks = []
         with trace_me(batch_id, "compute"):
             with trace_me(batch_id, "compute/load_tensors"):
                 new_features = load_tensor(batch_id, "new_features")
@@ -174,27 +176,27 @@ class GnnExecutorProcess:
 
                 input_gnids = load_tensor(batch_id, "input_gnids")
 
-                b1_u = load_tensor(batch_id, "b1_u")
-                b1_v = load_tensor(batch_id, "b1_v")
-                b2_u = load_tensor(batch_id, "b2_u")
-                b2_v = load_tensor(batch_id, "b2_v")
+                for block_idx in range(self._num_layers):
+                    u_list.append(load_tensor(batch_id, f"b{block_idx}_u"))
+                    v_list.append(load_tensor(batch_id, f"b{block_idx}_v"))
+
                 num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list").tolist()
                 num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
             with trace_me(batch_id, "compute/block_creation"):
-                block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0], check_uv_range=False)
-                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=num_dst_nodes_list[1], num_src_nodes=num_src_nodes_list[1], check_uv_range=False)
+                for block_idx in range(self._num_layers):
+                    block = dgl.create_block((u_list[block_idx], v_list[block_idx]), num_dst_nodes=num_dst_nodes_list[block_idx], num_src_nodes=num_src_nodes_list[block_idx], check_uv_range=False)
+                    blocks.append(block)
 
             with trace_me(batch_id, "compute/prepare_input"):
-                block1 = block1.to(self._device)
-                block2 = block2.to(self._device)
+                blocks = list(map(lambda b: b.to(self._device), blocks))
                 org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
                 h = torch.concat((new_features, org_features)).to(self._device)
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 
             with trace_me(batch_id, "compute/model_parallel"):                
-                mp_aggr = self._model.layers[0].p3_first_layer_mp(block1, h)
+                mp_aggr = self._model.layers[0].p3_first_layer_mp(blocks[0], h)
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 
@@ -209,8 +211,9 @@ class GnnExecutorProcess:
                     torch.cuda.synchronize(device=self._device)
 
             with trace_me(batch_id, "compute/data_parallel"):
-                h = self._model.layers[0].p3_first_layer_dp(block1, mp_aggr)
-                h = self._model.layers[1](block2, h)
+                h = self._model.layers[0].p3_first_layer_dp(blocks[0], mp_aggr)
+                for block_idx in range(1, self._num_layers):
+                    h = self._model.layers[block_idx](blocks[block_idx], h)
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 
@@ -223,17 +226,18 @@ class GnnExecutorProcess:
         new_features = new_features[:, self._p3_start_idx:self._p3_end_idx]
 
         input_gnids = load_tensor(batch_id, "input_gnids")
-        b1_u = load_tensor(batch_id, "b1_u")
-        b1_v = load_tensor(batch_id, "b1_v")
+        b0_u = load_tensor(batch_id, "b0_u")
+        b0_v = load_tensor(batch_id, "b0_v")
 
         num_src_nodes_list = load_tensor(batch_id, "num_src_nodes_list").tolist()
         num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
-        block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0], check_uv_range=False).to(self._device)
+        block = dgl.create_block((b0_u, b0_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0], check_uv_range=False).to(self._device)
 
         org_features = self._p3_features[input_gnids[new_features.shape[0]:]]
         h = torch.concat((new_features, org_features)).to(self._device)
-        mp_aggr = self._model.layers[0].p3_first_layer_mp(block1, h)
+        mp_aggr = self._model.layers[0].p3_first_layer_mp(block, h)
+
         for k, v in mp_aggr.items():
             dist.reduce(v, owner_gpu_global_rank)
 

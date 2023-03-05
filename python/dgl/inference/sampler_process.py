@@ -8,6 +8,7 @@ from .envs import ParallelizationType
 from .api import *
 from .trace_utils import trace_me, write_traces
 from ..utils import measure
+from ..sampling import sample_neighbors as local_sample_neighbors
 from dgl import backend as F
 
 LocalSampledGraph = namedtuple('LocalSampledGraph', 'global_src global_dst')
@@ -214,7 +215,7 @@ class SamplerProcess:
                     with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}"):
                         with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}/sample_neighbors"):
                             seed = prev_src_ids[batch_size:]
-                            sampled_edges = self.vcut_sample_neighbors(seed, -1, batch_id)
+                            sampled_edges = self.vcut_sample_neighbors(seed, self._fanouts[block_idx], batch_id)
                         with trace_me(batch_id, f"sample/blocks/create_block_{block_idx}/to_block"):
                             sampled_edges.insert(0, base_edges)
                             u, v = self.merge_edges(sampled_edges)
@@ -282,14 +283,18 @@ class SamplerProcess:
     def vcut_sample_neighbors(self, seed, fanout, batch_id):
         with trace_me(batch_id, "vcut_sample_neighbors"):
             with trace_me(batch_id, "vcut_sample_neighbors/local_sampling"):
-                assert fanout == -1, "Currently only support full sampling"
                 local_graph = self._dist_graph.local_partition
                 part_ids = self._gpb.nid2partid(seed)
                 local_gnids = F.boolean_mask(seed, part_ids == self._node_rank)
                 local_nids = self._gpb.nid2localnid(local_gnids, self._node_rank)
 
+                if fanout == -1:
+                    src, dst = local_graph.in_edges(local_nids)
+                else:
+                    sg = local_sample_neighbors(local_graph, local_nids, fanout, _dist_training=True)
+                    src, dst = sg.edges()
+
                 global_nid_mapping = local_graph.ndata[dgl.NID]
-                src, dst = local_graph.in_edges(local_nids)
                 global_src, global_dst = F.gather_row(global_nid_mapping, src), \
                     F.gather_row(global_nid_mapping, dst)
 

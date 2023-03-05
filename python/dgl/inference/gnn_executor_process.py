@@ -267,6 +267,11 @@ class GnnExecutorProcess:
         return global_start_idx, global_end_idx, local_start_idx, local_end_idx
 
     def vertex_cut_compute(self, batch_id):
+        u_list = []
+        v_list = []
+        blocks = []
+        dst_split_list = []
+
         with trace_me(batch_id, "compute"):
             with trace_me(batch_id, "compute/load_tensors"):
                 # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & compute & computation graph build
@@ -281,35 +286,33 @@ class GnnExecutorProcess:
                 num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list").tolist()
                 input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
 
-                dst_split_1 = load_tensor(batch_id, "dst_split_1")
-                b1_u = load_tensor(batch_id, f"g{self._local_rank}_b1_u")
-                b1_v = load_tensor(batch_id, f"g{self._local_rank}_b1_v")
-
-                dst_split_2 = load_tensor(batch_id, f"dst_split_2")
-                b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
-                b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
+                for block_idx in range(self._num_layers):
+                    dst_split_list.append(load_tensor(batch_id, f"dst_split_{block_idx}"))
+                    u_list.append(load_tensor(batch_id, f"g{self._local_rank}_b{block_idx}_u"))
+                    v_list.append(load_tensor(batch_id, f"g{self._local_rank}_b{block_idx}_v"))
 
             with trace_me(batch_id, "compute/block_creation"):
-                block1 = dgl.create_block((b1_u, b1_v), num_dst_nodes=num_dst_nodes_list[0], num_src_nodes=num_src_nodes_list[0], check_uv_range=False)
-                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=num_dst_nodes_list[1], num_src_nodes=num_src_nodes_list[1], check_uv_range=False)
+                for block_idx in range(self._num_layers):
+                    u, v = u_list[block_idx], v_list[block_idx]
+                    block = dgl.create_block((u, v), num_dst_nodes=num_dst_nodes_list[block_idx], num_src_nodes=num_src_nodes_list[block_idx], check_uv_range=False)
+                    blocks.append(block)
 
             with trace_me(batch_id, "compute/prepare_input"):
-                block1 = block1.to(self._device)
-                block2 = block2.to(self._device)
+                blocks = list(map(lambda b: b.to(self._device), blocks))
                 # Build source features
                 src_new_feats = new_features[feat_start_idx:feat_end_idx].to(self._device)
                 existing_gnids = input_gnids[batch_split[self._gpu_global_rank]:]
                 src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
 
                 src_feats = torch.concat((src_new_feats, src_existing_feats))
-                assert(src_feats.shape[0] == block1.num_src_nodes())
+                assert(src_feats.shape[0] == blocks[0].num_src_nodes())
 
                 h = src_feats
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 
-            h = self.vertex_cut_compute_layer(self._model.layers[0], block1, h, dst_split_1, batch_id, 0)
-            h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2, batch_id, 1)
+            for block_idx in range(self._num_layers):
+                h = self.vertex_cut_compute_layer(self._model.layers[block_idx], blocks[block_idx], h, dst_split_list[block_idx], batch_id, block_idx)
 
             with trace_me(batch_id, "compute/put_tensor"):
                 put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
@@ -323,6 +326,7 @@ class GnnExecutorProcess:
 
                 # All gather dst init values
                 dst_feats = src_feats[:num_local_dst_nodes]
+
                 input_dst_init_values_map = layer.compute_dst_init_values(block, src_feats, num_local_dst_nodes)
                 output_dst_init_values_map = {}
                 if self._collect_stats:
@@ -440,6 +444,12 @@ class GnnExecutorProcess:
         return start_idx, end_idx
 
     def vertex_cut_compute_with_precomputed_aggrs(self, batch_id):
+        # self._num_layers - 1 number of blocks are computed as the first layer is incrementally computed with precomputed aggregations.
+        u_list = []
+        v_list = []
+        blocks = []
+        dst_split_list = []
+
         with trace_me(batch_id, "compute"):
             with trace_me(batch_id, "compute/load_tensors"):
                 # TODO OPTIMIZATION: can optimize to overlap gpu mem copy & build blocks
@@ -450,36 +460,43 @@ class GnnExecutorProcess:
                 batch_split_cumsum = self._cumsum_start_with_zero(batch_split)
 
                 num_src_nodes_list = load_tensor(batch_id, f"g{self._local_rank}_num_src_nodes_list").tolist()
+                num_dst_nodes_list = load_tensor(batch_id, "num_dst_nodes_list").tolist()
 
-                b2_input_gnids = load_tensor(batch_id, f"g{self._local_rank}_b2_input_gnids")
-                dst_split_2 = load_tensor(batch_id, f"dst_split_2")
+                input_gnids = load_tensor(batch_id, f"g{self._local_rank}_input_gnids")
 
-                b2_u = load_tensor(batch_id, f"g{self._local_rank}_b2_u")
-                b2_v = load_tensor(batch_id, f"g{self._local_rank}_b2_v")
+                for block_idx in range(self._num_layers - 1):
+                    dst_split_list.append(load_tensor(batch_id, f"dst_split_{block_idx}"))
+
+                    u_list.append(load_tensor(batch_id, f"g{self._local_rank}_b{block_idx}_u"))
+                    v_list.append(load_tensor(batch_id, f"g{self._local_rank}_b{block_idx}_v"))
 
                 inc_u = load_tensor(batch_id, f"g{self._local_rank}_inc_u")
                 inc_v = load_tensor(batch_id, f"g{self._local_rank}_inc_v")
 
             with trace_me(batch_id, "compute/block_creation"):
-                block2 = dgl.create_block((b2_u, b2_v), num_dst_nodes=batch_size, num_src_nodes=num_src_nodes_list[0], check_uv_range=False)
-                inc_dst_gnids = b2_input_gnids[dst_split_2[self._gpu_global_rank]:]
-
+                for block_idx in range(self._num_layers - 1):
+                    block = dgl.create_block((u_list[block_idx], v_list[block_idx]), num_dst_nodes=num_dst_nodes_list[block_idx], num_src_nodes=num_src_nodes_list[block_idx], check_uv_range=False)
+                    blocks.append(block)
+                inc_dst_gnids = input_gnids[dst_split_list[-1][self._gpu_global_rank]:]
                 inc_block = dgl.create_block((inc_u, inc_v), num_dst_nodes=inc_dst_gnids.shape[0], num_src_nodes=batch_size, check_uv_range=False)
 
+
             with trace_me(batch_id, "compute/prepare_input"):
-                block2 = block2.to(self._device)
+                blocks = list(map(lambda b: b.to(self._device), blocks))
+                last_block = blocks[-1]
+                last_dst_split = dst_split_list[-1]
                 inc_block = inc_block.to(self._device)
                 # Build source features
                 src_new_feats = new_features[batch_split_cumsum[self._gpu_global_rank]:batch_split_cumsum[self._gpu_global_rank + 1]]
-                existing_gnids = b2_input_gnids[batch_split[self._gpu_global_rank]:]
+                existing_gnids = input_gnids[batch_split[self._gpu_global_rank]:last_block.num_src_nodes()]
                 src_existing_feats = self._dist_graph.ndata["features"][existing_gnids].to(self._device)
 
                 src_feats = torch.concat((src_new_feats, src_existing_feats))
-                assert(src_feats.shape[0] == block2.num_src_nodes())
+                assert(src_feats.shape[0] == last_block.num_src_nodes())
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 
-            new_nodes_h = self.vertex_cut_compute_layer(self._model.layers[0], block2, src_feats, dst_split_2, batch_id, 0)
+            new_nodes_h = self.vertex_cut_compute_layer(self._model.layers[0], last_block, src_feats, last_dst_split, batch_id, 0)
 
             with trace_me(batch_id, "compute/inc_compute"):
                 inc_computed_h = self.inc_compute(self._model.layers[0], batch_id, inc_block, inc_dst_gnids, new_features)
@@ -487,7 +504,8 @@ class GnnExecutorProcess:
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 
-            h = self.vertex_cut_compute_layer(self._model.layers[1], block2, h, dst_split_2, batch_id, 1)
+            for block_idx in range(self._num_layers - 1):
+                h = self.vertex_cut_compute_layer(self._model.layers[block_idx + 1], blocks[block_idx], h, dst_split_list[block_idx], batch_id, block_idx + 1)
             with trace_me(batch_id, "compute/put_tensor"):
                 put_tensor(batch_id, f"g{self._local_rank}_result", h.to("cpu"))
 

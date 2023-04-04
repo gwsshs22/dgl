@@ -11,6 +11,9 @@ import torch.optim as optim
 import tqdm
 import dgl
 import dgl.nn.pytorch as dglnn
+from sklearn.metrics import f1_score
+
+from dgl.sampling import sample_neighbors as local_sample_neighbors
 
 def load_subtensor(g, seeds, input_nodes, device, load_feat=True):
     """
@@ -118,15 +121,19 @@ class DistSAGE(nn.Module):
         yield
 
 
-def compute_acc(pred, labels):
+def compute_acc(pred, labels, use_f1_score):
     """
     Compute the accuracy of prediction given the labels.
     """
     labels = labels.long()
-    return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
+    pred_labels = th.argmax(pred, dim=1)
+    if use_f1_score:
+        return f1_score(labels.data.cpu().numpy(), pred_labels.cpu().numpy(), average='micro')
+    else:
+        return (pred_labels == labels).float().sum() / len(pred)
 
 
-def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device):
+def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device, use_f1_score):
     """
     Evaluate the model on the validation set specified by ``val_nid``.
     g : The entire graph.
@@ -140,8 +147,8 @@ def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device):
     with th.no_grad():
         pred = model.inference(g, inputs, batch_size, device)
     model.train()
-    return compute_acc(pred[val_nid], labels[val_nid]), compute_acc(
-        pred[test_nid], labels[test_nid]
+    return compute_acc(pred[val_nid], labels[val_nid], use_f1_score), compute_acc(
+        pred[test_nid], labels[test_nid], use_f1_score
     )
 
 
@@ -232,7 +239,7 @@ def run(args, device, data):
                 step_time.append(step_t)
                 iter_tput.append(len(blocks[-1].dstdata[dgl.NID]) / step_t)
                 if step % args.log_every == 0:
-                    acc = compute_acc(batch_pred, batch_labels)
+                    acc = compute_acc(batch_pred, batch_labels, args.use_f1_score)
                     gpu_mem_alloc = (
                         th.cuda.max_memory_allocated() / 1000000
                         if th.cuda.is_available()
@@ -282,6 +289,7 @@ def run(args, device, data):
                 test_nid,
                 args.batch_size_eval,
                 device,
+                args.use_f1_score
             )
             print(
                 "Part {}, Val Acc {:.4f}, Test Acc {:.4f}, time: {:.4f}".format
@@ -289,7 +297,37 @@ def run(args, device, data):
                     g.rank(), val_acc, test_acc, time.time() - start
                 )
             )
+    if (g.rank() == 1):
+        # th.save(model.module.state_dict(), f"/home/gwkim/gnn_models/{args.graph_name}.pt")
+        test_model(model.module, device)
 
+def convert_to_block(g, seeds, features, device, fanouts):
+    blocks = []
+    for fanout in fanouts:
+        frontier = local_sample_neighbors(g, seeds.to(device), fanout)
+        block = dgl.to_block(frontier).to(device)
+        seeds = block.srcdata[dgl.NID]
+        blocks.insert(0, block)
+    return blocks, features[seeds].to(device)
+
+def test_model(model, device):
+    model.eval()
+    from dgl.data import RedditDataset
+
+    g = RedditDataset(self_loop=True)[0]
+    g = g.to(device)
+
+    test_nids = g.ndata['test_mask'].nonzero().squeeze()
+    features = g.ndata['feat']
+    labels = g.ndata['label'][test_nids]
+
+    blocks, features = convert_to_block(g, test_nids, features, device, [-1,-1])
+    print(blocks)
+
+    with th.no_grad():
+        preds = model(blocks, features)
+        print(f"{preds.shape},{labels.shape}")
+        print(f"F1score = {compute_acc(preds, labels, False)}")
 
 def main(args):
     print(socket.gethostname(), "Initializing DGL dist")
@@ -402,6 +440,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval_every", type=int, default=5)
     parser.add_argument("--lr", type=float, default=0.003)
     parser.add_argument("--dropout", type=float, default=0.5)
+    parser.add_argument("--use_f1_score", action="store_true")
     parser.add_argument(
         "--local_rank", type=int, help="get rank of the process"
     )

@@ -11,7 +11,6 @@ from sampler import SAINTEdgeSampler, SAINTNodeSampler, SAINTRandomWalkSampler
 from torch.utils.data import DataLoader
 from utils import Logger, calc_f1, evaluate, load_data, save_log_dir
 
-
 def main(args, task):
     warnings.filterwarnings("ignore")
     multilabel_data = {"ppi", "yelp", "amazon"}
@@ -33,7 +32,6 @@ def main(args, task):
     train_mask = g.ndata["train_mask"]
     val_mask = g.ndata["val_mask"]
     test_mask = g.ndata["test_mask"]
-    labels = g.ndata["label"]
 
     train_nid = data.train_nid
 
@@ -105,7 +103,7 @@ def main(args, task):
         test_mask = test_mask.cuda()
         if not cpu_flag:
             g = g.to("cuda:{}".format(args.gpu))
-
+    labels = g.ndata["label"]
     print("labels shape:", g.ndata["label"].shape)
     print("features shape:", g.ndata["feat"].shape)
 
@@ -190,6 +188,8 @@ def main(args, task):
                 cpu_flag and cuda
             ):  # Only when we have shifted model to gpu and we need to shift it back on cpu
                 model = model.to("cpu")
+            print(val_mask)
+            print(labels)
             val_f1_mic, val_f1_mac = evaluate(
                 model, g, labels, val_mask, multilabel
             )

@@ -22,19 +22,17 @@ void __recv_and_move_one_tensor_body(caf::blocking_actor* self,
                                      const std::string name,
                                      const uint32_t tag,
                                      bool is_brecv) {
-  std::vector<caf::response_handle<caf::blocking_actor, caf::message, true>> rh_list;
+  NDArrayWithSharedMeta res;
   if (is_brecv) {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, 0, tag);
-    rh_list.push_back(rh);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecvsm_atom_v, 0, tag, batch_id, name);
+    res = receive_result<NDArrayWithSharedMeta>(rh);
   } else {
-    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_recv_atom_v, 0, tag);
-    rh_list.push_back(rh);
+    auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_recvsm_atom_v, 0, tag, batch_id, name);
+    res = receive_result<NDArrayWithSharedMeta>(rh);
   }
 
-  auto arr = receive_result<NDArray>(rh_list[0]);
-  rh_list.clear();
-
-  __move_input_to_shared_mem_one_tensor_body(self, object_storage_actor, name, arr);
+  auto rh = self->request(object_storage_actor, caf::infinite, caf::put_atom_v, name, res);
+  receive_result<bool>(rh);
 }
 
 void _recv_and_move_one_tensor(caf::blocking_actor* self,

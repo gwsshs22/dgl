@@ -15,23 +15,39 @@ void broadcast_send_(caf::blocking_actor* self,
                     uint32_t tag);
 
 void broadcast_recv_(caf::blocking_actor* self,
-                    caf::response_promise rp,
-                    std::shared_ptr<GlooExecutor> gloo_executor,
-                    u_int32_t root_rank,
-                    uint32_t tag);
+                     caf::response_promise rp,
+                     std::shared_ptr<GlooExecutor> gloo_executor,
+                     u_int32_t root_rank,
+                     uint32_t tag);
+
+void broadcast_recvsm_(caf::blocking_actor* self,
+                       caf::response_promise rp,
+                       std::shared_ptr<GlooExecutor> gloo_executor,
+                       u_int32_t root_rank,
+                       uint32_t tag,
+                       int batch_id,
+                       const std::string& name);
 
 void send_(caf::blocking_actor* self,
-          caf::response_promise rp,
-          std::shared_ptr<GlooExecutor> gloo_executor,
-          u_int32_t dst_rank,
-          const NDArray& data,
-          uint32_t tag);
+           caf::response_promise rp,
+           std::shared_ptr<GlooExecutor> gloo_executor,
+           u_int32_t dst_rank,
+           const NDArray& data,
+           uint32_t tag);
 
 void recv_(caf::blocking_actor* self,
-          caf::response_promise rp,
-          std::shared_ptr<GlooExecutor> gloo_executor,
-          u_int32_t src_rank,
-          uint32_t tag);
+           caf::response_promise rp,
+           std::shared_ptr<GlooExecutor> gloo_executor,
+           u_int32_t src_rank,
+           uint32_t tag);
+
+void recvsm_(caf::blocking_actor* self,
+             caf::response_promise rp,
+             std::shared_ptr<GlooExecutor> gloo_executor,
+             u_int32_t src_rank,
+             uint32_t tag,
+             int batch_id,
+             const std::string& name);
 
 mpi_actor::mpi_actor(caf::actor_config& config,
           const caf::strong_actor_ptr& gloo_rendezvous_actor_ptr,
@@ -61,6 +77,11 @@ caf::behavior mpi_actor::make_behavior() {
       spawn(broadcast_recv_, rp, this->gloo_executor_, root_rank, tag);
       return rp;
     },
+    [=](caf::mpi_brecvsm_atom, int root_rank, uint32_t tag, int batch_id, const std::string& name) {
+      auto rp = make_response_promise<NDArray>();
+      spawn(broadcast_recvsm_, rp, this->gloo_executor_, root_rank, tag, batch_id, name);
+      return rp;
+    },
     [=](caf::mpi_send_atom, int dst_rank, const NDArray& data, uint32_t tag) {
       auto rp = make_response_promise<void>();
       spawn(send_, rp, this->gloo_executor_, dst_rank, data, tag);
@@ -69,6 +90,11 @@ caf::behavior mpi_actor::make_behavior() {
     [=](caf::mpi_recv_atom, int src_rank, uint32_t tag) {
       auto rp = make_response_promise<NDArray>();
       spawn(recv_, rp, this->gloo_executor_, src_rank, tag);
+      return rp;
+    },
+    [=](caf::mpi_recvsm_atom, int src_rank, uint32_t tag, int batch_id, const std::string& name) {
+      auto rp = make_response_promise<NDArrayWithSharedMeta>();
+      spawn(recvsm_, rp, this->gloo_executor_, src_rank, tag, batch_id, name);
       return rp;
     },
   };
@@ -103,6 +129,23 @@ void broadcast_recv_(caf::blocking_actor* self,
   rp.deliver(std::move(empty_arr));
 }
 
+void broadcast_recvsm_(caf::blocking_actor* self,
+                       caf::response_promise rp,
+                       std::shared_ptr<GlooExecutor> gloo_executor,
+                       u_int32_t root_rank,
+                       uint32_t tag,
+                       int batch_id,
+                       const std::string& name) {
+  auto metadata = std::make_shared<runtime::SharedMemory>(GetArrayMetadataName(batch_id, name));
+  auto buf = reinterpret_cast<u_int8_t*>(metadata->CreateNew(__METADATA_MAX_BYTES));
+  gloo_executor->Broadcast(buf, __METADATA_MAX_BYTES, root_rank, tag);
+  dmlc::MemoryFixedSizeStream strm(buf, __METADATA_MAX_BYTES);
+  auto shared_arr = CreateEmptySharedArrayFromMetadata(strm, batch_id, name);
+  gloo_executor->Broadcast(shared_arr.Ptr<u_int8_t>(), shared_arr.GetSize(), root_rank, tag);
+
+  rp.deliver(std::make_pair(std::move(shared_arr), std::move(metadata)));
+}
+
 void send_(caf::blocking_actor* self,
           caf::response_promise rp,
           std::shared_ptr<GlooExecutor> gloo_executor,
@@ -130,6 +173,23 @@ void recv_(caf::blocking_actor* self,
   gloo_executor->Recv(empty_arr.Ptr<u_int8_t>(), empty_arr.GetSize(), src_rank, tag);
 
   rp.deliver(std::move(empty_arr));
+}
+
+void recvsm_(caf::blocking_actor* self,
+             caf::response_promise rp,
+             std::shared_ptr<GlooExecutor> gloo_executor,
+             u_int32_t src_rank,
+             uint32_t tag,
+             int batch_id,
+             const std::string& name) {
+  auto metadata = std::make_shared<runtime::SharedMemory>(GetArrayMetadataName(batch_id, name));
+  auto buf = reinterpret_cast<u_int8_t*>(metadata->CreateNew(__METADATA_MAX_BYTES));
+  gloo_executor->Recv(buf, __METADATA_MAX_BYTES, src_rank, tag);
+  dmlc::MemoryFixedSizeStream strm(buf, __METADATA_MAX_BYTES);
+  auto shared_arr = CreateEmptySharedArrayFromMetadata(strm, batch_id, name);
+  gloo_executor->Recv(shared_arr.Ptr<u_int8_t>(), shared_arr.GetSize(), src_rank, tag);
+
+  rp.deliver(std::make_pair(std::move(shared_arr), std::move(metadata)));
 }
 
 }

@@ -86,6 +86,12 @@ caf::behavior object_storage_actor(caf::stateful_actor<object_storage>* self,
       self->state.arrays[name] = arr;
       return true;
     },
+    [=](caf::put_atom, const std::string& name, const NDArrayWithSharedMeta& p) {
+      assert(self->state.arrays.find(name) == self->state.arrays.end());
+      self->state.arrays[name] = p.first;
+      self->state.metadata_shared_mems[name] = p.second;
+      return true;
+    },
     [=](caf::get_atom, const std::string& name) {
       assert(self->state.arrays.find(name) != self->state.arrays.end());
       return self->state.arrays[name];

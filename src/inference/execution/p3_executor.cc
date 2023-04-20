@@ -31,12 +31,10 @@ void brecv_fn(caf::blocking_actor* self,
               int batch_id,
               int task_id) {
   auto tag = CreateMpiTag(batch_id, TaskType::kCompute, 0, 0, task_id);
-  auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecv_atom_v, owner_node_rank, tag);
-  auto arr = receive_result<NDArray>(rh);
+  auto rh = self->request(mpi_actor, caf::infinite, caf::mpi_brecvsm_atom_v, owner_node_rank, tag, batch_id, name);
+  auto res = receive_result<NDArrayWithSharedMeta>(rh);
 
-  auto rh2 = self->request(object_storage_actor, caf::infinite, caf::put_atom_v, name, arr);
-  receive_result<bool>(rh2);
-  rh2 = self->request(object_storage_actor, caf::infinite, caf::move_to_shared_atom_v, name);
+  auto rh2 = self->request(object_storage_actor, caf::infinite, caf::put_atom_v, name, res);
   receive_result<bool>(rh2);
 
   self->receive([](caf::get_atom) { });

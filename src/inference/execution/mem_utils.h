@@ -48,6 +48,39 @@ inline NDArray CreateEmptyArrayFromMetadata(dmlc::Stream& stream) {
       DLContext{device_type, device_id});
 }
 
+inline NDArray CreateEmptySharedArrayFromMetadata(dmlc::Stream& stream, int batch_id, const std::string& name) {
+  int ndim;
+  int64_t *shape;
+  uint8_t code;
+  uint8_t bits;
+  uint16_t lanes;
+  DLDeviceType device_type;
+  int device_id;
+
+  stream.Read(&ndim);
+  shape = new int64_t[ndim];
+  stream.ReadArray(shape, ndim);
+  stream.Read(&code);
+  stream.Read(&bits);
+  stream.Read(&lanes);
+  stream.Read(&device_type);
+  stream.Read(&device_id);
+
+  auto shape_vector = std::vector<int64_t>();
+  for (auto itr = shape; itr != shape + ndim; itr++) {
+    shape_vector.push_back(*itr);
+  }
+
+  delete shape;
+
+  return NDArray::EmptyShared(
+      GetArrayDataName(batch_id, name),
+      shape_vector,
+      DLDataType{code, bits, lanes},
+      DLContext{device_type, device_id},
+      true);
+}
+
 inline void WriteMetadata(dmlc::Stream& stream,
                           const NDArray& data) {
   stream.Write(data->ndim);

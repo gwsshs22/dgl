@@ -31,8 +31,10 @@ CAF_BEGIN_TYPE_ID_BLOCK(core_extension, first_custom_type_id)
   // MPI
   CAF_ADD_ATOM(core_extension, caf, mpi_bsend_atom, "m_bsend") // MPI broadcast send
   CAF_ADD_ATOM(core_extension, caf, mpi_brecv_atom, "m_brecv") // MPI broadcast recv
+  CAF_ADD_ATOM(core_extension, caf, mpi_brecvsm_atom, "m_brecvsm") // MPI broadcast recv to shared mem
   CAF_ADD_ATOM(core_extension, caf, mpi_send_atom, "m_send") // MPI send
   CAF_ADD_ATOM(core_extension, caf, mpi_recv_atom, "m_recv") // MPI recv
+  CAF_ADD_ATOM(core_extension, caf, mpi_recvsm_atom, "m_recvsm") // MPI recv to shared mem
 
   CAF_ADD_ATOM(core_extension, caf, broadcast_atom, "broadcast") // broadcast
   CAF_ADD_ATOM(core_extension, caf, enqueue_atom, "enqueue") // enqueue

@@ -33,7 +33,8 @@ class SamplerProcess:
                  graph_config_path,
                  num_layers,
                  fanouts,
-                 result_dir):
+                 result_dir,
+                 collect_stats):
         self._channel = channel
         self._num_nodes = num_nodes
         self._num_backup_servers = num_backup_servers
@@ -49,11 +50,14 @@ class SamplerProcess:
         self._graph_config_path = graph_config_path
         self._num_layers = num_layers
         self._fanouts = fanouts
+        self._fanouts.reverse() # Make it consistent so that "5,10,15" means 5 number of direct neigbhors.
         self._result_dir = result_dir
+        self._collect_stats = collect_stats
 
         self._num_servers = 1 + num_backup_servers # Number of servers for one machin including backup servers
         self._net_type = "socket"
         self._group_id = 0
+        self._device = f"cuda:{self._local_rank}"
         self._num_omp_threads = 32
 
     def run(self):
@@ -155,8 +159,12 @@ class SamplerProcess:
             if self._parallel_type == ParallelizationType.DATA:
                 with trace_me(batch_id, "sample/pull_features"):
                     new_features = load_tensor(batch_id, "new_features")
-                    
                     org_features = self._dist_graph.ndata["features"][input_gnids[new_features.shape[0]:]]
+                with trace_me(batch_id, "sample/copy_features"):
+                    input_features = torch.concat((new_features.to(self._device), org_features.to(self._device))).contiguous()
+                    put_tensor(batch_id, "input_features", input_features)
+                    if self._collect_stats:
+                        torch.cuda.synchronize(device=self._device)
 
             with trace_me(batch_id, "sample/put_tensors"):
                 num_src_nodes_list = []
@@ -171,10 +179,9 @@ class SamplerProcess:
                 put_tensor(batch_id, "num_src_nodes_list", torch.tensor(num_src_nodes_list))
                 put_tensor(batch_id, "num_dst_nodes_list", torch.tensor(num_dst_nodes_list))
 
-                if self._parallel_type == ParallelizationType.DATA:
-                    put_tensor(batch_id, "org_features", org_features)
-                else:
+                if self._parallel_type == ParallelizationType.P3:
                     put_tensor(batch_id, "input_gnids", input_gnids)
+                    
 
     def vcut_sample(self, batch_id):
         with trace_me(batch_id, "sample"):

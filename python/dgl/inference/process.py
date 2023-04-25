@@ -225,7 +225,8 @@ def fork():
                                        graph_config_path,
                                        num_layers,
                                        fanouts,
-                                       result_dir)
+                                       result_dir,
+                                       collect_stats)
     else:
         print(f"Unknown actor_process_role: {actor_process_role}")
         exit(-1)

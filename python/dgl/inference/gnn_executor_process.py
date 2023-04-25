@@ -133,9 +133,9 @@ class GnnExecutorProcess:
             u_list = []
             v_list = []
             blocks = []
+
             with trace_me(batch_id, "compute/load_tensors"):
-                new_features = load_tensor(batch_id, "new_features")
-                org_features = load_tensor(batch_id, "org_features")
+                h = load_tensor(batch_id, "input_features")
                 for block_idx in range(self._num_layers):
                     u_list.append(load_tensor(batch_id, f"b{block_idx}_u"))
                     v_list.append(load_tensor(batch_id, f"b{block_idx}_v"))
@@ -150,7 +150,6 @@ class GnnExecutorProcess:
 
             with trace_me(batch_id, "compute/prepare_input"):
                 blocks = list(map(lambda b: b.to(self._device), blocks))
-                h = torch.concat((new_features, org_features)).to(self._device)
                 if self._collect_stats:
                     torch.cuda.synchronize(device=self._device)
 

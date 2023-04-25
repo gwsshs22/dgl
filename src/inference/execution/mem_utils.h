@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cuda_runtime.h>
+
 #include <dlpack/dlpack.h>
 #include <dmlc/memory_io.h>
 
@@ -90,6 +92,12 @@ inline void WriteMetadata(dmlc::Stream& stream,
   stream.Write(data->dtype.lanes);
   stream.Write(data->ctx.device_type);
   stream.Write(data->ctx.device_id);
+
+  if (data->ctx.device_type == kDLGPU) {
+    cudaIpcMemHandle_t handle;
+    checkCudaErrors(cudaIpcGetMemHandle(&handle, data->data));
+    stream.Write(handle);
+  }
 }
 
 inline std::shared_ptr<runtime::SharedMemory> CreateMetadataSharedMem(const std::string& name,
@@ -171,21 +179,22 @@ inline NDArray LoadFromSharedMemory(int batch_id, const std::string& name) {
     }
 
     delete shape;
-  }
-
-  if (device_type == kDLCPU) {
-    if (num_elems == 0) {
-      return NDArray::Empty(shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0});
+    if (device_type == kDLCPU) {
+      if (num_elems == 0) {
+        return NDArray::Empty(shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0});
+      } else {
+        auto ret = NDArray::EmptyShared(GetArrayDataName(batch_id, name), shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0}, false);
+        return ret;
+      }
     } else {
-      auto ret = NDArray::EmptyShared(GetArrayDataName(batch_id, name), shape_vector, DLDataType{code, bits, lanes},  DLContext{kDLCPU, 0}, false);
-      return ret;
+      assert(device_type == kDLGPU);
+      cudaIpcMemHandle_t handle;
+      void* gpu_mem_addr;
+      stream.Read(&handle);
+      checkCudaErrors(cudaIpcOpenMemHandle((void **)&gpu_mem_addr, handle, cudaIpcMemLazyEnablePeerAccess));
+
+      return NDArray::EmptySharedGpu(shape_vector, DLDataType{code, bits, lanes},  DLContext{device_type, device_id}, gpu_mem_addr);
     }
-  } else {
-    // It turns out that it is impossible to share device memory between processes.
-    CHECK(false);
-    assert(device_type == kDLGPU);
-    NDArray ret;
-    return ret;
   }
 }
 

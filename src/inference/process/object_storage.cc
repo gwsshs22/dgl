@@ -10,19 +10,27 @@ void ObjectStorage::CopyToSharedMemory(int batch_id, const std::string& name, co
   assert(!runtime::SharedMemory::Exist(metadata_name));
   auto metadata = CreateMetadataSharedMem(metadata_name, src_arr);
 
-  // It turns out that it is impossible to share device memory between processes.
-  assert(src_arr->ctx.device_type == kDLCPU);
-  auto copied = CopyToSharedMem(batch_id, name, src_arr);
+  if (src_arr->ctx.device_type == kDLCPU) {
+    auto copied = CopyToSharedMem(batch_id, name, src_arr);
 
-  {
+    {
+      std::lock_guard<std::mutex> lock(mtx_);
+      per_batch_metadata_holder_[batch_id][name] = metadata;
+      per_batch_data_holder_[batch_id][name] = copied;
+    }
+  } else if (src_arr->ctx.device_type == kDLGPU) {
+    // kDLGPU
     std::lock_guard<std::mutex> lock(mtx_);
     per_batch_metadata_holder_[batch_id][name] = metadata;
-    per_batch_data_holder_[batch_id][name] = copied;
+    per_batch_data_holder_[batch_id][name] = src_arr;
+  } else {
+    CHECK(false);
   }
 }
 
 void ObjectStorage::Cleanup(int batch_id) {
   std::lock_guard<std::mutex> lock(mtx_);
+
   auto it = per_batch_metadata_holder_.find(batch_id);
   if (it != per_batch_metadata_holder_.end()) {
     per_batch_metadata_holder_.erase(it);

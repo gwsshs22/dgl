@@ -61,6 +61,11 @@ struct NDArray::Internal {
   // Default deleter for the container
   static void DefaultDeleter(NDArray::Container* ptr) {
     using dgl::runtime::NDArray;
+    if (ptr->shared_gpu_mem_) {
+      checkCudaErrors(cudaIpcCloseMemHandle(ptr->dl_tensor.data)); 
+      return;
+    }
+
     if (ptr->manager_ctx != nullptr) {
       static_cast<NDArray::Container*>(ptr->manager_ctx)->DecRef();
     } else if (ptr->mem) {
@@ -72,6 +77,7 @@ struct NDArray::Internal {
       dgl::runtime::DeviceAPI::Get(ptr->dl_tensor.ctx)->FreeDataSpace(
           ptr->dl_tensor.ctx, ptr->dl_tensor.data);
     }
+    
     delete ptr;
   }
   // Deleter for NDArray converted from DLPack
@@ -226,6 +232,16 @@ NDArray NDArray::EmptySharedUnmanaged(const std::string &name,
   }
 
   ret.data_->mem = mem;
+  return ret;
+}
+
+NDArray NDArray::EmptySharedGpu(std::vector<int64_t> shape,
+                                DLDataType dtype,
+                                DLContext ctx,
+                                void* gpu_mem_addr) {
+  NDArray ret = Internal::Create(shape, dtype, ctx);
+  ret.data_->dl_tensor.data = gpu_mem_addr;
+  ret.data_->shared_gpu_mem_ = true;
   return ret;
 }
 

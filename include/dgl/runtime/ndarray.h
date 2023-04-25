@@ -22,6 +22,16 @@
 #include <cuda_fp16.h>
 #endif
 
+#define checkCudaErrors(call)                                            \
+do {                                                                     \
+    cudaError_t status = call;                                           \
+    if (status != cudaSuccess) {                                         \
+        fprintf(stderr, "CUDA Error at %s:%d: %s\n",                      \
+            __FILE__, __LINE__, cudaGetErrorString(status));             \
+        exit(1);                                                          \
+    }                                                                    \
+} while (0)
+
 // forward declaration
 inline std::ostream& operator << (std::ostream& os, DGLType t);
 
@@ -248,6 +258,11 @@ class NDArray {
                                      DLDataType dtype,
                                      DLContext ctx,
                                      bool is_create);
+
+DGL_DLL static NDArray EmptySharedGpu(std::vector<int64_t> shape,
+                                      DLDataType dtype,
+                                      DLContext ctx,
+                                      void* gpu_mem_addr);
   /*!
    * \brief Get the size of the array in the number of bytes.
    */
@@ -432,6 +447,7 @@ struct NDArray::Container {
   std::atomic<int> ref_counter_{0};
 
   bool pinned_by_dgl_{false};
+  bool shared_gpu_mem_{false};
 };
 
 // implementations of inline functions

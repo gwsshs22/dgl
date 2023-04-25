@@ -19,7 +19,7 @@ def main(args):
     os.makedirs(sampled_trace_output_dir, exist_ok=True)
     num_traces = int((trace_dir / "num_traces.txt").read_text())
     with open(sampled_trace_output_dir / "num_traces.txt", "w") as f:
-        f.write(f"{args.num_traces}\n")
+        f.write(f"{num_traces}\n")
 
     for trace_idx in range(num_traces):
         trace_data = dgl.data.load_tensors(str(trace_dir / f"{trace_idx}.dgl"))

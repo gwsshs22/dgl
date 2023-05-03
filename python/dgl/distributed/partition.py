@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from pathlib import Path
 import numpy as np
 
 from .. import backend as F
@@ -266,6 +267,22 @@ def load_partition_feats(part_config, part_id, load_nodes=True, load_edges=True)
         edge_feats = new_feats
 
     return node_feats, edge_feats
+
+def load_partition_precom_embeds(part_config, part_id, precom_path):
+    config_path = Path(os.path.dirname(part_config))
+    precom_path = config_path / f"part{part_id}" / precom_path
+
+    assert precom_path.exists(), f'File {precom_path} does not exist'
+    precom_embeds = load_tensors(str(precom_path))
+
+    new_precom_embeds = {}
+    for name in precom_embeds:
+        precom_embed = precom_embeds[name]
+        if name.find('/') == -1:
+            name = DEFAULT_NTYPE + '/' + name
+        new_precom_embeds[name] = precom_embed
+    precom_embeds = new_precom_embeds
+    return precom_embeds
 
 def load_partition_book(part_config, part_id):
     '''Load a graph partition book from the partition config file.

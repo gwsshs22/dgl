@@ -18,7 +18,7 @@ from .kvstore import KVServer, get_kvstore
 from .._ffi.ndarray import empty_shared_mem
 from ..ndarray import exist_shared_mem_array
 from ..frame import infer_scheme
-from .partition import load_partition, load_partition_feats, load_partition_book
+from .partition import load_partition, load_partition_feats, load_partition_book, load_partition_precom_embeds
 from .graph_partition_book import PartitionPolicy, get_shared_mem_partition_book
 from .graph_partition_book import HeteroDataName, parse_hetero_data_name
 from .graph_partition_book import NodePartitionPolicy, EdgePartitionPolicy
@@ -293,7 +293,8 @@ class DistGraphServer(KVServer):
     def __init__(self, server_id, ip_config, num_servers,
                  num_clients, part_config, disable_shared_mem=False,
                  graph_format=('csc', 'coo'), keep_alive=False,
-                 net_type='socket'):
+                 net_type='socket',
+                 load_precoms=False, precom_path=""):
         super(DistGraphServer, self).__init__(server_id=server_id,
                                               ip_config=ip_config,
                                               num_servers=num_servers,
@@ -353,6 +354,18 @@ class DistGraphServer(KVServer):
             # Let's free once node features are copied to shared memory
             del node_feats
             gc.collect()
+
+            if load_precoms:
+                precom_embeds = load_partition_precom_embeds(part_config, self.part_id, precom_path)
+                for name in precom_embeds:
+                    ntype, precom_name = name.split('/')
+                    data_name = HeteroDataName(True, ntype, precom_name)
+                    self.init_data(name=str(data_name), policy_str=data_name.policy_str,
+                                   data_tensor=precom_embeds[name])
+                    self.orig_data.add(str(data_name))
+                del precom_embeds
+                gc.collect()
+
             _, edge_feats = load_partition_feats(part_config, self.part_id,
                 load_nodes=False, load_edges=True)
             for name in edge_feats:

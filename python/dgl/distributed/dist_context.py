@@ -213,6 +213,8 @@ def initialize(
     max_queue_size=MAX_QUEUE_SIZE,
     net_type="socket",
     num_worker_threads=1,
+    load_precoms=False,
+    precom_path=""
 ):
     """Initialize DGL's distributed module
 
@@ -274,6 +276,8 @@ def initialize(
             graph_format=formats,
             keep_alive=keep_alive,
             net_type=net_type,
+            load_precoms=load_precoms,
+            precom_path=precom_path
         )
         serv.start()
         sys.exit()

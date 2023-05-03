@@ -89,7 +89,7 @@ def main(args):
     device = torch.device(f"cuda:{args.local_rank}")
 
     if args.model == 'gat':
-        gat_heads = [int(h) in args.gat_heads.split(",")]
+        gat_heads = [int(h) for h in args.gat_heads.split(",")]
         assert len(gat_heads) == args.num_layers
     else:
         gat_heads = None

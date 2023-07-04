@@ -156,6 +156,7 @@ file(GLOB_RECURSE DGL_SRC_1
   src/api/*.cc
   src/graph/*.cc
   src/scheduler/*.cc
+  src/omega/*.cc
 )
 
 list(APPEND DGL_SRC ${DGL_SRC_1})

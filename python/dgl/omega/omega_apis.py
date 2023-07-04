@@ -1,7 +1,7 @@
 import dgl
 
+from .distributed_block import DGLDistributedBlock
 from .._ffi.function import _init_api
-from ..heterograph import DGLBlock
 from .. import backend as F
 from .. import utils
 
@@ -38,13 +38,22 @@ def to_distributed_blocks(
         F.zerocopy_to_dgl_ndarray(src_part_ids),
         F.zerocopy_to_dgl_ndarray(dst_gnids))
     
+    num_assigned_target_nodes = get_num_assigned_targets_per_gpu(
+        num_machines, num_gpus_per_machine, target_gnids.shape[0])
     dist_blocks = []
     for gpu_idx in range(num_gpus_per_machine):
         g_idx = ret[2 * gpu_idx]
         src_gnids_in_block = F.from_dgl_nd(ret[2 * gpu_idx + 1])
-        dist_block = DGLBlock(g_idx, (['_N'], ['_N']), ['_E'])
+        global_gpu_rank = num_gpus_per_machine * machine_rank + gpu_idx
+
+        dist_block = DGLDistributedBlock(
+            global_gpu_rank,
+            num_assigned_target_nodes,
+            gidx=g_idx,
+            ntypes=(['_N'], ['_N']),
+            etypes=['_E'])
+
         assert dist_block.is_unibipartite
-        dist_block.dstdata[dgl.NID] = target_gnids
         dist_block.srcdata[dgl.NID] = src_gnids_in_block
         dist_blocks.append(dist_block)
     return dist_blocks

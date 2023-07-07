@@ -10,19 +10,19 @@ from dgl.omega.omega_apis import (
 from test_utils import create_test_data
 
 def test():
-    num_existing_nodes = 205
-    num_target_nodes = 20
-    num_machines = 4
-    num_gpus_per_machine = 2
+    num_existing_nodes = 1000
+    num_target_nodes = 4
+    num_machines = 1
+    num_gpus_per_machine = 4
 
-    num_connecting_edges = 1024
+    num_connecting_edges = 5000
 
     target_gnids, src_gnids, src_part_ids, dst_gnids = create_test_data(
         num_existing_nodes,
         num_target_nodes,
         num_machines,
         num_connecting_edges,
-        random_seed=4321)
+        random_seed=4132)
 
     dist_blocks = []    
     for machine_rank in range(num_machines):
@@ -41,8 +41,10 @@ def test():
     v_in_blocks = []
     target_ids_in_blocks = []
     other_src_ids_in_blocks = []
+    num_srcs = 0
     for gpu_id in range(num_machines * num_gpus_per_machine):
         dist_block = dist_blocks[gpu_id]
+        num_srcs += dist_block.num_src_nodes()
         u, v = dist_block.edges('uv')
         u_in_blocks.append(dist_block.srcdata[dgl.NID][u])
         v_in_blocks.append(target_gnids[v])
@@ -56,13 +58,17 @@ def test():
     target_ids_in_blocks = torch.concat(target_ids_in_blocks)
     other_src_ids_in_blocks = torch.concat(other_src_ids_in_blocks)
     num_total_edges = u_in_blocks.shape[0]
+
+    assert num_srcs <= num_existing_nodes + num_target_nodes, (
+        f"num_srcs={num_srcs}, num_existing_nodes + num_target_nodes={num_existing_nodes + num_target_nodes}"
+    )
     assert num_total_edges == num_connecting_edges + num_target_nodes
     assert torch.all(u_in_blocks.sort().values == src_gnids.sort().values)
     assert torch.all(v_in_blocks.sort().values == dst_gnids.sort().values)
     assert torch.all(target_ids_in_blocks == target_gnids)
     assert torch.all(other_src_ids_in_blocks < num_existing_nodes)
     assert other_src_ids_in_blocks.shape[0] == other_src_ids_in_blocks.unique().shape[0]
-    assert other_src_ids_in_blocks.shape[0] < num_existing_nodes
+    assert other_src_ids_in_blocks.shape[0] <= num_existing_nodes
 
 if __name__ == "__main__":
     test()

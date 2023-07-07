@@ -1,10 +1,12 @@
 import torch
 import torch.distributed as dist
 
-from ..heterograph import DGLBlock
 from .. import backend as F
+from .. import core
 from .. import frame
+from .. import function as fn
 from ..base import ALL, is_all
+from ..heterograph import DGLBlock
 
 class DGLDistributedBlock(DGLBlock):
 
@@ -73,11 +75,15 @@ class DGLDistributedBlock(DGLBlock):
 
     def in_degrees(self):
         if self._in_degrees is None:
-            local_in_degrees = super(DGLDistributedBlock, self).in_degrees()
+            local_in_degrees = torch.clone(super(DGLDistributedBlock, self).in_degrees())
             dist.all_reduce(local_in_degrees)
             self._in_degrees = local_in_degrees[self._target_start_idx:self._target_end_idx]
 
         return self._in_degrees
+
+    def num_dst_nodes(self, ntype=None):
+        assert ntype is None, "Distributed message passing currently supports homogeneous graphs only."
+        return self._num_local_target_nodes
 
     def _set_n_repr(self, ntid, u, data):
         if ntid != self._dtid:
@@ -93,7 +99,41 @@ class DGLDistributedBlock(DGLBlock):
                    reduce_func,
                    apply_node_func=None,
                    etype=None):
-        raise NotImplementedError("Call distributed_message_passing directly.")
+        assert core.is_builtin(message_func) and core.is_builtin(reduce_func), (
+            "Distributed message passing currently supports built-in functions only. " +
+            "Call distributed_message_passing directly."
+        )
+        assert apply_node_func == None, "Distributed message passing does not support apply_node_func currently."
+        assert etype == None, "Distributed message passing currently supports homogeneous graphs only."
+
+        def local_aggr_fn(local_g):
+            local_message_func = message_func
+            local_reduce_fun = reduce_func
+            if reduce_func.name == "mean":
+                local_reduce_fun = fn.sum(msg=reduce_func.msg_field, out=reduce_func.out_field)
+            local_g.update_all(local_message_func, local_reduce_fun)
+            return {
+                "local_aggr": local_g.dstdata[reduce_func.out_field]
+            }
+
+        def merge_fn(aggrs):
+            if reduce_func.name == "mean" or reduce_func.name == "sum":
+                rst = aggrs["local_aggr"].sum(dim=0)
+            elif reduce_func.name == "max":
+                rst = aggrs["local_aggr"].max(dim=0).values
+            elif reduce_func.name == "min":
+                rst = aggrs["local_aggr"].min(dim=0).values
+            else:
+                raise NotImplementedError(f"Unknown reduce function: {reduce_func.name}")
+            return {
+                reduce_func.out_field: rst
+            }
+
+        self.distributed_message_passing(local_aggr_fn, merge_fn)
+        if reduce_func.name == "mean":
+            rst = self.dstdata[reduce_func.out_field]
+            in_degrees = self.in_degrees().reshape(-1, *([1] * (rst.dim()-1)))
+            self.dstdata[reduce_func.out_field] = rst / in_degrees
 
     def _create_local_graph(self):
         etid = 0

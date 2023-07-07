@@ -110,7 +110,7 @@ std::pair<std::vector<HeteroGraphPtr>, std::vector<IdArray>> ToDistributedBlocks
     int64_t dst_gnid = dst_gnids_data[i];
     auto& lhs_node_mapping = lhs_node_mappings[assigned_gpu_id];
     auto insert_ret = lhs_node_mapping.insert({src_gnid, lhs_node_mapping.size()});
-      
+
     int64_t src_block_id = insert_ret.first->second;
     int64_t dst_block_id = rhs_node_mapping[dst_gnid];
 
@@ -138,7 +138,10 @@ std::pair<std::vector<HeteroGraphPtr>, std::vector<IdArray>> ToDistributedBlocks
     IdArray src_gnids_in_block = NewIdArray(
         lhs_node_mapping.size(), DGLContext{kDGLCPU, 0}, sizeof(int64_t) * 8);
     int64_t* src_gnids_in_block_data = static_cast<int64_t*>(src_gnids_in_block->data);
+
+    int cnt = 0;
     for (auto pair: lhs_node_mapping) {
+      cnt++;
       src_gnids_in_block_data[pair.second] = pair.first;
     }
 

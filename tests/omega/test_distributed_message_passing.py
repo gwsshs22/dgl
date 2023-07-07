@@ -1,3 +1,5 @@
+import argparse
+
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -7,10 +9,12 @@ from dgl.omega.omega_apis import (
     to_distributed_blocks,
     get_num_assigned_targets_per_gpu)
 from dgl import function as fn
+import dgl.nn as dglnn
 
 from test_utils import create_test_data
 
 def process_main(
+    test_port,
     in_queue,
     out_queue,
     num_machines,
@@ -21,9 +25,10 @@ def process_main(
     global_rank = machine_rank * num_gpus_per_machine + gpu_rank
     dist.init_process_group(
         backend='nccl',
-        init_method=f'tcp://127.0.01:33132',
+        init_method=f'tcp://127.0.0.1:{test_port}',
         rank=global_rank,
         world_size=num_machines * num_gpus_per_machine)
+    dist.barrier()
     device = torch.device(f"cuda:{gpu_rank}")
     raw_features, target_gnids, src_gnids, src_part_ids, dst_gnids = in_queue.get()
 
@@ -35,8 +40,8 @@ def process_main(
         src_gnids,
         src_part_ids,
         dst_gnids)[gpu_rank]
-    input_features = raw_features[dist_block.srcdata[dgl.NID]]
 
+    input_features = raw_features[dist_block.srcdata[dgl.NID]]
     dist_block = dist_block.to(device)
     input_features = input_features.to(device)
 
@@ -46,16 +51,20 @@ def process_main(
             if dist_fn is None:
                 break
 
-            output = dist_fn(dist_block, input_features)
-            out_queue.put(output.cpu())
+            output = dist_fn(dist_block, input_features, device).cpu()
+            torch.cuda.synchronize(device=device)
+            out_queue.put(output)
 
-def orig_mean(block, input_features):
+def identity(block, input_features, device):
+    return input_features[:block.number_of_dst_nodes()]
+
+def orig_mean(block, input_features, device):
     with block.local_scope():
         block.srcdata['h'] = input_features
         block.update_all(fn.copy_u('h', 'm'), fn.mean(msg='m', out='h'))
         return block.dstdata['h']
 
-def dist_mean(dist_block, input_features):
+def dist_mean(dist_block, input_features, device):
     with dist_block.local_scope():
         dist_block.srcdata['h'] = input_features
         def local_aggr_fn(local_g):
@@ -72,11 +81,58 @@ def dist_mean(dist_block, input_features):
         dist_block.distributed_message_passing(local_aggr_fn, merge_fn)
         return dist_block.dstdata['h'] / dist_block.in_degrees().reshape(-1, 1)
 
-def test():
+def orig_sum(block, input_features, device):
+    with block.local_scope():
+        block.srcdata['h'] = input_features
+        block.update_all(fn.copy_u('h', 'm'), fn.sum(msg='m', out='h'))
+        return block.dstdata['h']
+
+def orig_sum_twice(block, input_features, device):
+    with block.local_scope():
+        block.srcdata['h'] = input_features
+        block.srcdata['h2'] = input_features * 2
+        block.update_all(fn.copy_u('h', 'm'), fn.sum(msg='m', out='h'))
+        block.update_all(fn.copy_u('h2', 'm'), fn.sum(msg='m', out='h2'))
+        return block.dstdata['h'] + block.dstdata['h2']
+
+def orig_min(block, input_features, device):
+    with block.local_scope():
+        block.srcdata['h'] = input_features
+        block.update_all(fn.copy_u('h', 'm'), fn.min(msg='m', out='h'))
+        return block.dstdata['h']
+
+def orig_max(block, input_features, device):
+    with block.local_scope():
+        block.srcdata['h'] = input_features
+        block.update_all(fn.copy_u('h', 'm'), fn.max(msg='m', out='h'))
+        return block.dstdata['h']
+
+def orig_gcn(block, input_features, device):
+    dim_inputs = input_features.shape[-1]
+    dim_hiddens = dim_inputs // 2
+
+    torch.manual_seed(5555)
+    gcn_layer = dglnn.GraphConv(dim_inputs, dim_hiddens, allow_zero_in_degree=True)
+    gcn_layer = gcn_layer.to(device)
+
+    return gcn_layer(block, input_features)
+
+def orig_sage(block, input_features, device):
+    dim_inputs = input_features.shape[-1]
+    dim_hiddens = dim_inputs // 2
+
+    torch.manual_seed(5555)
+    sage_layer = dglnn.SAGEConv(dim_inputs, dim_hiddens, 'mean')
+    sage_layer = sage_layer.to(device)
+
+    return sage_layer(block, input_features)
+
+def test(args):
     mp.set_start_method('spawn')
 
     num_machines = 1
-    num_gpus_per_machine = 4
+    num_gpus_per_machine = args.num_gpus
+    test_port = args.test_port
     child_processes = []
     in_queues = []
     out_queues = []
@@ -89,6 +145,7 @@ def test():
             p = mp.Process(
                 target=process_main,
                 args=(
+                    test_port,
                     in_queue,
                     out_queue,
                     num_machines,
@@ -100,16 +157,22 @@ def test():
 
     target_gnids, src_gnids, src_part_ids, dst_gnids = create_test_data(
         num_existing_nodes=1000,
-        num_target_nodes=50,
+        num_target_nodes=150,
         num_machines=num_machines,
-        num_connecting_edges=5000,
+        num_connecting_edges=100000,
         random_seed=4132)
-
+    
     g = dgl.graph((src_gnids, dst_gnids))
     num_nodes = g.number_of_nodes()
     block = dgl.to_block(g, target_gnids)
+    raw_features = torch.rand(num_nodes, 256)
 
-    raw_features = torch.rand(num_nodes, 128)
+    target_gnids.share_memory_()
+    src_gnids.share_memory_()
+    src_part_ids.share_memory_()
+    dst_gnids.share_memory_()
+    raw_features.share_memory_()
+
     for in_queue in in_queues:
         in_queue.put((raw_features, target_gnids, src_gnids, src_part_ids, dst_gnids))
 
@@ -120,17 +183,31 @@ def test():
 
         for in_queue in in_queues:
             in_queue.put(dist_fn)
-        
-        expected = orig_fn(block, input_features)
+
+        expected = orig_fn(block, input_features, "cpu")
         outputs = []
         for out_queue in out_queues:
             outputs.append(out_queue.get())
         output = torch.concat(outputs)
-        torch.allclose(expected, output)
+        assert torch.allclose(expected, output, atol=1e-5)
+    try:
+        with torch.no_grad():
+            test_function(identity)
+            test_function(orig_mean, dist_mean)
+            test_function(orig_mean)
+            test_function(orig_sum)
+            test_function(orig_sum_twice)
+            test_function(orig_min)
+            test_function(orig_max)
+            test_function(orig_gcn)
+            test_function(orig_sage)
+    except AssertionError as e:
+        print(f"Test failed: {e}")
+        for p in child_processes:
+            p.kill()
+        return
 
-    with torch.no_grad():
-        test_function(orig_mean, dist_mean)
-
+    print(f"Test passed.")
     for in_queue in in_queues:
         in_queue.put(None)
 
@@ -138,4 +215,9 @@ def test():
         p.join()
 
 if __name__ == "__main__":
-    test()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_gpus", type=int, default=4)
+    parser.add_argument("--test_port", type=int, default=34322)
+
+    args = parser.parse_args()
+    test(args)

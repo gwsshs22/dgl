@@ -7,7 +7,7 @@ import torch.multiprocessing as mp
 
 import dgl
 from dgl.omega.omega_apis import (
-    to_distributed_blocks,
+    to_distributed_block,
     get_num_assigned_targets_per_gpu)
 from dgl import function as fn
 import dgl.nn as dglnn
@@ -33,14 +33,15 @@ def process_main(
     device = torch.device(f"cuda:{gpu_rank}")
     raw_features, target_gnids, src_gnids, src_part_ids, dst_gnids = in_queue.get()
 
-    dist_block = to_distributed_blocks(
+    dist_block = to_distributed_block(
         num_machines,
         machine_rank,
         num_gpus_per_machine,
+        gpu_rank,
         target_gnids,
         src_gnids,
         src_part_ids,
-        dst_gnids)[gpu_rank]
+        dst_gnids)
 
     input_features = raw_features[dist_block.srcdata[dgl.NID]]
     dist_block = dist_block.to(device)

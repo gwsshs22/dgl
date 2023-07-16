@@ -4,6 +4,7 @@ import torch
 
 import dgl
 from dgl.omega.omega_apis import (
+    to_distributed_block,
     to_distributed_blocks,
     get_num_assigned_targets_per_gpu)
 
@@ -12,7 +13,7 @@ from test_utils import create_test_data
 def test():
     num_existing_nodes = 1000
     num_target_nodes = 4
-    num_machines = 1
+    num_machines = 2
     num_gpus_per_machine = 4
 
     num_connecting_edges = 5000
@@ -69,7 +70,35 @@ def test():
     assert torch.all(other_src_ids_in_blocks < num_existing_nodes)
     assert other_src_ids_in_blocks.shape[0] == other_src_ids_in_blocks.unique().shape[0]
     assert other_src_ids_in_blocks.shape[0] <= num_existing_nodes
+
+
+    dist_blocks2 = []    
+    for machine_rank in range(num_machines):
+        for local_gpu_idx in range(num_gpus_per_machine):
+            dist_block = to_distributed_block(
+                num_machines,
+                machine_rank,
+                num_gpus_per_machine,
+                local_gpu_idx,
+                target_gnids,
+                src_gnids,
+                src_part_ids,
+                dst_gnids)
+            dist_blocks2.append(dist_block)
+    
+    for dist_block, dist_block2 in zip(dist_blocks, dist_blocks2):
+        assert_dist_block_eq(dist_block, dist_block2)
+
     print("Test passed.")
+
+def assert_dist_block_eq(block1, block2):
+    assert torch.all(block1.srcdata[dgl.NID] == block2.srcdata[dgl.NID])
+    u1, v1 = block1.edges('uv')
+    u2, v2 = block2.edges('uv')
+    assert torch.all(u1 == u2)
+    assert torch.all(v1 == v2)
+    assert block1.num_src_nodes() == block2.num_src_nodes()
+    assert block1.num_dst_nodes() == block2.num_dst_nodes()
 
 if __name__ == "__main__":
     test()

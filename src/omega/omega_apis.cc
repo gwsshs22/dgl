@@ -40,4 +40,32 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToDistributedBlocks")
     *rv = ret_list;
   });
 
+DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToDistributedBlock")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    int num_machines = args[0];
+    int machine_rank = args[1];
+    int num_gpus_per_machine = args[2];
+    int local_gpu_idx = args[3];
+    IdArray target_gnids = args[4];
+    IdArray src_gnids = args[5];
+    IdArray src_part_ids = args[6];
+    IdArray dst_gnids = args[7];
+
+    auto result = omega::ToDistributedBlock(
+        num_machines,
+        machine_rank,
+        num_gpus_per_machine,
+        local_gpu_idx,
+        target_gnids,
+        src_gnids,
+        src_part_ids,
+        dst_gnids);
+
+    List<runtime::Value> ret_list;
+    ret_list.push_back(runtime::Value(MakeValue(HeteroGraphRef(result.first))));
+    ret_list.push_back(runtime::Value(MakeValue(result.second)));
+
+    *rv = ret_list;
+  });
+
 }

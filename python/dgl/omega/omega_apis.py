@@ -58,4 +58,42 @@ def to_distributed_blocks(
         dist_blocks.append(dist_block)
     return dist_blocks
 
+def to_distributed_block(
+    num_machines,
+    machine_rank,
+    num_gpus_per_machine,
+    local_gpu_idx,
+    target_gnids,
+    src_gnids,
+    src_part_ids,
+    dst_gnids):
+    ret = _CAPI_DGLOmegaToDistributedBlock(
+        num_machines,
+        machine_rank,
+        num_gpus_per_machine,
+        local_gpu_idx,
+        F.zerocopy_to_dgl_ndarray(target_gnids),
+        F.zerocopy_to_dgl_ndarray(src_gnids),
+        F.zerocopy_to_dgl_ndarray(src_part_ids),
+        F.zerocopy_to_dgl_ndarray(dst_gnids))
+    
+    num_assigned_target_nodes = get_num_assigned_targets_per_gpu(
+        num_machines, num_gpus_per_machine, target_gnids.shape[0])
+
+    g_idx = ret[0]
+    src_gnids_in_block = F.from_dgl_nd(ret[1])
+    global_gpu_rank = num_gpus_per_machine * machine_rank + local_gpu_idx
+
+    dist_block = DGLDistributedBlock(
+        global_gpu_rank,
+        num_assigned_target_nodes,
+        gidx=g_idx,
+        ntypes=(['_N'], ['_N']),
+        etypes=['_E'])
+
+    assert dist_block.is_unibipartite
+    dist_block.srcdata[dgl.NID] = src_gnids_in_block
+
+    return dist_block
+
 _init_api("dgl.omega.omega_apis")

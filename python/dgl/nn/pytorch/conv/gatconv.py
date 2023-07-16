@@ -302,11 +302,7 @@ class GATConv(nn.Module):
             # compute edge attention, el and er are a_l Wh_i and a_r Wh_j respectively.
             graph.apply_edges(fn.u_add_v('el', 'er', 'e'))
             e = self.leaky_relu(graph.edata.pop('e'))
-            # compute softmax
-            graph.edata['a'] = self.attn_drop(edge_softmax(graph, e))
-            # message passing
-            graph.update_all(fn.u_mul_e('ft', 'a', 'm'),
-                             fn.sum('m', 'ft'))
+            graph.softmax_aggregation(e, 'ft', 'a', 'ft', self.attn_drop)
             rst = graph.dstdata['ft']
             # residual
             if self.res_fc is not None:

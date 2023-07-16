@@ -69,6 +69,7 @@ def test():
     assert torch.all(other_src_ids_in_blocks < num_existing_nodes)
     assert other_src_ids_in_blocks.shape[0] == other_src_ids_in_blocks.unique().shape[0]
     assert other_src_ids_in_blocks.shape[0] <= num_existing_nodes
+    print("Test passed.")
 
 if __name__ == "__main__":
     test()

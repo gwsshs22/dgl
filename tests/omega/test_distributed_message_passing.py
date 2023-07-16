@@ -2,6 +2,7 @@ import argparse
 
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 import torch.multiprocessing as mp
 
 import dgl
@@ -127,6 +128,17 @@ def orig_sage(block, input_features, device):
 
     return sage_layer(block, input_features)
 
+def orig_gat(block, input_features, device):
+    dim_inputs = input_features.shape[-1]
+    dim_hiddens = dim_inputs // 2
+
+    torch.manual_seed(5555)
+    gat_layer = dglnn.GATConv(
+        dim_inputs, dim_hiddens, 4, activation=F.elu, allow_zero_in_degree=True)
+    gat_layer = gat_layer.to(device)
+
+    return gat_layer(block, input_features)
+
 def test(args):
     mp.set_start_method('spawn')
 
@@ -177,6 +189,7 @@ def test(args):
         in_queue.put((raw_features, target_gnids, src_gnids, src_part_ids, dst_gnids))
 
     input_features = raw_features[block.srcdata[dgl.NID]]
+
     def test_function(orig_fn, dist_fn=None):
         if dist_fn is None:
             dist_fn = orig_fn
@@ -201,6 +214,7 @@ def test(args):
             test_function(orig_max)
             test_function(orig_gcn)
             test_function(orig_sage)
+            test_function(orig_gat)
     except AssertionError as e:
         print(f"Test failed: {e}")
         for p in child_processes:

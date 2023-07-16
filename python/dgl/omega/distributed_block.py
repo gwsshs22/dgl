@@ -94,6 +94,91 @@ class DGLDistributedBlock(DGLBlock):
         num_nodes = self._num_local_target_nodes
         self._node_frames[ntid].update(data)
 
+    def _create_local_graph(self):
+        etid = 0
+        srctype, etype, dsttype = self._canonical_etypes[etid]
+        new_g = self._graph.get_relation_graph(etid)
+
+        new_ntypes = ([srctype], [dsttype])
+        new_nframes = [
+            self._node_frames[self._stid],
+            DestinationDataFrameAdapter(
+                self,
+                self._node_frames[self._dtid],
+                self._num_target_nodes)]
+        new_etypes = [etype]
+        new_eframes = [self._edge_frames[etid]]
+
+        return DGLBlock(new_g, new_ntypes, new_etypes, new_nframes, new_eframes)
+
+    def apply_edges(self, func, edges=ALL, etype=None):
+        assert self._graph.number_of_etypes() == 1 or etype is not None, (
+            "Distributed message passing currently supports homogeneous graphs only."
+        )
+        assert is_all(edges), (
+            f"Distributed message passing currently supports ALL edges only. Got {edges}"
+        )
+
+        eid = ALL
+        etid = self.get_etype_id(etype)
+        etype = self.canonical_etypes[etid]
+        local_g = self._create_local_graph()
+
+        if core.is_builtin(func):
+            edata = core.invoke_gsddmm(local_g, func)
+        else:
+            edata = core.invoke_edge_udf(local_g, eid, etype, func)
+
+        self._set_e_repr(etid, eid, edata)
+
+    def softmax_aggregation(self, logits, msg_field, prob_field, out_field, attn_fn=None):
+
+        def local_aggr_fn(local_g):
+            local_g.edata["logits"] = logits
+            local_g.update_all(fn.copy_e("logits", "h"), fn.max("h", "logits_max"))
+
+            local_g.apply_edges(fn.e_sub_v("logits", "logits_max", "logits_subtracted"))
+            local_g.edata["exp_logits"] = torch.exp(local_g.edata.pop("logits_subtracted"))
+            local_g.update_all(fn.copy_e("exp_logits", "h"),
+                               fn.sum("h", "exp_logits_sum"))
+
+            # compute softmax
+            local_g.apply_edges(fn.e_div_v("exp_logits", "exp_logits_sum", "a"))
+
+            if attn_fn:
+                a = local_g.edata.pop("a")
+                a = attn_fn(a)
+                local_g.edata["a"] = a
+
+            # message passing
+            local_g.update_all(fn.u_mul_e(msg_field, 'a', 'm'),
+                               fn.sum('m', out_field))
+
+            return {
+                "logits_max": local_g.dstdata["logits_max"],
+                "exp_logits_sum": local_g.dstdata["exp_logits_sum"],
+                out_field: local_g.dstdata[out_field]
+            }
+
+        def merge_fn(aggrs):
+            logits_max_aggs = aggrs["logits_max"]
+            exp_logits_sum_aggs = aggrs["exp_logits_sum"]
+            rst_aggs = aggrs[out_field]
+
+            logits_max_aggs[exp_logits_sum_aggs == 0] = -float('inf')
+            logits_max, _ = logits_max_aggs.max(0)
+
+            exp_max_logits_diff = torch.exp(logits_max_aggs - logits_max)
+            exp_logits_sum_aggs = exp_logits_sum_aggs * exp_max_logits_diff
+
+            rst = rst_aggs * exp_logits_sum_aggs
+            rst = rst.sum(0) / exp_logits_sum_aggs.sum(0)
+            return {
+                out_field: rst
+            }
+
+        self.distributed_message_passing(local_aggr_fn, merge_fn)
+
     def update_all(self,
                    message_func,
                    reduce_func,
@@ -135,23 +220,6 @@ class DGLDistributedBlock(DGLBlock):
             in_degrees = self.in_degrees().reshape(-1, *([1] * (rst.dim()-1)))
             self.dstdata[reduce_func.out_field] = rst / in_degrees
 
-    def _create_local_graph(self):
-        etid = 0
-        srctype, etype, dsttype = self._canonical_etypes[etid]
-        new_g = self._graph.get_relation_graph(etid)
-
-        new_ntypes = ([srctype], [dsttype])
-        new_nframes = [
-            self._node_frames[self._stid],
-            DestinationDataFrameAdapter(
-                self,
-                self._node_frames[self._dtid],
-                self._num_target_nodes)]
-        new_etypes = [etype]
-        new_eframes = [self._edge_frames[etid]]
-
-        return DGLBlock(new_g, new_ntypes, new_etypes, new_nframes, new_eframes)
-
     def distributed_message_passing(
         self,
         local_aggr_fn,
@@ -192,7 +260,7 @@ class DGLDistributedBlock(DGLBlock):
         output_tensor_dim = (self._num_target_nodes,)
         for i in range(1, input_tensor.dim()):
             output_tensor_dim += (input_tensor.shape[i],)
-        output_tensor = torch.zeros(output_tensor_dim, dtype=input_tensor.dtype, device=self._device)
+        output_tensor = torch.zeros(output_tensor_dim, dtype=input_tensor.dtype, device=self.device)
         outputs = list(output_tensor.split(self._num_assigned_target_nodes))
 
         for gpu_idx in range(self._num_gpus):

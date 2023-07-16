@@ -10,13 +10,14 @@ import networkx as nx
 import numpy as np
 
 from ._ffi.function import _init_api
-from .ops import segment
+from .ops import segment, edge_softmax
 from .base import ALL, SLICE_FULL, NTYPE, NID, ETYPE, EID, is_all, DGLError, dgl_warning
 from . import core
 from . import graph_index
 from . import heterograph_index
 from . import utils
 from . import backend as F
+from . import function as fn
 from .frame import Frame
 from .view import HeteroNodeView, HeteroNodeDataView, HeteroEdgeView, HeteroEdgeDataView
 
@@ -4681,6 +4682,14 @@ class DGLGraph(object):
         """
         edges = self.out_edges(u, form='eid', etype=etype)
         self.send_and_recv(edges, message_func, reduce_func, apply_node_func, etype=etype)
+
+    def softmax_aggregation(self, logits, msg_field, prob_field, out_field, attn_fn=None):
+        probs = edge_softmax(self, logits)
+        if attn_fn:
+            probs = attn_fn(probs)
+        self.edata[prob_field] = probs
+        self.update_all(fn.u_mul_e(msg_field, prob_field, 'm'),
+                        fn.sum('m', out_field))
 
     def update_all(self,
                    message_func,

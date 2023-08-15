@@ -8,6 +8,11 @@ from .. import function as fn
 from ..base import ALL, is_all
 from ..heterograph import DGLBlock
 
+NCCL_GROUP = None
+
+def set_nccl_group(nccl_group):
+    NCCL_GROUP = nccl_group
+
 class DGLDistributedBlock(DGLBlock):
 
     def __init__(self,
@@ -76,7 +81,7 @@ class DGLDistributedBlock(DGLBlock):
     def in_degrees(self):
         if self._in_degrees is None:
             local_in_degrees = torch.clone(super(DGLDistributedBlock, self).in_degrees())
-            dist.all_reduce(local_in_degrees)
+            dist.all_reduce(local_in_degrees, group=NCCL_GROUP)
             self._in_degrees = local_in_degrees[self._target_start_idx:self._target_end_idx]
 
         return self._in_degrees
@@ -251,7 +256,7 @@ class DGLDistributedBlock(DGLBlock):
         inputs = list(input_tensor.split(self._num_assigned_target_nodes))
         outputs = list(output_tensor.split([1] * self._num_gpus))
 
-        req_handle = dist.all_to_all(outputs, inputs, async_op=True)
+        req_handle = dist.all_to_all(outputs, inputs, async_op=True, group=NCCL_GROUP)
         return output_tensor, req_handle
 
     def all_gather_dst_values(self, input_tensor):
@@ -265,9 +270,9 @@ class DGLDistributedBlock(DGLBlock):
 
         for gpu_idx in range(self._num_gpus):
             if gpu_idx == self._global_gpu_rank:
-                req_handles.append(dist.broadcast(input_tensor, gpu_idx, async_op=True))
+                req_handles.append(dist.broadcast(input_tensor, gpu_idx, async_op=True, group=NCCL_GROUP))
             else:
-                req_handles.append(dist.broadcast(outputs[gpu_idx], gpu_idx, async_op=True))
+                req_handles.append(dist.broadcast(outputs[gpu_idx], gpu_idx, async_op=True, group=NCCL_GROUP))
 
         outputs[self._global_gpu_rank].copy_(input_tensor)
 

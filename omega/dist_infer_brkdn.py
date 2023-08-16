@@ -14,7 +14,9 @@ from dgl.data.utils import load_graphs
 import dgl.function as fn
 import dgl.nn.pytorch as dglnn
 from dgl.distributed import DistDataLoader
-
+from dgl.omega.dist_context import set_nccl_group
+from dgl.omega.dist_sample import dist_sample_neighbors
+from dgl.omega.omega_apis import to_distributed_block
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
@@ -32,7 +34,7 @@ def inference(args, dataloader, g, model, device, fanouts):
         for fanout in fanouts:
             with timer.measure("sample_neighbors"):
                 frontier = dgl.distributed.sample_neighbors(g, seeds.cpu(), fanout, replace=False)
-            
+
             with timer.measure("create_mfgs", cuda_sync=True, device=device):
                 block = dgl.to_block(frontier, seeds)
                 seeds = block.srcdata[dgl.NID]
@@ -77,23 +79,24 @@ def inference(args, dataloader, g, model, device, fanouts):
     return values_arr[NUM_STEPS:]
 
 def inference_with_precoms(args, dataloader, g, model, device, fanouts):
-    def sample_blocks(g, seeds, fanouts, device):
-        blocks = []
-        for fanout in fanouts:
-            with timer.measure("sample_neighbors"):
-                frontier = dgl.distributed.sample_neighbors(g, seeds.cpu(), fanout, replace=False)
-            
-            with timer.measure("create_mfgs", cuda_sync=True, device=device):
-                block = dgl.to_block(frontier, seeds)
-                blocks.insert(0, block)
-        
-        with timer.measure("copy_mfgs", cuda_sync=True, device=device):
-            blocks = [b.to(device) for b in blocks]
-
-        return blocks
+    full_sampling = fanouts[0] == -1
+    if full_sampling:
+        assert all(map(lambda f: f == -1, fanouts))
 
     timer = Timer()
     values_arr = []
+
+    def sample_block(g, seeds, fanout, device):
+        with timer.measure("sample_neighbors"):
+            frontier = dgl.distributed.sample_neighbors(g, seeds.cpu(), fanout, replace=False)
+                
+        with timer.measure("create_mfgs", cuda_sync=True, device=device):
+            block = dgl.to_block(frontier, seeds)
+
+        with timer.measure("copy_mfgs", cuda_sync=True, device=device):
+            block = block.to(device)
+
+        return block
 
     precoms_dist_tensors = [g.ndata["features"]]
     for layer_idx in range(args.num_layers - 1):
@@ -108,7 +111,12 @@ def inference_with_precoms(args, dataloader, g, model, device, fanouts):
                 timer.clear()
                 inputs = []
                 with timer.measure("mfgs"):
-                    blocks = sample_blocks(g, seeds, fanouts, device)
+                    if full_sampling:
+                        block = sample_block(g, seeds, -1, device)
+                        blocks = [block] * len(fanouts)
+                    else:
+                        blocks = [sample_block(g, seeds, f, device) for f in fanouts]
+                        blocks.reverse()
 
                 with timer.measure("fetch_feats"):
                     for layer_idx in range(args.num_layers):
@@ -140,24 +148,130 @@ def inference_with_precoms(args, dataloader, g, model, device, fanouts):
  
     return values_arr[NUM_STEPS:]
 
+def inference_with_precom_and_dist_mp(args, dataloader, g, model, device, fanouts):
+    full_sampling = fanouts[0] == -1
+    if full_sampling:
+        assert all(map(lambda f: f == -1, fanouts))
+
+    num_machines = int(os.environ["GROUP_WORLD_SIZE"])
+    machine_rank = int(os.environ["GROUP_RANK"])
+    num_gpus_per_machine = int(os.environ["LOCAL_WORLD_SIZE"])
+    gpu_rank = int(os.environ["LOCAL_RANK"])
+    gpb = g.get_partition_book()
+    timer = Timer()
+    batch_id = 0
+
+    def sample_dist_block(g, seeds, fanout, device, batch_id):
+        with timer.measure("sample_neighbors"):
+            sample_ret = dist_sample_neighbors(
+                g,
+                seeds.cpu(),
+                fanout,
+                batch_id,
+                num_machines,
+                machine_rank,
+                num_gpus_per_machine,
+                gpu_rank)
+
+        with timer.measure("create_mfgs", cuda_sync=True, device=device):
+            target_gnids = seeds
+            src_gnids = th.concat(list(map(lambda t: t[0], sample_ret)))
+            dst_gnids = th.concat(list(map(lambda t: t[1], sample_ret)))
+            src_part_ids = gpb.nid2partid(src_gnids)
+            block = to_distributed_block(
+                    num_machines,
+                    machine_rank,
+                    num_gpus_per_machine,
+                    gpu_rank,
+                    target_gnids,
+                    src_gnids,
+                    src_part_ids,
+                    dst_gnids)
+
+        with timer.measure("copy_mfgs", cuda_sync=True, device=device):
+            block = block.to(device)
+
+        return block
+
+    values_arr = []
+
+    precoms_dist_tensors = [g.ndata["features"]]
+    for layer_idx in range(args.num_layers - 1):
+        precoms_dist_tensors.append(g.ndata[f"layer_{layer_idx}"])
+
+    NUM_RUNS = args.num_runs + 1 # First one is warm-up
+    NUM_STEPS = args.num_steps
+    for run in range(NUM_RUNS):
+        with th.no_grad():
+            # for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+            for step, seeds in enumerate(dataloader):
+                timer.clear()
+                inputs = []
+
+                with timer.measure("mfgs"):
+                    if full_sampling:
+                        dist_block = sample_dist_block(g, seeds, -1, device, batch_id)
+                        blocks = [dist_block] * len(fanouts)
+                    else:
+                        blocks = [sample_dist_block(g, seeds, f, device, batch_id) for f in fanouts]
+                        blocks.reverse()
+
+                with timer.measure("fetch_feats"):
+                    for layer_idx in range(args.num_layers):
+                        if layer_idx == 0:
+                            input_nodes = blocks[layer_idx].srcdata[dgl.NID]
+                        else:
+                            block = blocks[layer_idx]
+                            input_nodes = block.srcdata[dgl.NID][block.num_dst_nodes():]
+                        inputs.append(precoms_dist_tensors[layer_idx][input_nodes])
+
+                with timer.measure("copy_feats", cuda_sync=True, device=device):
+                    inputs = [i.to(device) for i in inputs]
+
+                with timer.measure("execute", cuda_sync=True, device=device):
+                    h = inputs[0]
+                    for layer_idx in range(args.num_layers):
+                        h = model.layer_foward(layer_idx, blocks[layer_idx], h)
+                        if layer_idx != args.num_layers - 1:
+                            h = th.concat((h, inputs[layer_idx + 1]))
+
+                batch_id += 1
+
+                for i in range(4):
+                    timer.add(f"n_nodes_{i}", blocks[i].num_src_nodes() if i < args.num_layers else 0)
+                    timer.add(f"n_edges_{i}", blocks[i].num_edges() if i < args.num_layers else 0)
+
+                values_arr.append(timer.get_values())
+                if (step + 1) == NUM_STEPS:
+                    break
+
+    return values_arr[NUM_STEPS:]
+
 def main(args):
     print(socket.gethostname(), 'Initializing DGL dist')
     use_precoms = args.use_precoms > 0
-    dgl.distributed.initialize(args.ip_config, net_type=args.net_type, load_precoms=use_precoms, precom_path=args.precom_path)
+    use_dist_mp = args.use_dist_mp > 0
+
+    dgl.distributed.initialize(
+        args.ip_config,
+        net_type=args.net_type,
+        load_precoms=use_precoms or use_dist_mp,
+        precom_path=args.precom_path)
     if not args.standalone:
         print(socket.gethostname(), 'Initializing DGL process group')
         th.distributed.init_process_group(backend=args.backend)
     print(socket.gethostname(), 'Initializing DistGraph')
-    
+
     g = dgl.distributed.DistGraph(args.graph_name, part_config=args.part_config)
     rank = g.rank()
     print(socket.gethostname(), 'rank:', rank)
 
-    if g.rank() != args.target_rank:
-        print(f"rank={rank} call barrier")
-        g.barrier()
-        print(f"rank={rank} end barrier")
-        return
+    if not use_dist_mp:
+        if g.rank() != args.target_rank:
+            print(f"rank={rank} call barrier")
+            g.barrier()
+            print(f"rank={rank} end barrier")
+            return
 
     device = f"cuda:{args.local_rank}"
 
@@ -184,10 +298,16 @@ def main(args):
 
     print(f"rank={rank} Start iterating")
 
-    if not use_precoms:
-        values_arr = inference(args, dataloader, g, model, device, fanouts)
-    else:
+    if use_dist_mp:
+        # Initialize distributed message passing.
+        nccl_group = th.distributed.new_group(backend="nccl")
+        set_nccl_group(nccl_group)
+
+        values_arr = inference_with_precom_and_dist_mp(args, dataloader, g, model, device, fanouts)
+    elif use_precoms:
         values_arr = inference_with_precoms(args, dataloader, g, model, device, fanouts)
+    else:
+        values_arr = inference(args, dataloader, g, model, device, fanouts)
 
     def get_mean(name):
         arr = []
@@ -200,12 +320,13 @@ def main(args):
 
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
-    
+
     kvs = []
     kvs.append(("graph", args.graph_name))
     kvs.append(("gnn", args.gnn))
     kvs.append(("bs", args.batch_size))
     kvs.append(("precoms", int(use_precoms)))
+    kvs.append(("dmp", int(use_dist_mp)))
     kvs.append(("fo", fanout_str))
 
     mfgs = get_mean("mfgs")
@@ -231,7 +352,7 @@ def main(args):
 
     kvs.append(("gpu_mem_alloc", gpu_mem_alloc))
 
-    output_path = str(Path(args.output_dir) / f"{args.graph_name}_{args.gnn}_precom{use_precoms}_{fanout_str}_bs{args.batch_size}.txt")
+    output_path = str(Path(args.output_dir) / f"{args.graph_name}_{args.gnn}_precom{use_precoms}_dmp{use_dist_mp}_{fanout_str}_bs{args.batch_size}.txt")
     with open(output_path, "w") as f:
         keys = [kv[0] for kv in kvs]
         values = [str(kv[1]) for kv in kvs]
@@ -269,6 +390,10 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=int, default=1000)
 
     parser.add_argument("--use_precoms", type=int, default=0)
+    parser.add_argument("--use_dist_mp", type=int, default=0)
+    # parser.add_argument("--dist_mp_addr", type=str)
+    # parser.add_argument("--dist_mp_port", type=int)
+
     parser.add_argument("--precom_path", type=str, default="")
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--num_hiddens", type=int, default=16)

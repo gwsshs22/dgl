@@ -1,6 +1,6 @@
 /*!
  *  Copyright (c) 2022 by Contributors
- * \file dgl/inference/launcher.h
+ * \file dgl/omega/distributed_block.h
  * \brief 
  */
 #pragma once

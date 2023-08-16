@@ -9,6 +9,7 @@ import dgl
 from dgl.omega.omega_apis import (
     to_distributed_block,
     get_num_assigned_targets_per_gpu)
+from dgl.omega.dist_context import set_nccl_group
 from dgl import function as fn
 import dgl.nn as dglnn
 
@@ -29,6 +30,7 @@ def process_main(
         init_method=f'tcp://127.0.0.1:{test_port}',
         rank=global_rank,
         world_size=num_machines * num_gpus_per_machine)
+    set_nccl_group(dist.new_group())
     dist.barrier()
     device = torch.device(f"cuda:{gpu_rank}")
     raw_features, target_gnids, src_gnids, src_part_ids, dst_gnids = in_queue.get()

@@ -7,12 +7,25 @@ import json
 import torch
 
 import dgl
+from dgl.data import RedditDataset
+
+from ogb.nodeproppred import DglNodePropPredDataset
 
 import numpy as np
 import scipy.sparse
 
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
+
+def load_graph(graph_name):
+    
+    if graph_name == "reddit":
+        return RedditDataset(self_loop=True)[0]
+    elif graph_name == "ogb-product":
+        return DglNodePropPredDataset(name="ogbn-products")[0][0]
+    else:
+        # TODO(gwkim): add other datasets
+        raise f"{graph_name} is not supported yet."
 
 class Timer:
     def __init__(self):

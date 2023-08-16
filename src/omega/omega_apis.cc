@@ -4,6 +4,7 @@
 #include "../c_api_common.h"
 
 #include "distributed_block.h"
+#include "distributed_sampling.h"
 
 using namespace dgl::runtime;
 
@@ -64,6 +65,38 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToDistributedBlock")
     List<runtime::Value> ret_list;
     ret_list.push_back(runtime::Value(MakeValue(HeteroGraphRef(result.first))));
     ret_list.push_back(runtime::Value(MakeValue(result.second)));
+
+    *rv = ret_list;
+  });
+
+DGL_REGISTER_GLOBAL("omega.dist_sample._CAPI_DGLOmegaSplitLocalEdges")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    int num_machines = args[0];
+    int machine_rank = args[1];
+    int num_gpus_per_machine = args[2];
+    int gpu_rank = args[3];
+    IdArray global_src = args[4];
+    IdArray global_dst = args[5];
+    IdArray global_src_part_ids = args[6];
+
+    auto ret = omega::SplitLocalEdges(
+      num_machines,
+      machine_rank,
+      num_gpus_per_machine,
+      gpu_rank, 
+      global_src, 
+      global_dst, 
+      global_src_part_ids);
+
+    int num_gpus = num_machines * num_gpus_per_machine;
+    runtime::List<runtime::Value> ret_list;
+    for (int i = 0; i < num_gpus; i++) {
+      ret_list.push_back(runtime::Value(MakeValue(ret.first[i])));
+    }
+
+    for (int i = 0; i < num_gpus; i++) {
+      ret_list.push_back(runtime::Value(MakeValue(ret.second[i])));
+    }
 
     *rv = ret_list;
   });

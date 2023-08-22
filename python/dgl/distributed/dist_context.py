@@ -214,6 +214,8 @@ def initialize(
     net_type="socket",
     num_worker_threads=1,
     load_precoms=False,
+    num_layers=0,
+    num_hiddens=0,
     precom_path=""
 ):
     """Initialize DGL's distributed module
@@ -277,6 +279,8 @@ def initialize(
             keep_alive=keep_alive,
             net_type=net_type,
             load_precoms=load_precoms,
+            num_layers=num_layers,
+            num_hiddens=num_hiddens,
             precom_path=precom_path
         )
         serv.start()

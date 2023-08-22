@@ -1,3 +1,5 @@
+import sys
+
 import torch
 import torch.distributed as dist
 
@@ -17,7 +19,8 @@ def _set_nccl_group(nccl_group):
 class DGLDistributedBlock(DGLBlock):
 
     def __init__(self,
-                 global_gpu_rank,
+                 gpu_rank_in_group,
+                 gpu_ranks,
                  num_assigned_target_nodes,
                  gidx=[],
                  ntypes=['_N'],
@@ -33,7 +36,7 @@ class DGLDistributedBlock(DGLBlock):
             edge_frames=edge_frames,
             **deprecate_kwargs)
 
-        self._set_dist_values(global_gpu_rank, num_assigned_target_nodes)
+        self._set_dist_values(gpu_rank_in_group, gpu_ranks, num_assigned_target_nodes)
         assert self._graph.number_of_etypes() == 1, "Distirbuted message passing currently supports homonegeous graphs only"
 
         etid = 0
@@ -45,8 +48,9 @@ class DGLDistributedBlock(DGLBlock):
         self._node_frames[self._dtid] = frame.Frame(num_rows=self._num_local_target_nodes)
 
 
-    def _set_dist_values(self, global_gpu_rank, num_assigned_target_nodes):
-        self._global_gpu_rank = global_gpu_rank
+    def _set_dist_values(self, gpu_rank_in_group, gpu_ranks, num_assigned_target_nodes):
+        self._gpu_rank_in_group = gpu_rank_in_group
+        self._gpu_ranks = gpu_ranks
         self._num_gpus = len(num_assigned_target_nodes)
         self._num_assigned_target_nodes = num_assigned_target_nodes
         self._num_assigned_target_nodes_cumsum = [0] * (self._num_gpus + 1)
@@ -54,14 +58,14 @@ class DGLDistributedBlock(DGLBlock):
             self._num_assigned_target_nodes_cumsum[i + 1] = self._num_assigned_target_nodes_cumsum[i] + \
                 self._num_assigned_target_nodes[i]
         self._in_degrees = None
-        self._target_start_idx = self._num_assigned_target_nodes_cumsum[self._global_gpu_rank]
-        self._target_end_idx = self._num_assigned_target_nodes_cumsum[self._global_gpu_rank + 1]
+        self._target_start_idx = self._num_assigned_target_nodes_cumsum[self._gpu_rank_in_group]
+        self._target_end_idx = self._num_assigned_target_nodes_cumsum[self._gpu_rank_in_group + 1]
         self._num_target_nodes = self._num_assigned_target_nodes_cumsum[-1]
-        self._num_local_target_nodes = num_assigned_target_nodes[global_gpu_rank]
+        self._num_local_target_nodes = num_assigned_target_nodes[gpu_rank_in_group]
 
     @property
-    def global_gpu_rank(self):
-        return self._global_gpu_rank
+    def gpu_rank_in_group(self):
+        return self._gpu_rank_in_group
 
     @property
     def num_assigned_target_nodes(self):
@@ -269,13 +273,13 @@ class DGLDistributedBlock(DGLBlock):
         output_tensor = torch.zeros(output_tensor_dim, dtype=input_tensor.dtype, device=self.device)
         outputs = list(output_tensor.split(self._num_assigned_target_nodes))
 
-        for gpu_idx in range(self._num_gpus):
-            if gpu_idx == self._global_gpu_rank:
-                req_handles.append(dist.broadcast(input_tensor, gpu_idx, async_op=True, group=NCCL_GROUP))
+        for i in range(self._num_gpus):
+            if i == self._gpu_rank_in_group:
+                req_handles.append(dist.broadcast(input_tensor, self._gpu_ranks[i], async_op=True, group=NCCL_GROUP))
             else:
-                req_handles.append(dist.broadcast(outputs[gpu_idx], gpu_idx, async_op=True, group=NCCL_GROUP))
+                req_handles.append(dist.broadcast(outputs[i], self._gpu_ranks[i], async_op=True, group=NCCL_GROUP))
 
-        outputs[self._global_gpu_rank].copy_(input_tensor)
+        outputs[self._gpu_rank_in_group].copy_(input_tensor)
 
         for r in req_handles:
             r.wait()

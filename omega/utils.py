@@ -18,11 +18,26 @@ from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
 
 def load_graph(graph_name):
-    
     if graph_name == "reddit":
-        return RedditDataset(self_loop=True)[0]
-    elif graph_name == "ogb-product":
-        return DglNodePropPredDataset(name="ogbn-products")[0][0]
+        g = RedditDataset(self_loop=True)[0]
+        g.ndata.pop("label")
+        g.ndata.pop("test_mask")
+        g.ndata.pop("val_mask")
+        g.ndata.pop("train_mask")
+        feat = g.ndata.pop("feat")
+        g.ndata["features"] = feat
+        g.edata.pop("__orig__")
+        return  g
+    elif graph_name == "ogb-product" or graph_name == "ogbn-products":
+        g = DglNodePropPredDataset(name="ogbn-products")[0][0]
+        feat = g.ndata.pop("feat")
+        g.ndata["features"] = feat
+        return g
+    elif graph_name == "ogb-papers100M" or graph_name == "ogbn-papers100M":
+        g = DglNodePropPredDataset(name="ogbn-papers100M")[0][0]
+        feat = g.ndata.pop("feat")
+        g.ndata["features"] = feat
+        return g
     else:
         # TODO(gwkim): add other datasets
         raise f"{graph_name} is not supported yet."

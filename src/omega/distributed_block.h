@@ -23,5 +23,11 @@ std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock(
     const IdArray& target_gnids, const IdArray& src_gnids,
     const IdArray& src_part_ids, const IdArray& dst_gnids);
 
+std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref,
+                                           const IdArray& u,
+                                           const IdArray& v,
+                                           const IdArray& dst_ids,
+                                           const IdArray& src_ids);
+
 }
 }

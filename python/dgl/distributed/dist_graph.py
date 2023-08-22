@@ -294,7 +294,7 @@ class DistGraphServer(KVServer):
                  num_clients, part_config, disable_shared_mem=False,
                  graph_format=('csc', 'coo'), keep_alive=False,
                  net_type='socket',
-                 load_precoms=False, precom_path=""):
+                 load_precoms=False, num_layers=0, num_hiddens=0, precom_path=""):
         super(DistGraphServer, self).__init__(server_id=server_id,
                                               ip_config=ip_config,
                                               num_servers=num_servers,
@@ -343,6 +343,7 @@ class DistGraphServer(KVServer):
         if not self.is_backup_server():
             node_feats, _ = load_partition_feats(part_config, self.part_id,
                 load_nodes=True, load_edges=False)
+
             for name in node_feats:
                 # The feature name has the following format: node_type + "/" + feature_name to avoid
                 # feature name collision for different node types.
@@ -351,12 +352,14 @@ class DistGraphServer(KVServer):
                 self.init_data(name=str(data_name), policy_str=data_name.policy_str,
                                data_tensor=node_feats[name])
                 self.orig_data.add(str(data_name))
+
+                num_nodes_in_partition = node_feats[name].shape[0]
             # Let's free once node features are copied to shared memory
             del node_feats
             gc.collect()
 
             if load_precoms:
-                precom_embeds = load_partition_precom_embeds(part_config, self.part_id, precom_path)
+                precom_embeds = load_partition_precom_embeds(part_config, self.part_id, num_layers, num_hiddens, num_nodes_in_partition, precom_path)
                 for name in precom_embeds:
                     ntype, precom_name = name.split('/')
                     data_name = HeteroDataName(True, ntype, precom_name)

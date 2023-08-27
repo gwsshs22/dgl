@@ -1,5 +1,7 @@
 """Neighbor sampling APIs"""
 
+import dgl
+
 from .._ffi.function import _init_api
 from .. import backend as F
 from ..base import DGLError, EID
@@ -332,6 +334,26 @@ def sample_neighbors(g, nodes, fanout, edge_dir='in', prob=None,
             eid_excluder = EidExcluder(exclude_edges)
             frontier = eid_excluder(frontier)
     return frontier if output_device is None else frontier.to(output_device)
+
+def sample_edges(g, seeds, fanout):
+    device = utils.context_of(seeds)
+    ctx = utils.to_dgl_context(device)
+    seeds = F.to_dgl_nd(seeds)
+
+    fanouts = F.to_dgl_nd(F.tensor([fanout], dtype=F.int64))
+    subgidx = _CAPI_DGLSampleNeighbors(
+        g._graph, [seeds], fanouts, 'in', [nd.array([], ctx=ctx)],
+        [], False)
+    subgidx = subgidx.graph
+    e = subgidx.edges(0)
+    src, dst = e[0], e[1]
+
+    global_nid_mapping = g.ndata[dgl.NID]
+    global_src, global_dst = F.gather_row(
+        global_nid_mapping, src
+    ), F.gather_row(global_nid_mapping, dst)
+
+    return global_src, global_dst
 
 def _sample_neighbors(g, nodes, fanout, edge_dir='in', prob=None,
                       replace=False, copy_ndata=True, copy_edata=True,

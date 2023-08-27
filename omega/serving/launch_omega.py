@@ -486,6 +486,7 @@ def submit_jobs(args, dry_run=False):
         print(
             "Currently it's in dry run mode which means no jobs will be launched."
         )
+    num_servers = 1
     servers_cmd = []
     master_cmd = []
     workers_cmd = []
@@ -509,7 +510,7 @@ def submit_jobs(args, dry_run=False):
                 hosts.append((ip, port))
             else:
                 raise RuntimeError("Format error of ip_config.")
-            server_count_per_machine = args.num_servers
+            server_count_per_machine = num_servers
     # Get partition info of the graph data
     part_config = os.path.join(args.workspace, args.part_config)
     with open(part_config) as conf_f:
@@ -522,17 +523,13 @@ def submit_jobs(args, dry_run=False):
 
     state_q = queue.Queue()
     tot_num_clients = args.num_trainers * (1 + args.num_samplers) * len(hosts)
-    # launch server tasks
-    server_command = (
-        f"{args.python_bin} {args.dgl_home}/omega/serving/graph_server.py " +
-        f"--ip_config {args.ip_config} " +
-        f"--num_layers {args.num_layers} " +
-        f"--num_hiddens {args.num_hiddens} " +
-        (f"--use_precoms  " if args.use_precoms else "") +
-        (f"--precom_path {args.precom_path} " if args.precom_path else "") +
-        f"--random_seed {args.random_seed} "
-    )
 
+    master_addr = hosts[0][0]
+    master_ports = get_available_port(master_addr, 2) 
+    master_rpc_port = master_ports[0]
+    master_dist_comm_port = master_ports[1]
+
+    # launch server tasks
     if not has_alive_servers(args):
         server_env_vars = construct_dgl_server_env_vars(
             num_samplers=args.num_samplers,
@@ -540,7 +537,7 @@ def submit_jobs(args, dry_run=False):
             tot_num_clients=tot_num_clients,
             part_config=args.part_config,
             ip_config=args.ip_config,
-            num_servers=args.num_servers,
+            num_servers=num_servers,
             graph_format=args.graph_format,
             keep_alive=args.keep_alive,
             pythonpath=os.environ.get("PYTHONPATH", ""),
@@ -548,6 +545,21 @@ def submit_jobs(args, dry_run=False):
         for i in range(len(hosts) * server_count_per_machine):
             ip, _ = hosts[int(i / server_count_per_machine)]
             server_env_vars_cur = f"{server_env_vars} DGL_SERVER_ID={i}"
+
+            server_command = (
+                f"{args.python_bin} {args.dgl_home}/omega/serving/graph_server.py " +
+                f"--ip_config {args.ip_config} " +
+                f"--num_layers {args.num_layers} " +
+                f"--num_hiddens {args.num_hiddens} " +
+                (f"--use_precoms  " if args.use_precoms else "") +
+                (f"--precom_path {args.precom_path} " if args.precom_path else "") +
+                f"--random_seed {args.random_seed} "
+                f"--master_ip {master_addr} " +
+                f"--master_rpc_port {master_rpc_port} " +
+                f"--num_machines {len(hosts)} " +
+                f"--num_gpus_per_machine {args.num_trainers} " +
+                f"--machine_rank {i} "
+            )
 
             cmd = wrap_cmd_with_local_envvars(server_command, server_env_vars_cur)
             cmd = (
@@ -576,7 +588,7 @@ def submit_jobs(args, dry_run=False):
         tot_num_clients=tot_num_clients,
         part_config=args.part_config,
         ip_config=args.ip_config,
-        num_servers=args.num_servers,
+        num_servers=num_servers,
         graph_format=args.graph_format,
         num_omp_threads=os.environ.get(
             "OMP_NUM_THREADS", str(args.num_omp_threads)
@@ -585,20 +597,17 @@ def submit_jobs(args, dry_run=False):
         pythonpath=os.environ.get("PYTHONPATH", ""),
     )
 
-    master_addr = hosts[0][0]
-    master_ports = get_available_port(master_addr, 2) 
-    master_rpc_port = master_ports[0]
-    master_dist_comm_port = master_ports[1]
-
     # Launch master
     master_command = (
         f"{args.python_bin} {args.dgl_home}/omega/serving/master.py " +
+        f"--ip_config {args.ip_config} " +
         f"--master_ip {master_addr} " +
         f"--master_rpc_port {master_rpc_port} " +
         f"--master_dist_comm_port {master_dist_comm_port} " +
         f"--num_machines {len(hosts)} " +
         f"--num_gpus_per_machine {args.num_trainers} " +
         f"--part_config_path {part_config} " +
+        f"--worker_num_sampler_threads {args.worker_num_sampler_threads} " +
         f"--exec_mode {args.exec_mode} " +
         (f"--use_precoms  " if args.use_precoms else "") +
         f"--trace_dir {args.trace_dir} " +
@@ -638,10 +647,8 @@ def submit_jobs(args, dry_run=False):
         for local_rank in range(args.num_trainers):
             worker_command = (
                 f"{args.python_bin} {args.dgl_home}/omega/serving/worker.py "
-                f"--ip_config {args.ip_config} "
                 f"--master_ip {master_addr} "
                 f"--master_rpc_port {master_rpc_port} "
-                f"--master_dist_comm_port {master_dist_comm_port} "
                 f"--num_machines {len(hosts)} "
                 f"--machine_rank {node_id} "
                 f"--num_gpus_per_machine {args.num_trainers} "
@@ -652,7 +659,7 @@ def submit_jobs(args, dry_run=False):
                 worker_command, client_env_vars
             )
             cmd = (
-                wrap_cmd_with_extra_envvars(cmd, args.extra_envs)
+                wrap_cmd_with_extra_envvars(cmd, args.extra_envs + [f"OMP_NUM_THREADS={args.worker_omp_threads}"])
                 if len(args.extra_envs) > 0
                 else cmd
             )
@@ -717,6 +724,8 @@ def main():
                         the contents of current directory will be rsyncd",
     )
     parser.add_argument("--master_omp_threads", type=int, default=8)
+    parser.add_argument("--worker_num_sampler_threads", type=int, default=16)
+    parser.add_argument("--worker_omp_threads", type=int, default=8)
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)
     parser.add_argument('--exp_type', type=str, choices=["latency", "throughput"], required=True)
@@ -757,11 +766,6 @@ def main():
         help="The number of sampler processes per trainer process",
     )
     parser.add_argument(
-        "--num_servers",
-        type=int,
-        help="The number of server processes per machine",
-    )
-    parser.add_argument(
         "--part_config",
         type=str,
         help="The file (in workspace) of the partition config",
@@ -774,10 +778,10 @@ def main():
     parser.add_argument(
         "--num_server_threads",
         type=int,
-        default=1,
+        default=4,
         help="The number of OMP threads in the server process. \
                         It should be small if server processes and trainer processes run on \
-                        the same machine. By default, it is 1.",
+                        the same machine. By default, it is 4.",
     )
     parser.add_argument(
         "--graph_format",
@@ -819,9 +823,6 @@ def main():
     assert (
         args.num_samplers is not None and args.num_samplers >= 0
     ), "--num_samplers must be a non-negative number."
-    assert (
-        args.num_servers is not None and args.num_servers > 0
-    ), "--num_servers must be a positive number."
     assert (
         args.num_server_threads > 0
     ), "--num_server_threads must be a positive number."

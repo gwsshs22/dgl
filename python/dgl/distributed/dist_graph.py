@@ -384,6 +384,10 @@ class DistGraphServer(KVServer):
             del edge_feats
             gc.collect()
 
+    @property
+    def local_partition(self):
+        return self.client_g
+
     def start(self):
         """ Start graph store server.
         """

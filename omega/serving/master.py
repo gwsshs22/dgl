@@ -1,5 +1,4 @@
 import argparse
-from threading import Thread
 import queue
 import sys
 import time
@@ -46,14 +45,14 @@ class RequestDoneContext:
 def main(args):
     num_machines = args.num_machines
     num_gpus_per_machine = args.num_gpus_per_machine
-    world_size = num_machines * num_gpus_per_machine + 1
+    world_size = num_machines * num_gpus_per_machine
     part_config_path = args.part_config_path
     exec_mode = args.exec_mode
 
     os.environ["MASTER_ADDR"] = str(args.master_ip)
     os.environ["MASTER_PORT"] = str(args.master_rpc_port)
 
-    rpc.init_rpc("master", rank=0, world_size=world_size)
+    rpc.init_rpc("master", rank=0, world_size=world_size + 1 + num_machines)
 
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
@@ -78,10 +77,13 @@ def main(args):
             f"worker-{i}",
             WorkerAsyncExecContext,
             args=(
+                args.ip_config,
+                args.net_type,
                 args.master_ip,
                 args.master_dist_comm_port,
                 num_machines,
                 num_gpus_per_machine,
+                args.worker_num_sampler_threads,
                 args.part_config_path,
                 Path(args.part_config_path).stem,
                 i // num_gpus_per_machine,
@@ -101,7 +103,7 @@ def main(args):
         exec_mode,
         worker_async_exec_contexts)
     num_worker_groups = len(worker_group_comms)
-    time.sleep(5)
+
     # Warm-ups
     num_warmups = num_workers * 2
     warm_up_futs = []
@@ -118,7 +120,7 @@ def main(args):
 
     print("Waiting for warmup requests.", flush=True)
     torch.futures.wait_all(warm_up_futs)
-    print("Warmup done.")
+    print("Warmup done.", flush=True)
 
     if args.exp_type == "throughput":
         run_throughput_exp(worker_group_comms, req_generator, batch_id)
@@ -126,7 +128,13 @@ def main(args):
         run_latency_exp(worker_group_comms, req_generator, batch_id)
     else:
         raise f"Unknown exp_type={exp_type}"
+    print("Master finished.", flush=True)
+
+    for async_exec_context in worker_async_exec_contexts:
+        async_exec_context.rpc_sync().shutdown()
+
     rpc.shutdown()
+    print("Master shutdowned.", flush=True)
 
 def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
     done_context = RequestDoneContext()
@@ -187,12 +195,16 @@ def run_latency_exp(worker_group_comms, req_generator, current_batch_id):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--ip_config', type=str, help='The file for IP configuration')
+    parser.add_argument('--net_type', type=str, default='socket',
+                        help="backend net type, 'socket' or 'tensorpipe'")
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
     parser.add_argument('--master_dist_comm_port', type=int)
     parser.add_argument('--num_machines', type=int)
     parser.add_argument('--num_gpus_per_machine', type=int)
     parser.add_argument('--part_config_path', type=str, required=True)
+    parser.add_argument("--worker_num_sampler_threads", type=int, default=16)
     parser.add_argument('--use_precoms', action="store_true")
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)

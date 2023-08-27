@@ -207,6 +207,11 @@ class CustomPool:
         for i in range(self.num_workers):
             self.process_list[i].join()
 
+DIST_GRAPH_SERVER = None
+
+def get_dist_graph_server():
+    assert DIST_GRAPH_SERVER is not None
+    return DIST_GRAPH_SERVER
 
 def initialize(
     ip_config,
@@ -249,6 +254,7 @@ def initialize(
     """
     if os.environ.get("DGL_ROLE", "client") == "server":
         from .dist_graph import DistGraphServer
+        global DIST_GRAPH_SERVER
 
         assert (
             os.environ.get("DGL_SERVER_ID") is not None
@@ -283,6 +289,7 @@ def initialize(
             num_hiddens=num_hiddens,
             precom_path=precom_path
         )
+        DIST_GRAPH_SERVER = serv
         serv.start()
         sys.exit()
     else:

@@ -13,6 +13,9 @@
 namespace dgl {
 namespace omega {
 
+std::vector<int64_t> GetNumAssignedTargetsPerGpu(
+    int num_machines, int num_gpus_per_machine, int num_targets);
+
 std::pair<std::vector<HeteroGraphPtr>, std::vector<IdArray>> ToDistributedBlocks(
     int num_machines, int machine_rank, int num_gpus_per_machine,
     const IdArray& target_gnids, const IdArray& src_gnids,

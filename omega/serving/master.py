@@ -22,12 +22,19 @@ class RequestDoneContext:
         self._done_counts = 0
         self._error_makred = False
         self._ex = None
+        self._exp_started = None
+        self._exp_finished = None
 
     def inc_req(self):
+        if self._req_counts == 0:
+            self._exp_started = time.perf_counter()
+
         self._req_counts += 1
 
     def inc_done(self):
         self._done_counts += 1
+        if self._done_counts == self._req_counts:
+            self._exp_finished = time.perf_counter()
 
     def finished(self):
         return self._req_counts == self._done_counts or self._error_makred
@@ -41,6 +48,9 @@ class RequestDoneContext:
 
     def get_ex(self):
         return self._ex
+
+    def get_elapsed_time(self):
+        return self._exp_finished - self._exp_started
 
 def main(args):
     num_machines = args.num_machines
@@ -145,8 +155,9 @@ def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
                 batch_id = ret[0].value()[0]
             else:
                 batch_id, result_tensor = ret
-            print(f"batch_id={batch_id} done.")
             done_context.inc_done()
+            print(f"batch_id={batch_id} done.")
+
         except Exception as ex:
             done_context.mark_error(ex)
 
@@ -168,6 +179,7 @@ def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
     while not done_context.finished():
         time.sleep(0.5)
 
+    print(f"Exp elapsed time = {done_context.get_elapsed_time()}", flush=True)
     if done_context.error_marked():
         print(f"An exception occurred while executing inference requests: {done_context.get_ex()}")
 

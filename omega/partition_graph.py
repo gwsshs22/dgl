@@ -90,7 +90,7 @@ def delete_infer_edges(args):
         json.dump(config, outfile, sort_keys=True, indent=4)
 
 def main(args):
-    org_g = load_graph(args.dataset)
+    org_g = load_graph(args.dataset, args.amazon_path)
     save_infer_graph(args, org_g)
     partition_org_graph(args, org_g)
     del org_g
@@ -100,7 +100,8 @@ def main(args):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("Partition graphs")
     argparser.add_argument('--dataset', type=str, default='reddit',
-                           help='datasets: reddit, ogbn-products, ogbn-papers100M')
+                           help='datasets: reddit, ogbn-products, ogbn-papers100M, amazon')
+    argparser.add_argument('--amazon_path', type=str)
     argparser.add_argument('--num_parts', type=int, default=4,
                            help='number of partitions')
     argparser.add_argument('--part_method', type=str, default='random', choices=["random", "metis"],
@@ -109,8 +110,11 @@ if __name__ == "__main__":
     argparser.add_argument('--output', type=str, default='data',
                            help='Output path of partitioned graph.', required=True)
     argparser.add_argument('--infer_prob', type=float, default=0.1)
-    
+
     args = argparser.parse_args()
     np.random.seed(args.random_seed)
+
+    if args.dataset == "amazon":
+        assert args.amazon_path is not None
 
     main(args)

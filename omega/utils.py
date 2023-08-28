@@ -17,7 +17,7 @@ import scipy.sparse
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
 
-def load_graph(graph_name):
+def load_graph(graph_name, amazon_path):
     if graph_name == "reddit":
         g = RedditDataset(self_loop=True)[0]
         g.ndata.pop("label")
@@ -38,9 +38,32 @@ def load_graph(graph_name):
         feat = g.ndata.pop("feat")
         g.ndata["features"] = feat
         return g
+    elif graph_name == "amazon":
+        return load_amazon(amazon_path)
     else:
         # TODO(gwkim): add other datasets
         raise f"{graph_name} is not supported yet."
+
+def load_amazon(amazon_path):
+    adj_full = scipy.sparse.load_npz("{}/adj_full.npz".format(amazon_path)).astype(
+        bool
+    )
+    g = dgl.from_scipy(adj_full)
+    num_nodes = g.num_nodes()
+
+    adj_train = scipy.sparse.load_npz(
+        "{}/adj_train.npz".format(amazon_path)
+    ).astype(bool)
+    train_nid = np.array(list(set(adj_train.nonzero()[0])))
+
+    feats = np.load("{}/feats.npy".format(amazon_path))
+    scaler = StandardScaler()
+    scaler.fit(feats[train_nid])
+    feats = scaler.transform(feats)
+
+    g.ndata["features"] = torch.tensor(feats, dtype=torch.float)
+
+    return g
 
 class Timer:
     def __init__(self):

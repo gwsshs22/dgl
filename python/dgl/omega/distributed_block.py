@@ -101,7 +101,6 @@ class DGLDistributedBlock(DGLBlock):
             return
 
         assert is_all(u), f"Only {ALL} is supported currently. Got {u}"
-        num_nodes = self._num_local_target_nodes
         self._node_frames[ntid].update(data)
 
     def _create_local_graph(self):

@@ -6,10 +6,13 @@ import sys
 import threading
 import queue
 import json
+import time
 from pathlib import Path
+from contextlib import contextmanager
 
 import torch
 import torch.distributed.rpc as rpc
+from torch.profiler import profile, record_function, ProfilerActivity
 import numpy as np
 
 import dgl
@@ -55,7 +58,8 @@ class WorkerAsyncExecContext:
         exec_mode,
         use_precoms,
         model_config,
-        random_seed):
+        random_seed,
+        tracing):
 
         num_gpus_per_machine_in_group, gpu_ranks, local_gpu_rank_in_group, nid_partitions = self._get_cgp_conf(
             num_machines, machine_rank, num_gpus_per_machine, global_rank, local_rank, exec_mode, part_config)
@@ -108,7 +112,8 @@ class WorkerAsyncExecContext:
                 exec_mode,
                 use_precoms,
                 model_config,
-                random_seed))
+                random_seed,
+                tracing))
         self._process_thread.start()
 
     def _get_cgp_conf(self, num_machines, machine_rank, num_gpus_per_machine, global_rank, local_rank, exec_mode, part_config):
@@ -282,11 +287,8 @@ def process_main(
     exec_mode,
     use_precoms,
     model_config,
-    random_seed):
-
-    pending_requests = {}
-    req_id_heap = []
-    expected_req_id = 0
+    random_seed,
+    tracing):
 
     gpu_ranks = None
     if exec_mode == "cgp" or exec_mode == "cgp-multi":
@@ -322,30 +324,42 @@ def process_main(
         model_config,
         random_seed)
 
-    while True:
-        request = req_queue.get()
-        req_id = request[0]
-        if req_id < 0:
-            break
-
-        assert req_id >= expected_req_id
-        if expected_req_id == req_id:
-            expected_req_id += 1
-            exec_context.process_request(*request)
-        else:
-            # Handle out of order arrivals.
-            pending_requests[req_id] = request
-            heapq.heappush(req_id_heap, req_id)
+    def run():
+        pending_requests = {}
+        req_id_heap = []
+        expected_req_id = 0
 
         while True:
-            if req_id_heap and req_id_heap[0] == expected_req_id:
-                req_id = heapq.heappop(req_id_heap)
-                request = pending_requests[req_id]
-                del pending_requests[req_id]
+            request = req_queue.get()
+            req_id = request[0]
+            if req_id < 0:
+                break
+
+            assert req_id >= expected_req_id
+            if expected_req_id == req_id:
                 expected_req_id += 1
                 exec_context.process_request(*request)
             else:
-                break
+                # Handle out of order arrivals.
+                pending_requests[req_id] = request
+                heapq.heappush(req_id_heap, req_id)
+
+            while True:
+                if req_id_heap and req_id_heap[0] == expected_req_id:
+                    req_id = heapq.heappop(req_id_heap)
+                    request = pending_requests[req_id]
+                    del pending_requests[req_id]
+                    expected_req_id += 1
+                    exec_context.process_request(*request)
+                else:
+                    break
+
+    if tracing:
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+            run()
+        prof.export_chrome_trace(f"trace_{local_rank}_{exec_mode}.json")
+    else:
+        run()
 
 class LocalExecutionContext:
 

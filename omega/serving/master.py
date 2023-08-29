@@ -102,7 +102,8 @@ def main(args):
                 exec_mode,
                 args.use_precoms,
                 model_config,
-                args.random_seed))
+                args.random_seed,
+                args.tracing))
         for i in range(num_workers)
     ]
 
@@ -220,6 +221,8 @@ if __name__ == "__main__":
     parser.add_argument('--use_precoms', action="store_true")
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)
+
+    parser.add_argument('--tracing', action="store_true")
 
     parser.add_argument('--exp_type', type=str, choices=["latency", "throughput"], required=True)
     # For latency exp

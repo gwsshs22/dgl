@@ -71,6 +71,8 @@ def main(args):
             args.random_seed))
     dgl_server_thread.start()
 
+    num_omega_groups = args.num_omega_groups
+
     num_machines = args.num_machines
     machine_rank = args.machine_rank
     num_gpus_per_machine = args.num_gpus_per_machine
@@ -81,7 +83,10 @@ def main(args):
     os.environ["MASTER_ADDR"] = str(args.master_ip)
     os.environ["MASTER_PORT"] = str(args.master_rpc_port)
 
-    rpc.init_rpc(f"server-{server_rank}", rank=world_size + 1 + server_rank, world_size=world_size + 1 + num_machines)
+    rpc.init_rpc(f"server-{server_rank}",
+        rank=world_size * num_omega_groups + 1 + server_rank,
+        world_size=world_size * num_omega_groups + 1 + num_machines
+    )
     rpc.shutdown()
     dgl_server_thread.join()
 
@@ -89,6 +94,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
+    parser.add_argument("--num_omega_groups", type=int, default=1)
     parser.add_argument('--num_machines', type=int)
     parser.add_argument('--machine_rank', type=int)
     parser.add_argument('--num_gpus_per_machine', type=int)

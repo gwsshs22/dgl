@@ -13,7 +13,7 @@ import dgl
 
 from infer_requests import create_req_generator
 from worker import WorkerAsyncExecContext, ModelConfig
-from worker_comm import create_worker_group_communicators
+from worker_comm import create_worker_communicators
 
 class RequestDoneContext:
 
@@ -53,6 +53,7 @@ class RequestDoneContext:
         return self._exp_finished - self._exp_started
 
 def main(args):
+    num_omega_groups = args.num_omega_groups
     num_machines = args.num_machines
     num_gpus_per_machine = args.num_gpus_per_machine
     world_size = num_machines * num_gpus_per_machine
@@ -62,7 +63,7 @@ def main(args):
     os.environ["MASTER_ADDR"] = str(args.master_ip)
     os.environ["MASTER_PORT"] = str(args.master_rpc_port)
 
-    rpc.init_rpc("master", rank=0, world_size=world_size + 1 + num_machines)
+    rpc.init_rpc("master", rank=0, world_size=world_size * num_omega_groups + 1 + num_machines)
 
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
@@ -72,7 +73,6 @@ def main(args):
         -1.0 if args.exp_type == "latency" else args.req_per_sec,
         args.arrival_type)
 
-    num_workers = num_machines * num_gpus_per_machine
     model_config = ModelConfig(
         gnn=args.gnn,
         num_inputs=args.num_inputs,
@@ -83,85 +83,92 @@ def main(args):
         fanouts=args.fanouts,
     )
 
-    worker_async_exec_contexts = [
-        rpc.remote(
-            f"worker-{i}",
-            WorkerAsyncExecContext,
-            args=(
-                args.ip_config,
-                args.net_type,
-                args.master_ip,
-                args.master_dist_comm_port,
-                num_machines,
-                num_gpus_per_machine,
-                args.worker_num_sampler_threads,
-                args.part_config_path,
-                Path(args.part_config_path).stem,
-                i // num_gpus_per_machine,
-                i,
-                i % num_gpus_per_machine,
-                exec_mode,
-                args.use_precoms,
-                model_config,
-                args.random_seed,
-                args.tracing))
-        for i in range(num_workers)
+    master_dist_comm_ports = [int(p) for p in args.master_dist_comm_ports.split(",")]
+    assert len(master_dist_comm_ports) == args.num_omega_groups
+    worker_async_exec_context_groups = [
+        [
+            rpc.remote(
+                f"worker-{world_size * omega_group_id + worker_idx}",
+                WorkerAsyncExecContext,
+                args=(
+                    args.ip_config,
+                    args.net_type,
+                    args.master_ip,
+                    master_dist_comm_ports[omega_group_id],
+                    num_machines,
+                    num_gpus_per_machine,
+                    args.worker_num_sampler_threads,
+                    args.part_config_path,
+                    omega_group_id,
+                    Path(args.part_config_path).stem,
+                    worker_idx // num_gpus_per_machine,
+                    worker_idx,
+                    worker_idx % num_gpus_per_machine,
+                    exec_mode,
+                    args.use_precoms,
+                    model_config,
+                    args.random_seed,
+                    args.tracing
+                )
+            )
+            for worker_idx in range(world_size)
+        ] for omega_group_id in range(args.num_omega_groups)
     ]
 
-    worker_group_comms = create_worker_group_communicators(
+    worker_comms = create_worker_communicators(
         num_machines,
         num_gpus_per_machine,
         part_config_path,
         exec_mode,
-        worker_async_exec_contexts)
-    num_worker_groups = len(worker_group_comms)
+        worker_async_exec_context_groups)
 
+    if args.exp_type == "throughput":
+        num_warmups = world_size * num_omega_groups * 2
+        run_throughput_exp(worker_comms, num_warmups, req_generator)
+    elif args.exp_type == "latency":
+        run_latency_exp(worker_comms, req_generator)
+    else:
+        raise f"Unknown exp_type={exp_type}"
+    print("Master finished.", flush=True)
+
+    for worker_async_exec_contexts in worker_async_exec_context_groups:
+        for async_exec_context in worker_async_exec_contexts:
+            async_exec_context.rpc_sync().shutdown()
+
+    rpc.shutdown()
+    print("Master shutdowned.", flush=True)
+
+def run_throughput_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
-    num_warmups = num_workers * 2
     warm_up_futs = []
-
+    num_worker_comms = len(worker_comms)
     batch_id = 0
     for batch_req in req_generator:
-        group_id = batch_id % num_worker_groups
-        fut = worker_group_comms[group_id].request(batch_id, batch_req)
+        comm_id = batch_id % num_worker_comms
+        fut = worker_comms[comm_id].request(batch_id, batch_req)
         warm_up_futs.append(fut)
         batch_id += 1
 
         if len(warm_up_futs) == num_warmups:
             break
 
-    print("Waiting for warmup requests.", flush=True)
+    print(f"Waiting for {num_warmups} warmup requests.", flush=True)
     torch.futures.wait_all(warm_up_futs)
     print("Warmup done.", flush=True)
+    time.sleep(2)
 
-    if args.exp_type == "throughput":
-        run_throughput_exp(worker_group_comms, req_generator, batch_id)
-    elif args.exp_type == "latency":
-        run_latency_exp(worker_group_comms, req_generator, batch_id)
-    else:
-        raise f"Unknown exp_type={exp_type}"
-    print("Master finished.", flush=True)
-
-    for async_exec_context in worker_async_exec_contexts:
-        async_exec_context.rpc_sync().shutdown()
-
-    rpc.shutdown()
-    print("Master shutdowned.", flush=True)
-
-def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
     done_context = RequestDoneContext()
     latencies = []
 
     req_start_t = time.time()
 
-    num_worker_groups = len(worker_group_comms)
     num_reqs = int(args.req_per_sec * args.exp_secs)
-    batch_id = current_batch_id
+
     req_counts = 0
     for batch_req in req_generator:
-        group_id = batch_id % num_worker_groups
+        comm_id = batch_id % num_worker_comms
         done_context.inc_req()
-        fut = worker_group_comms[group_id].request(batch_id, batch_req)
+        fut = worker_comms[comm_id].request(batch_id, batch_req)
         def done_callback(fut, start_t=time.time()):
             try:
                 ret = fut.wait()
@@ -198,12 +205,29 @@ def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
         print(f"An exception occurred while executing inference requests: {done_context.get_ex()}")
 
 
-def run_latency_exp(worker_group_comms, req_generator, current_batch_id):
-    batch_id = current_batch_id
+def run_latency_exp(worker_comms, req_generator):
+    # Warm-ups
+    num_warmups = 5
+    warm_up_futs = []
+
+    batch_id = 0
+    for batch_req in req_generator:
+        fut = worker_comms[-1].request(batch_id, batch_req)
+        warm_up_futs.append(fut)
+        batch_id += 1
+
+        if len(warm_up_futs) == num_warmups:
+            break
+
+    print("Waiting for warmup requests.", flush=True)
+    torch.futures.wait_all(warm_up_futs)
+    print("Warmup done.", flush=True)
+    time.sleep(2)
+
     req_counts = 0
     for batch_req in req_generator:
         start_t = time.time()
-        fut = worker_group_comms[-1].request(batch_id, batch_req)
+        fut = worker_comms[-1].request(batch_id, batch_req)
         ret = fut.wait()
         done_t = time.time()
         if isinstance(ret, list):
@@ -226,7 +250,8 @@ if __name__ == "__main__":
                         help="backend net type, 'socket' or 'tensorpipe'")
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
-    parser.add_argument('--master_dist_comm_port', type=int)
+    parser.add_argument('--master_dist_comm_ports', type=str)
+    parser.add_argument("--num_omega_groups", type=int, default=1)
     parser.add_argument('--num_machines', type=int)
     parser.add_argument('--num_gpus_per_machine', type=int)
     parser.add_argument('--part_config_path', type=str, required=True)

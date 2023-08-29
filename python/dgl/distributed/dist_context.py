@@ -213,6 +213,26 @@ def get_dist_graph_server():
     assert DIST_GRAPH_SERVER is not None
     return DIST_GRAPH_SERVER
 
+def initialize_omega_worker(
+    ip_config,
+    net_type,
+    omega_group_id,
+    max_queue_size=MAX_QUEUE_SIZE
+):
+    num_servers = 1
+
+    connect_to_server(
+        ip_config,
+        num_servers,
+        max_queue_size,
+        net_type,
+        group_id=0,
+    )
+
+    role = "default" if omega_group_id == 0 else "sampler"
+    init_role(role)
+    init_kvstore(ip_config, num_servers, role)
+
 def initialize(
     ip_config,
     max_queue_size=MAX_QUEUE_SIZE,

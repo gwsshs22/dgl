@@ -77,35 +77,41 @@ class WorkerGroupCommunicator:
         self._req_id += 1
         return torch.futures.collect_all(futs)
 
-def create_worker_group_communicators(
+def create_worker_communicators(
     num_machines,
     num_gpus_per_machine,
     part_config_path,
     exec_mode,
-    worker_async_exec_contexts):
-    assert len(worker_async_exec_contexts) % num_gpus_per_machine == 0
+    worker_async_exec_context_groups):
 
-    if exec_mode == "dp":
-        return [SingleWorkerCommunicator(w) for w in worker_async_exec_contexts]
-    elif exec_mode == "cgp":
-        return [WorkerGroupCommunicator(
-            num_machines,
-            part_config_path,
-            worker_async_exec_contexts)]
-    elif exec_mode == "cgp-multi":
-        worker_comms = []
-        for local_rank in range(num_gpus_per_machine):
-            contexts = []
-            itr = local_rank
-            while itr < len(worker_async_exec_contexts):
-                contexts.append(worker_async_exec_contexts[itr])
-                itr += num_gpus_per_machine
-
-            worker_comms.append(WorkerGroupCommunicator(
+    ret_list = []
+    for worker_async_exec_contexts in worker_async_exec_context_groups:
+        assert len(worker_async_exec_contexts) % num_gpus_per_machine == 0
+        if exec_mode == "dp":
+            ret_list += [SingleWorkerCommunicator(w) for w in worker_async_exec_contexts]
+        elif exec_mode == "cgp":
+            ret_list += [WorkerGroupCommunicator(
                 num_machines,
                 part_config_path,
-                contexts))
+                worker_async_exec_contexts)]
+        elif exec_mode == "cgp-multi":
+            worker_comms = []
+            for local_rank in range(num_gpus_per_machine):
+                contexts = []
+                itr = local_rank
+                while itr < len(worker_async_exec_contexts):
+                    contexts.append(worker_async_exec_contexts[itr])
+                    itr += num_gpus_per_machine
 
-        return worker_comms
-    else:
-        raise f"Unknown exec_mode={exec_mode}"
+                worker_comms.append(WorkerGroupCommunicator(
+                    num_machines,
+                    part_config_path,
+                    contexts))
+
+            ret_list += worker_comms
+        else:
+            raise f"Unknown exec_mode={exec_mode}"
+            
+    return ret_list
+
+

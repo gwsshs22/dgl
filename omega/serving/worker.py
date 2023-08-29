@@ -51,6 +51,7 @@ class WorkerAsyncExecContext:
         num_gpus_per_machine,
         worker_num_sampler_threads,
         part_config,
+        omega_group_id,
         graph_name,
         machine_rank,
         global_rank,
@@ -72,6 +73,7 @@ class WorkerAsyncExecContext:
             net_type,
             graph_name,
             part_config,
+            omega_group_id,
             num_machines,
             machine_rank,
             exec_mode,
@@ -166,15 +168,17 @@ class DataProvider:
         net_type,
         graph_name,
         part_config,
+        omega_group_id,
         num_machines,
         machine_rank,
         exec_mode,
         use_precoms,
         num_layers):
 
-        dgl.distributed.initialize(
+        dgl.distributed.dist_context.initialize_omega_worker(
             ip_config,
-            net_type=net_type)
+            net_type,
+            omega_group_id)
 
         self._dist_g = dgl.distributed.DistGraph(graph_name, part_config=part_config)
         self._dist_g.barrier()
@@ -457,18 +461,25 @@ class LocalExecutionContext:
         return h.cpu()
 
 def main(args):
+    num_omega_groups = args.num_omega_groups
+    omega_group_id = args.omega_group_id
+
     num_machines = args.num_machines
     machine_rank = args.machine_rank
     num_gpus_per_machine = args.num_gpus_per_machine
     local_rank = args.local_rank
 
     world_size = num_machines * num_gpus_per_machine
-    global_rank = num_gpus_per_machine * machine_rank + local_rank
+    rpc_global_rank = world_size * omega_group_id + num_gpus_per_machine * machine_rank + local_rank
 
     os.environ["MASTER_ADDR"] = str(args.master_ip)
     os.environ["MASTER_PORT"] = str(args.master_rpc_port)
 
-    rpc.init_rpc(f"worker-{global_rank}", rank=global_rank + 1, world_size=world_size + 1 + num_machines)
+    rpc.init_rpc(
+        f"worker-{rpc_global_rank}",
+        rank=rpc_global_rank + 1,
+        world_size=world_size * num_omega_groups + 1 + num_machines
+    )
     rpc.shutdown()
 
 if __name__ == "__main__":
@@ -476,6 +487,8 @@ if __name__ == "__main__":
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
     parser.add_argument('--master_dist_comm_port', type=int)
+    parser.add_argument("--num_omega_groups", type=int, default=1)
+    parser.add_argument("--omega_group_id", type=int)
     parser.add_argument('--num_machines', type=int)
     parser.add_argument('--machine_rank', type=int)
     parser.add_argument('--num_gpus_per_machine', type=int)

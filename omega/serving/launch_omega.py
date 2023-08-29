@@ -210,7 +210,7 @@ def get_all_remote_pids(hosts, ssh_port, command_regex):
 
 def construct_dgl_server_env_vars(
     num_samplers: int,
-    num_server_threads: int,
+    server_omp_threads: int,
     tot_num_clients: int,
     part_config: str,
     ip_config: str,
@@ -225,7 +225,7 @@ def construct_dgl_server_env_vars(
 
     Args:
         num_samplers:
-        num_server_threads:
+        server_omp_threads:
         tot_num_clients:
         part_config: Partition config.
             Relative path to workspace.
@@ -259,7 +259,7 @@ def construct_dgl_server_env_vars(
     return server_env_vars_template.format(
         DGL_ROLE="server",
         DGL_NUM_SAMPLER=num_samplers,
-        OMP_NUM_THREADS=num_server_threads,
+        OMP_NUM_THREADS=server_omp_threads,
         DGL_NUM_CLIENT=tot_num_clients,
         DGL_CONF_PATH=part_config,
         DGL_IP_CONFIG=ip_config,
@@ -277,7 +277,6 @@ def construct_dgl_client_env_vars(
     ip_config: str,
     num_servers: int,
     graph_format: str,
-    num_omp_threads: int,
     group_id: int,
     pythonpath: Optional[str] = "",
 ) -> str:
@@ -294,7 +293,6 @@ def construct_dgl_client_env_vars(
             Relative path to workspace.
         num_servers:
         graph_format:
-        num_omp_threads:
         group_id:
             Used in client processes to indicate which group it belongs to.
         pythonpath: Optional. If given, this will pass this as PYTHONPATH.
@@ -312,7 +310,6 @@ def construct_dgl_client_env_vars(
         "DGL_IP_CONFIG={DGL_IP_CONFIG} "
         "DGL_NUM_SERVER={DGL_NUM_SERVER} "
         "DGL_GRAPH_FORMAT={DGL_GRAPH_FORMAT} "
-        "OMP_NUM_THREADS={OMP_NUM_THREADS} "
         "DGL_GROUP_ID={DGL_GROUP_ID} "
         "{suffix_optional_envvars}"
     )
@@ -329,7 +326,6 @@ def construct_dgl_client_env_vars(
         DGL_IP_CONFIG=ip_config,
         DGL_NUM_SERVER=num_servers,
         DGL_GRAPH_FORMAT=graph_format,
-        OMP_NUM_THREADS=num_omp_threads,
         DGL_GROUP_ID=group_id,
         suffix_optional_envvars=suffix_optional_envvars,
     )
@@ -379,80 +375,6 @@ def wrap_cmd_with_extra_envvars(cmd: str, env_vars: list) -> str:
     """
     env_vars = " ".join(env_vars)
     return wrap_cmd_with_local_envvars(cmd, env_vars)
-
-
-g_monitor_file = None
-g_group_id = 0
-
-
-def has_alive_servers(args):
-    """Check whether there exists alive servers.
-
-    For each group of long live servers, a monitor file named
-    'dgl_dist_monitor_{args.server_name}' is created under '/tmp/' directory.
-    We check the existence of this monitor file to determine whether to
-    launch new servers or utilize the existing alive ones. If there
-    exist alive servers, we obtain availale group ID from the monitor
-    file which could be used in current client groups.
-
-    Returns
-    -------
-    bool
-        indicates whether there exists alive servers.
-    """
-    if args.server_name is None:
-        return False
-    global g_monitor_file
-    global g_group_id
-    monitor_file = "/tmp/dgl_dist_monitor_" + args.server_name
-    from filelock import FileLock
-
-    lock = FileLock(monitor_file + ".lock")
-    with lock:
-        next_group_id = None
-        ret = os.path.exists(monitor_file)
-        if ret:
-            print(
-                "Monitor file for alive servers already exist: {}.".format(
-                    monitor_file
-                )
-            )
-            lines = [line.rstrip("\n") for line in open(monitor_file)]
-            g_group_id = int(lines[0])
-            next_group_id = g_group_id + 1
-        if not ret and args.keep_alive:
-            next_group_id = 1
-            print(
-                "Monitor file for alive servers is created: {}.".format(
-                    monitor_file
-                )
-            )
-            g_monitor_file = monitor_file
-        if next_group_id is not None:
-            with open(monitor_file, "w") as f:
-                f.write(str(next_group_id))
-    return ret
-
-
-def clean_alive_servers():
-    """Remove keep alive related files"""
-    global g_monitor_file
-    try:
-        if g_monitor_file is not None:
-            os.remove(g_monitor_file)
-            os.remove(g_monitor_file + ".lock")
-            print(
-                "Monitor file for alive servers is removed: {}.".format(
-                    g_monitor_file
-                )
-            )
-    except:
-        print(
-            "Failed to delete monitor file for alive servers: {}.".format(
-                g_monitor_file
-            )
-        )
-
 
 def get_available_port(ip, num_required_ports=1):
     """Get available port with specified ip."""
@@ -521,79 +443,74 @@ def submit_jobs(args, dry_run=False):
         hosts
     ), "The number of graph partitions has to match the number of machines in the cluster."
 
+
+    num_samplers = args.num_omega_groups - 1
     state_q = queue.Queue()
-    tot_num_clients = args.num_trainers * (1 + args.num_samplers) * len(hosts)
+    tot_num_clients = args.num_gpus_per_machine * (1 + num_samplers) * len(hosts)
 
     master_addr = hosts[0][0]
-    master_ports = get_available_port(master_addr, 2) 
+    master_ports = get_available_port(master_addr, 1 + args.num_omega_groups) 
     master_rpc_port = master_ports[0]
-    master_dist_comm_port = master_ports[1]
+    master_dist_comm_ports = ",".join(map(lambda p: str(p), master_ports[1:]))
 
-    # launch server tasks
-    if not has_alive_servers(args):
-        server_env_vars = construct_dgl_server_env_vars(
-            num_samplers=args.num_samplers,
-            num_server_threads=args.num_server_threads,
-            tot_num_clients=tot_num_clients,
-            part_config=args.part_config,
-            ip_config=args.ip_config,
-            num_servers=num_servers,
-            graph_format=args.graph_format,
-            keep_alive=args.keep_alive,
-            pythonpath=os.environ.get("PYTHONPATH", ""),
-        )
-        for i in range(len(hosts) * server_count_per_machine):
-            ip, _ = hosts[int(i / server_count_per_machine)]
-            server_env_vars_cur = f"{server_env_vars} DGL_SERVER_ID={i}"
-
-            server_command = (
-                f"{args.python_bin} {args.dgl_home}/omega/serving/graph_server.py " +
-                f"--ip_config {args.ip_config} " +
-                f"--num_layers {args.num_layers} " +
-                f"--num_hiddens {args.num_hiddens} " +
-                (f"--use_precoms  " if args.use_precoms else "") +
-                (f"--precom_path {args.precom_path} " if args.precom_path else "") +
-                f"--random_seed {args.random_seed} "
-                f"--master_ip {master_addr} " +
-                f"--master_rpc_port {master_rpc_port} " +
-                f"--num_machines {len(hosts)} " +
-                f"--num_gpus_per_machine {args.num_trainers} " +
-                f"--machine_rank {i} "
-            )
-
-            cmd = wrap_cmd_with_local_envvars(server_command, server_env_vars_cur)
-            cmd = (
-                wrap_cmd_with_extra_envvars(cmd, args.extra_envs)
-                if len(args.extra_envs) > 0
-                else cmd
-            )
-            servers_cmd.append(cmd)
-            # print(f"Try launch server cmd={cmd}, ip={ip}")
-            if not dry_run:
-                thread_list.append(
-                    execute_remote(
-                        cmd,
-                        state_q,
-                        ip,
-                        args.ssh_port,
-                        username=args.ssh_username,
-                    )
-                )
-    else:
-        print(f"Use running server {args.server_name}.")
-
-    # launch client tasks
-    client_env_vars = construct_dgl_client_env_vars(
-        num_samplers=args.num_samplers,
+    
+    server_env_vars = construct_dgl_server_env_vars(
+        num_samplers=num_samplers,
+        server_omp_threads=args.server_omp_threads,
         tot_num_clients=tot_num_clients,
         part_config=args.part_config,
         ip_config=args.ip_config,
         num_servers=num_servers,
         graph_format=args.graph_format,
-        num_omp_threads=os.environ.get(
-            "OMP_NUM_THREADS", str(args.num_omp_threads)
-        ),
-        group_id=g_group_id,
+        keep_alive=args.keep_alive,
+        pythonpath=os.environ.get("PYTHONPATH", ""),
+    )
+    for i in range(len(hosts) * server_count_per_machine):
+        ip, _ = hosts[int(i / server_count_per_machine)]
+        server_env_vars_cur = f"{server_env_vars} DGL_SERVER_ID={i}"
+        server_command = (
+            f"{args.python_bin} {args.dgl_home}/omega/serving/graph_server.py " +
+            f"--ip_config {args.ip_config} " +
+            f"--num_layers {args.num_layers} " +
+            f"--num_hiddens {args.num_hiddens} " +
+            (f"--use_precoms  " if args.use_precoms else "") +
+            (f"--precom_path {args.precom_path} " if args.precom_path else "") +
+            f"--random_seed {args.random_seed} "
+            f"--master_ip {master_addr} " +
+            f"--master_rpc_port {master_rpc_port} " +
+            f"--num_omega_groups {args.num_omega_groups} " +
+            f"--num_machines {len(hosts)} " +
+            f"--num_gpus_per_machine {args.num_gpus_per_machine} " +
+            f"--machine_rank {i} "
+        )
+
+        cmd = wrap_cmd_with_local_envvars(server_command, server_env_vars_cur)
+        cmd = (
+            wrap_cmd_with_extra_envvars(cmd, args.extra_envs)
+            if len(args.extra_envs) > 0
+            else cmd
+        )
+        servers_cmd.append(cmd)
+        if not dry_run:
+            thread_list.append(
+                execute_remote(
+                    cmd,
+                    state_q,
+                    ip,
+                    args.ssh_port,
+                    username=args.ssh_username,
+                )
+            )
+
+    # launch client tasks
+    client_env_vars = construct_dgl_client_env_vars(
+        num_samplers=num_samplers,
+        tot_num_clients=tot_num_clients,
+        part_config=args.part_config,
+        ip_config=args.ip_config,
+        num_servers=num_servers,
+        graph_format=args.graph_format,
+        group_id=0,
         pythonpath=os.environ.get("PYTHONPATH", ""),
     )
 
@@ -603,9 +520,10 @@ def submit_jobs(args, dry_run=False):
         f"--ip_config {args.ip_config} " +
         f"--master_ip {master_addr} " +
         f"--master_rpc_port {master_rpc_port} " +
-        f"--master_dist_comm_port {master_dist_comm_port} " +
+        f"--master_dist_comm_ports {master_dist_comm_ports} " +
+        f"--num_omega_groups {args.num_omega_groups} " +
         f"--num_machines {len(hosts)} " +
-        f"--num_gpus_per_machine {args.num_trainers} " +
+        f"--num_gpus_per_machine {args.num_gpus_per_machine} " +
         f"--part_config_path {part_config} " +
         f"--worker_num_sampler_threads {args.worker_num_sampler_threads} " +
         f"--exec_mode {args.exec_mode} " +
@@ -644,34 +562,37 @@ def submit_jobs(args, dry_run=False):
             )
         )
 
-    for node_id, host in enumerate(hosts):
-        ip, _ = host
-        for local_rank in range(args.num_trainers):
-            worker_command = (
-                f"{args.python_bin} {args.dgl_home}/omega/serving/worker.py "
-                f"--master_ip {master_addr} "
-                f"--master_rpc_port {master_rpc_port} "
-                f"--num_machines {len(hosts)} "
-                f"--machine_rank {node_id} "
-                f"--num_gpus_per_machine {args.num_trainers} "
-                f"--local_rank {local_rank} "
-            )
-
-            cmd = wrap_cmd_with_local_envvars(
-                worker_command, client_env_vars
-            )
-            cmd = (
-                wrap_cmd_with_extra_envvars(cmd, args.extra_envs + [f"OMP_NUM_THREADS={args.worker_omp_threads}"])
-                if len(args.extra_envs) > 0
-                else cmd
-            )
-            workers_cmd.append(cmd)
-            if not dry_run:
-                thread_list.append(
-                    execute_remote(
-                        cmd, state_q, ip, args.ssh_port, username=args.ssh_username
-                    )
+    for omega_group_id in range(args.num_omega_groups):
+        for node_id, host in enumerate(hosts):
+            ip, _ = host
+            for local_rank in range(args.num_gpus_per_machine):
+                worker_command = (
+                    f"{args.python_bin} {args.dgl_home}/omega/serving/worker.py "
+                    f"--master_ip {master_addr} "
+                    f"--master_rpc_port {master_rpc_port} "
+                    f"--num_omega_groups {args.num_omega_groups} "
+                    f"--omega_group_id {omega_group_id} "
+                    f"--num_machines {len(hosts)} "
+                    f"--machine_rank {node_id} "
+                    f"--num_gpus_per_machine {args.num_gpus_per_machine} "
+                    f"--local_rank {local_rank} "
                 )
+
+                cmd = wrap_cmd_with_local_envvars(
+                    worker_command, client_env_vars
+                )
+                cmd = (
+                    wrap_cmd_with_extra_envvars(cmd, args.extra_envs + [f"OMP_NUM_THREADS={args.worker_omp_threads}"])
+                    if len(args.extra_envs) > 0
+                    else cmd
+                )
+                workers_cmd.append(cmd)
+                if not dry_run:
+                    thread_list.append(
+                        execute_remote(
+                            cmd, state_q, ip, args.ssh_port, username=args.ssh_username
+                        )
+                    )
 
     # return commands of clients/servers directly if in dry run mode
     if dry_run:
@@ -687,7 +608,6 @@ def submit_jobs(args, dry_run=False):
         logging.info("Stop launcher")
         # We need to tell the cleanup process to kill remote training jobs.
         conn2.send("cleanup")
-        clean_alive_servers()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -754,22 +674,12 @@ def main():
 
     parser.add_argument("--dgl_home", type=str, required=True)
     parser.add_argument("--python_bin", type=str, required=True)
+    parser.add_argument("--num_omega_groups", type=int, default=1)
     parser.add_argument(
-        "--num_trainers",
+        "--num_gpus_per_machine",
         type=int,
-        help="The number of trainer processes per machine",
     )
-    parser.add_argument(
-        "--num_omp_threads",
-        type=int,
-        help="The number of OMP threads per trainer",
-    )
-    parser.add_argument(
-        "--num_samplers",
-        type=int,
-        default=0,
-        help="The number of sampler processes per trainer process",
-    )
+
     parser.add_argument(
         "--part_config",
         type=str,
@@ -781,7 +691,7 @@ def main():
         help="The file (in workspace) of IP configuration for server processes",
     )
     parser.add_argument(
-        "--num_server_threads",
+        "--server_omp_threads",
         type=int,
         default=4,
         help="The number of OMP threads in the server process. \
@@ -823,14 +733,11 @@ def main():
         ), "Server name is required if '--keep_alive' is enabled."
         print("Servers will keep alive even clients exit...")
     assert (
-        args.num_trainers is not None and args.num_trainers > 0
-    ), "--num_trainers must be a positive number."
+        args.num_gpus_per_machine is not None and args.num_gpus_per_machine > 0
+    ), "--num_gpus_per_machine must be a positive number."
     assert (
-        args.num_samplers is not None and args.num_samplers >= 0
-    ), "--num_samplers must be a non-negative number."
-    assert (
-        args.num_server_threads > 0
-    ), "--num_server_threads must be a positive number."
+        args.server_omp_threads > 0
+    ), "--server_omp_threads must be a positive number."
     assert (
         args.workspace is not None
     ), "A user has to specify a workspace with --workspace."
@@ -840,16 +747,6 @@ def main():
     assert (
         args.ip_config is not None
     ), "A user has to specify an IP configuration file with --ip_config."
-    if args.num_omp_threads is None:
-        # Here we assume all machines have the same number of CPU cores as the machine
-        # where the launch script runs.
-        args.num_omp_threads = max(
-            multiprocessing.cpu_count() // 2 // args.num_trainers, 1
-        )
-        print(
-            "The number of OMP threads per trainer is set to",
-            args.num_omp_threads,
-        )
 
     if args.exec_mode == "cgp" or args.exec_mode == "cgp-multi":
         assert args.use_precoms

@@ -17,9 +17,10 @@ class InferBatchRequest:
 
 class RequestGenerator:
 
-    def __init__(self, trace_dir, req_per_sec):
+    def __init__(self, trace_dir, req_per_sec, arrival_type):
         self._load_traces(trace_dir)
         self._req_per_sec = req_per_sec
+        self._arrival_type = arrival_type
         self._idx = 0
         self._last_time = None
 
@@ -45,7 +46,11 @@ class RequestGenerator:
         if self._req_per_sec <= 0.0:
             return
         
-        sleep_time = np.random.exponential(1 / self._req_per_sec)
+        if self._arrival_type == "poisson":
+            sleep_time = np.random.exponential(1 / self._req_per_sec)
+        else:
+            sleep_time = 1 / self._req_per_sec
+
         if self._last_time is None:
             time.sleep(sleep_time)
             self._last_time = time.time()
@@ -67,5 +72,5 @@ class RequestGenerator:
         return self._batch_requests[self._idx % self._num_traces]
 
 
-def create_req_generator(trace_dir, req_per_sec):
-    return RequestGenerator(trace_dir, req_per_sec)
+def create_req_generator(trace_dir, req_per_sec, arrival_type):
+    return RequestGenerator(trace_dir, req_per_sec, arrival_type)

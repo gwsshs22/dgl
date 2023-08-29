@@ -616,6 +616,7 @@ def submit_jobs(args, dry_run=False):
         (f"--num_reqs {args.num_reqs} " if args.num_reqs else "") +
         (f"--req_per_sec {args.req_per_sec} " if args.req_per_sec else "") +
         (f"--exp_secs {args.exp_secs} " if args.exp_secs else "") +
+        f"--arrival_type {args.arrival_type} " +
         f"--gnn {args.gnn} " +
         f"--num_inputs {args.num_inputs} " +
         f"--num_hiddens {args.num_hiddens} " +
@@ -737,6 +738,7 @@ def main():
     # For throughput exp
     parser.add_argument('--req_per_sec', type=float)
     parser.add_argument('--exp_secs', type=float)
+    parser.add_argument('--arrival_type', choices=['poisson', 'uniform'], default='poisson')
     parser.add_argument("--use_precoms", action="store_true")
 
     # Model configuration

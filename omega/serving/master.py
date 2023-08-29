@@ -69,7 +69,8 @@ def main(args):
 
     req_generator = create_req_generator(
         args.trace_dir,
-        -1.0 if args.exp_type == "latency" else args.req_per_sec)
+        -1.0 if args.exp_type == "latency" else args.req_per_sec,
+        args.arrival_type)
 
     num_workers = num_machines * num_gpus_per_machine
     model_config = ModelConfig(
@@ -170,9 +171,8 @@ def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
                     batch_id, result_tensor = ret
                 done_context.inc_done()
                 done_time = time.time()
-                tmp = done_time - start_t
-                latencies.append(tmp)
-                print(f"batch_id={batch_id} latency={tmp} from_start={done_time - req_start_t} done.")
+
+                latencies.append(done_time - start_t)
 
             except Exception as ex:
                 done_context.mark_error(ex)
@@ -185,6 +185,8 @@ def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
 
     while not done_context.finished():
         time.sleep(0.5)
+
+    latencies = np.array(latencies)
 
     print(f"Exp elapsed time = {done_context.get_elapsed_time()}", flush=True)
     latencies = np.array(latencies)
@@ -241,6 +243,7 @@ if __name__ == "__main__":
     # For throughput exp
     parser.add_argument('--req_per_sec', type=float)
     parser.add_argument('--exp_secs', type=float)
+    parser.add_argument('--arrival_type', choices=['poisson', 'uniform'], default='poisson')
 
     # Model configuration
     parser.add_argument('--gnn', type=str, required=True)

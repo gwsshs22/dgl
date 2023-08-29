@@ -9,7 +9,7 @@ import torch
 
 import dgl
 
-from dgl.omega.omega_apis import trace_gen_helper
+from dgl.omega.omega_apis import trace_gen_helper, sample_edges
 
 def find_index_of_values(arr, sorter, values):
     return sorter[np.searchsorted(arr, values, sorter=sorter)]
@@ -48,6 +48,10 @@ def main(args):
         target_gnids, src_gnids, dst_gnids = trace_gen_helper(
             first_new_gnid, infer_target_mask, batch_local_ids, u, v, u_in_partitions, v_in_partitions)
 
+        if args.sampled:
+            sampled_ret = sample_edges(target_gnids, src_gnids, dst_gnids, [args.fanout])
+            src_gnids, dst_gnids = sampled_ret[0][0], sampled_ret[0][1]
+
         dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), {
             "target_gnids": target_gnids,
             "src_gnids": src_gnids,
@@ -65,9 +69,14 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, required=True)
     parser.add_argument('--num_traces', type=int, required=True)
     parser.add_argument('--random_seed', type=int, default=451241)
+    parser.add_argument('--sampled', action='store_true')
+    parser.add_argument('--fanout', type=int, default=25)
     parser.add_argument('--output', type=str, required=True)
 
     args = parser.parse_args()
+
+    if args.sampled:
+        assert args.fanout > 0
 
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)

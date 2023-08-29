@@ -21,6 +21,7 @@ class RequestGenerator:
         self._load_traces(trace_dir)
         self._req_per_sec = req_per_sec
         self._idx = 0
+        self._last_time = None
 
     def _load_traces(self, trace_dir):
         trace_dir = Path(trace_dir)
@@ -37,16 +38,32 @@ class RequestGenerator:
 
     def __iter__(self):
         self._idx = 0
+        self._last_time = None
         return self
 
     def _sleep(self):
         if self._req_per_sec <= 0.0:
             return
-        time.sleep(np.random.exponential(1 / self._req_per_sec))
+        
+        sleep_time = np.random.exponential(1 / self._req_per_sec)
+        if self._last_time is None:
+            time.sleep(sleep_time)
+            self._last_time = time.time()
+        else:
+            current_time = time.time()
+            elapsed = current_time - self._last_time
+            sleep_time -= elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+                self._last_time = time.time()
+            else:
+                self._last_time = current_time
+            
 
     def __next__(self):
         self._idx += 1
         self._sleep()
+        
         return self._batch_requests[self._idx % self._num_traces]
 
 

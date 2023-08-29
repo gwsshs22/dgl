@@ -27,14 +27,14 @@ class RequestDoneContext:
 
     def inc_req(self):
         if self._req_counts == 0:
-            self._exp_started = time.perf_counter()
+            self._exp_started = time.time()
 
         self._req_counts += 1
 
     def inc_done(self):
         self._done_counts += 1
         if self._done_counts == self._req_counts:
-            self._exp_finished = time.perf_counter()
+            self._exp_finished = time.time()
 
     def finished(self):
         return self._req_counts == self._done_counts or self._error_makred
@@ -149,18 +149,9 @@ def main(args):
 
 def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
     done_context = RequestDoneContext()
-    def done_callback(fut):
-        try:
-            ret = fut.wait()
-            if isinstance(ret, list):
-                batch_id = ret[0].value()[0]
-            else:
-                batch_id, result_tensor = ret
-            done_context.inc_done()
-            print(f"batch_id={batch_id} done.")
+    latencies = []
 
-        except Exception as ex:
-            done_context.mark_error(ex)
+    req_start_t = time.time()
 
     num_worker_groups = len(worker_group_comms)
     num_reqs = int(args.req_per_sec * args.exp_secs)
@@ -170,6 +161,21 @@ def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
         group_id = batch_id % num_worker_groups
         done_context.inc_req()
         fut = worker_group_comms[group_id].request(batch_id, batch_req)
+        def done_callback(fut, start_t=time.time()):
+            try:
+                ret = fut.wait()
+                if isinstance(ret, list):
+                    batch_id = ret[0].value()[0]
+                else:
+                    batch_id, result_tensor = ret
+                done_context.inc_done()
+                done_time = time.time()
+                tmp = done_time - start_t
+                latencies.append(tmp)
+                print(f"batch_id={batch_id} latency={tmp} from_start={done_time - req_start_t} done.")
+
+            except Exception as ex:
+                done_context.mark_error(ex)
         fut.add_done_callback(done_callback)
         req_counts += 1
         batch_id += 1
@@ -181,6 +187,11 @@ def run_throughput_exp(worker_group_comms, req_generator, current_batch_id):
         time.sleep(0.5)
 
     print(f"Exp elapsed time = {done_context.get_elapsed_time()}", flush=True)
+    latencies = np.array(latencies)
+    print(f"mean latency={np.mean(latencies)}")
+    print(f"p50 latency={np.percentile(latencies, 50)}")
+    print(f"p90 latency={np.percentile(latencies, 90)}")
+    print(f"p99 latency={np.percentile(latencies, 99)}")
     if done_context.error_marked():
         print(f"An exception occurred while executing inference requests: {done_context.get_ex()}")
 
@@ -189,10 +200,10 @@ def run_latency_exp(worker_group_comms, req_generator, current_batch_id):
     batch_id = current_batch_id
     req_counts = 0
     for batch_req in req_generator:
-        start_t = time.perf_counter()
+        start_t = time.time()
         fut = worker_group_comms[-1].request(batch_id, batch_req)
         ret = fut.wait()
-        done_t = time.perf_counter()
+        done_t = time.time()
         if isinstance(ret, list):
             batch_id = ret[0].value()[0]
         else:

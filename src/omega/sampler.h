@@ -64,7 +64,7 @@ class SamplingExecutor : public Object {
   std::pair<HeteroGraphPtr, IdArray> ToBlock_(
     const IdArray& target_gnids, const IdArray& src_gnids, const IdArray& dst_gnids) const;
 
-  std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock_(
+  std::tuple<HeteroGraphPtr, IdArray, IdArray> ToDistributedBlock_(
     const IdArray& target_gnids, const IdArray& src_gnids, const IdArray& dst_gnids) const;
 
   int64_t GetNumLocalTargets(int64_t num_targets) const;

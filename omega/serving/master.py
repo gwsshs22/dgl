@@ -83,8 +83,11 @@ def main(args):
         fanouts=args.fanouts,
     )
 
-    master_dist_comm_ports = [int(p) for p in args.master_dist_comm_ports.split(",")]
-    assert len(master_dist_comm_ports) == args.num_omega_groups
+    master_dist_nccl_ports = [int(p) for p in args.master_dist_nccl_ports.split(",")]
+    master_dist_gloo_ports = [int(p) for p in args.master_dist_gloo_ports.split(",")]
+
+    assert len(master_dist_nccl_ports) == args.num_omega_groups
+    assert len(master_dist_gloo_ports) == args.num_omega_groups
     worker_async_exec_context_groups = [
         [
             rpc.remote(
@@ -94,7 +97,8 @@ def main(args):
                     args.ip_config,
                     args.net_type,
                     args.master_ip,
-                    master_dist_comm_ports[omega_group_id],
+                    master_dist_nccl_ports[omega_group_id],
+                    master_dist_gloo_ports[omega_group_id],
                     num_machines,
                     num_gpus_per_machine,
                     args.worker_num_sampler_threads,
@@ -192,6 +196,9 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
 
     while not done_context.finished():
         time.sleep(0.5)
+    
+    if done_context.error_marked():
+        print(f'Error!!! {done_context.get_ex()}', file=sys.stderr)
 
     latencies = np.array(latencies)
 
@@ -250,7 +257,8 @@ if __name__ == "__main__":
                         help="backend net type, 'socket' or 'tensorpipe'")
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
-    parser.add_argument('--master_dist_comm_ports', type=str)
+    parser.add_argument('--master_dist_nccl_ports', type=str)
+    parser.add_argument('--master_dist_gloo_ports', type=str)
     parser.add_argument("--num_omega_groups", type=int, default=1)
     parser.add_argument('--num_machines', type=int)
     parser.add_argument('--num_gpus_per_machine', type=int)

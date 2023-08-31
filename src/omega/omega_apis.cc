@@ -66,8 +66,8 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToDistributedBlock")
         dst_gnids);
 
     List<runtime::Value> ret_list;
-    ret_list.push_back(runtime::Value(MakeValue(HeteroGraphRef(result.first))));
-    ret_list.push_back(runtime::Value(MakeValue(result.second)));
+    ret_list.push_back(runtime::Value(MakeValue(HeteroGraphRef(std::get<0>(result)))));
+    ret_list.push_back(runtime::Value(MakeValue(std::get<1>(result))));
 
     *rv = ret_list;
   });
@@ -85,6 +85,16 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToBlock")
     ret_list.push_back(HeteroGraphRef(ret.first));
     ret_list.push_back(runtime::Value(MakeValue(ret.second)));
     *rv = ret_list;
+  });
+
+DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaCreateBlockGraphIndex")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    IdArray u = args[0];
+    IdArray v = args[1];
+    const int64_t num_srcs = args[2];
+    const int64_t num_dsts = args[3];
+
+    *rv = omega::CreateBlockGraphIndex(u, v, num_srcs, num_dsts);
   });
 
 DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaPartitionRequest")

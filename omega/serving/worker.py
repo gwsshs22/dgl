@@ -12,22 +12,19 @@ from contextlib import contextmanager
 
 import torch
 import torch.distributed.rpc as rpc
+import torch.distributed as dist
 from torch.profiler import profile, record_function, ProfilerActivity
+import torch.multiprocessing as mp
 import numpy as np
 
 import dgl
 from dgl.distributed.kvstore import get_kvstore
-from dgl.omega.dist_context import set_nccl_group
-from dgl.omega.omega_apis import (
-    get_num_assigned_targets_per_gpu,
-    to_block,
-    to_distributed_block
-)
 from dgl.omega.sampler import create_sampler_pool
 import dgl.backend as F
 
+from gnn_executor import gnn_executor_main
 from graph_server import OmegaGraphServer
-from models import create_model
+from utils import init_torch_distributed
 
 @dataclass(frozen=True)
 class ModelConfig:
@@ -46,7 +43,8 @@ class WorkerAsyncExecContext:
         ip_config,
         net_type,
         master_ip,
-        master_dist_comm_port,
+        master_dist_nccl_port,
+        master_dist_gloo_port,
         num_machines,
         num_gpus_per_machine,
         worker_num_sampler_threads,
@@ -68,6 +66,11 @@ class WorkerAsyncExecContext:
         fanouts = [int(fanout) for fanout in model_config.fanouts.split(",")]
         fanouts = [-1 if f == 0 else f for f in fanouts]
 
+        full_sampling = fanouts[0] == -1
+        if full_sampling:
+            for f in fanouts:
+                assert f == -1
+
         self._data_provider = DataProvider(
             ip_config,
             net_type,
@@ -85,7 +88,6 @@ class WorkerAsyncExecContext:
             num_machines,
             machine_rank,
             num_gpus_per_machine_in_group,
-            gpu_ranks,
             local_gpu_rank_in_group,
             nid_partitions,
             exec_mode,
@@ -103,17 +105,23 @@ class WorkerAsyncExecContext:
             args=(
                 self._req_queue,
                 master_ip,
-                master_dist_comm_port,
+                master_dist_nccl_port,
+                master_dist_gloo_port,
                 num_machines,
                 num_gpus_per_machine,
+                omega_group_id,
                 part_config,
                 graph_name,
                 machine_rank,
                 global_rank,
                 local_rank,
+                num_gpus_per_machine_in_group,
+                gpu_ranks,
+                local_gpu_rank_in_group,
                 exec_mode,
                 use_precoms,
                 model_config,
+                full_sampling,
                 random_seed,
                 tracing))
         self._process_thread.start()
@@ -144,8 +152,8 @@ class WorkerAsyncExecContext:
     def process(self, req_id, batch_id, target_gnids, target_features, src_gnids, dst_gnids):
         fut = torch.futures.Future()
 
-        def continuation(blocks, src_inputs_list):
-            self._req_queue.put((req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, fut))
+        def continuation(sampling_rets):
+            self._req_queue.put((req_id, batch_id, target_features, sampling_rets, fut))
 
         self._sampler_pool.enqueue(
             batch_id,
@@ -198,7 +206,7 @@ class DataProvider:
         for key in key_names:
             assert f"node~_N~{key}" in kv_store._data_store
             self._local_data_store[key] = kv_store._data_store[f"node~_N~{key}"]
-        
+
         self._num_machines = num_machines
         self._machine_rank = machine_rank
         
@@ -280,185 +288,259 @@ class DataProvider:
 def process_main(
     req_queue,
     master_ip,
-    master_dist_comm_port,
+    master_dist_nccl_port,
+    master_dist_gloo_port,
     num_machines,
     num_gpus_per_machine,
+    omega_group_id,
     part_config,
     graph_name,
     machine_rank,
     global_rank,
     local_rank,
+    num_gpus_per_machine_in_group,
+    gpu_ranks,
+    local_gpu_rank_in_group,
     exec_mode,
     use_precoms,
     model_config,
+    full_sampling,
     random_seed,
     tracing):
 
-    gpu_ranks = None
-    if exec_mode == "cgp" or exec_mode == "cgp-multi":
-        world_size = num_machines * num_gpus_per_machine
-        torch.distributed.init_process_group(
-            backend="nccl",
-            init_method=f"tcp://{master_ip}:{master_dist_comm_port}",
-            world_size=world_size,
-            rank=global_rank)
-
-        if exec_mode == "cgp":
-            gpu_ranks = [r for r in range(world_size)]
-            set_nccl_group(torch.distributed.new_group())
-        else:
-            for i in range(num_gpus_per_machine):
-                ranks_in_group = [r for r in range(i, world_size + i, num_gpus_per_machine)]
-                new_group = torch.distributed.new_group(ranks=ranks_in_group)
-                if i == local_rank:
-                    gpu_ranks = ranks_in_group
-                    set_nccl_group(new_group)
-
-        torch.distributed.barrier()
-
-    exec_context = LocalExecutionContext(
+    gloo_group, gloo_group_ranks = init_torch_distributed(
+        exec_mode,
         num_machines,
         num_gpus_per_machine,
-        machine_rank,
+        master_ip,
+        master_dist_gloo_port,
         global_rank,
         local_rank,
+        "gloo"
+    )
+
+    assert gloo_group_ranks == gpu_ranks
+
+    gnn_executor_manager = GnnExecutorManager(
+        master_ip,
+        master_dist_nccl_port,
+        gloo_group,
+        num_machines,
+        machine_rank,
+        num_gpus_per_machine,
+        omega_group_id,
+        global_rank,
+        local_rank,
+        num_gpus_per_machine_in_group,
         gpu_ranks,
+        local_gpu_rank_in_group,
         exec_mode,
         use_precoms,
         model_config,
-        random_seed)
+        full_sampling,
+        random_seed,
+        tracing
+    )
 
-    def run():
-        pending_requests = {}
-        req_id_heap = []
-        expected_req_id = 0
+    pending_requests = {}
+    req_id_heap = []
+    expected_req_id = 0
+
+    while True:
+        request = req_queue.get()
+        req_id = request[0]
+        if req_id < 0:
+            break
+
+        assert req_id >= expected_req_id
+        if expected_req_id == req_id:
+            expected_req_id += 1
+            gnn_executor_manager.send_req(request)
+        else:
+            # Handle out of order arrivals.
+            pending_requests[req_id] = request
+            heapq.heappush(req_id_heap, req_id)
 
         while True:
-            request = req_queue.get()
-            req_id = request[0]
-            if req_id < 0:
+            if req_id_heap and req_id_heap[0] == expected_req_id:
+                req_id = heapq.heappop(req_id_heap)
+                request = pending_requests[req_id]
+                del pending_requests[req_id]
+                expected_req_id += 1
+                gnn_executor_manager.send_req(request)
+            else:
                 break
 
-            assert req_id >= expected_req_id
-            if expected_req_id == req_id:
-                expected_req_id += 1
-                exec_context.process_request(*request)
-            else:
-                # Handle out of order arrivals.
-                pending_requests[req_id] = request
-                heapq.heappush(req_id_heap, req_id)
+    gnn_executor_manager.shutdown()
 
-            while True:
-                if req_id_heap and req_id_heap[0] == expected_req_id:
-                    req_id = heapq.heappop(req_id_heap)
-                    request = pending_requests[req_id]
-                    del pending_requests[req_id]
-                    expected_req_id += 1
-                    exec_context.process_request(*request)
-                else:
-                    break
-
-    if tracing:
-        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-            run()
-        prof.export_chrome_trace(f"trace_{local_rank}_{exec_mode}.json")
-    else:
-        run()
-
-class LocalExecutionContext:
+class GnnExecutorManager:
 
     def __init__(
         self,
+        master_ip,
+        master_dist_comm_port,
+        gloo_group,
         num_machines,
-        num_gpus_per_machine,
         machine_rank,
+        num_gpus_per_machine,
+        omega_group_id,
         global_rank,
         local_rank,
+        num_gpus_per_machine_in_group,
         gpu_ranks,
+        local_gpu_rank_in_group,
         exec_mode,
         use_precoms,
         model_config,
-        random_seed):
-
-        self._num_machines = num_machines
-        self._num_gpus_per_machine = num_gpus_per_machine
-        self._machine_rank = machine_rank
-        self._global_rank = global_rank
+        full_sampling,
+        random_seed,
+        tracing
+    ):
+        mp.set_start_method("spawn")
+        self._gloo_group = gloo_group
         self._local_rank = local_rank
-        self._gpu_ranks = gpu_ranks
         self._exec_mode = exec_mode
+        self._full_sampling = full_sampling
         self._use_precoms = use_precoms
-        self._model_config = model_config
+        self._tracing = tracing
+        self._device = f"cuda:{local_rank}"
 
-        self._device = f"cuda:{self._local_rank}"
+        self._in_queue = mp.Queue()
+        self._out_queue = mp.Queue()
+        self._req_holder = {}
 
-        np.random.seed(random_seed)
-        torch.manual_seed(random_seed)
-        self._load_model()
+        self._wait_sem = mp.Semaphore(0)
+        self._finish_event = mp.Event()
 
+        self._gnn_executor_process = mp.Process(
+            target=gnn_executor_main,
+            args=(
+                self._in_queue,
+                self._out_queue,
+                master_ip,
+                master_dist_comm_port,
+                num_machines,
+                machine_rank,
+                num_gpus_per_machine,
+                omega_group_id,
+                global_rank,
+                local_rank,
+                num_gpus_per_machine_in_group,
+                gpu_ranks,
+                local_gpu_rank_in_group,
+                exec_mode,
+                use_precoms,
+                model_config,
+                full_sampling,
+                random_seed,
+                self._tracing,
+                self._device,
+                self._wait_sem,
+                self._finish_event
+            )
+        )
+        self._gnn_executor_process.start()
 
-    def _load_model(self):
-        gat_heads = [int(h) for h in self._model_config.gat_heads.split(",")]
-        self._model = create_model(
-            self._model_config.gnn,
-            self._model_config.num_inputs,
-            self._model_config.num_hiddens,
-            self._model_config.num_classes,
-            self._model_config.num_layers,
-            gat_heads)
+        self._callback_thread = threading.Thread(
+            target=GnnExecutorManager.callback_thread_main,
+            args=(
+                self._req_holder,
+                self._out_queue,
+                self._device,
+                self._wait_sem
+            )
+        )
+        self._callback_thread.start()
 
-        self._model = self._model.to(self._device)
+    def send_req(self, request):
+        if self._exec_mode == "dp":
+            self.send_req_dp(*request)
+        else:
+            self.send_req_cgp(*request)
 
-    def process_request(self, req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, fut):
+    def send_req_dp(self, req_id, batch_id, target_features, sampling_rets, fut):
+        target_features = target_features.to(self._device)
+        block_data_list, block_src_inputs_list = self._copy_block_data(sampling_rets)
+        gnn_executor_req = (batch_id, target_features, block_data_list, None, block_src_inputs_list)
+        self._req_holder[batch_id] = (gnn_executor_req, fut)
+        self._in_queue.put(gnn_executor_req)
+
+    def send_req_cgp(self, req_id, batch_id, target_features, sampling_rets, fut):
+        target_features = target_features.to(self._device)
+
+        cpu_global_in_degrees_list = []
+        global_in_degrees_list = []
+        all_reduce_futs = []
+        for sampling_ret in sampling_rets:
+            block_in_degrees = sampling_ret.block_in_degrees
+            cpu_global_in_degrees_list.append(block_in_degrees)
+            all_reduce_fut = dist.all_reduce(block_in_degrees, async_op=True, group=self._gloo_group)
+            all_reduce_futs.append(all_reduce_fut)
+            if self._full_sampling and self._use_precoms:
+                break
+
+        block_data_list, block_src_inputs_list = self._copy_block_data(sampling_rets)
+        for i in range(len(all_reduce_futs)):
+            all_reduce_futs[i].wait()
+            global_in_degrees_list.append(cpu_global_in_degrees_list[i].to(self._device))
+
+        gnn_executor_req = (batch_id, target_features, block_data_list, global_in_degrees_list, block_src_inputs_list)
+        self._req_holder[batch_id] = (gnn_executor_req, fut)
+        self._in_queue.put(gnn_executor_req)
+    
+    def _copy_block_data(self, sampling_rets):
+        block_data_list = []
+        block_src_inputs_list = []
+
+        for sampling_ret in sampling_rets:
+            block_src_ids = sampling_ret.block_src_ids
+            block_src_ids = block_src_ids.to(self._device)
+            unit_graph = sampling_ret.block_graph_idx.get_relation_graph(0).get_relation_graph(0)
+            block_u, block_v, _ = unit_graph.edges(0)
+            block_num_srcs = unit_graph.number_of_nodes(0)
+            block_num_dsts = unit_graph.number_of_nodes(1)
+            block_u = block_u.to(self._device)
+            block_v = block_v.to(self._device)
+
+            block_data_list.append((
+                block_u,
+                block_v,
+                block_src_ids,
+                block_num_srcs,
+                block_num_dsts,
+            ))
+
+            if self._full_sampling and self._use_precoms:
+                break
+
+        for sampling_ret in sampling_rets:
+            block_src_inputs = sampling_ret.block_src_inputs
+            block_src_inputs = block_src_inputs.to(self._device)
+            block_src_inputs_list.append(block_src_inputs)
+        return block_data_list, block_src_inputs_list
+
+    def shutdown(self):
+        self._in_queue.put((None, None, None, None, None))
+        self._callback_thread.join()
+        self._finish_event.set()
+        self._gnn_executor_process.join()
+        assert len(self._req_holder) == 0
+
+    @staticmethod
+    def callback_thread_main(req_holder, out_queue, device, wait_sem):
         with torch.no_grad():
-            if self._exec_mode == "dp":
-                if self._use_precoms:
-                    ret_tensor = self.run_dp_with_precoms(batch_id, target_gnids, target_features, blocks, src_inputs_list)
-                else:
-                    ret_tensor = self.run_dp(batch_id, target_gnids, target_features, blocks, src_inputs_list)
-            else:
-                ret_tensor = self.run_cgp(batch_id, target_gnids, target_features, blocks, src_inputs_list)
+            while True:
+                batch_id, ret_tensor = out_queue.get()
+                if batch_id is None:
+                    break
 
-            fut.set_result((batch_id, ret_tensor))
+                ret_tensor_cpu = ret_tensor.cpu()
+                del ret_tensor
 
-    def run_dp(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
-        features = src_inputs_list[0]
-        blocks = [b.to(self._device) for b in blocks]
-        features = features.to(self._device)
-        target_features = target_features.to(self._device)
-
-        features = torch.concat((target_features, features))
-        h = self._model(blocks, features)
-
-        return h.cpu()
-
-    def run_dp_with_precoms(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
-        num_layers = self._model_config.num_layers
-
-        blocks = [b.to(self._device) for b in blocks]
-        inputs = [i.to(self._device) for i in src_inputs_list]
-        target_features = target_features.to(self._device)
-        h = torch.concat((target_features, inputs[0]))
-        for layer_idx in range(num_layers):
-            h = self._model.layer_foward(layer_idx, blocks[layer_idx], h)
-            if layer_idx != num_layers - 1:
-                h = torch.concat((h, inputs[layer_idx + 1]))
-
-        return h.cpu()
-
-    def run_cgp(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
-        num_layers = self._model_config.num_layers
-
-        blocks = [b.to(self._device) for b in blocks]
-        inputs = [i.to(self._device) for i in src_inputs_list]
-        target_features = target_features.to(self._device)
-        h = torch.concat((target_features, inputs[0]))
-        for layer_idx in range(num_layers):
-            h = self._model.layer_foward(layer_idx, blocks[layer_idx], h)
-            if layer_idx != num_layers - 1:
-                h = torch.concat((h, inputs[layer_idx + 1]))
-
-        return h.cpu()
+                wait_sem.release()
+                gnn_executor_req = req_holder[batch_id]
+                del req_holder[batch_id]
+                gnn_executor_req[-1].set_result((batch_id, ret_tensor_cpu))
 
 def main(args):
     num_omega_groups = args.num_omega_groups

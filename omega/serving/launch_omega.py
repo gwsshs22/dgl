@@ -449,9 +449,10 @@ def submit_jobs(args, dry_run=False):
     tot_num_clients = args.num_gpus_per_machine * (1 + num_samplers) * len(hosts)
 
     master_addr = hosts[0][0]
-    master_ports = get_available_port(master_addr, 1 + args.num_omega_groups) 
+    master_ports = get_available_port(master_addr, 1 + args.num_omega_groups * 2) 
     master_rpc_port = master_ports[0]
-    master_dist_comm_ports = ",".join(map(lambda p: str(p), master_ports[1:]))
+    master_dist_nccl_ports = ",".join(map(lambda p: str(p), master_ports[1:args.num_omega_groups + 1]))
+    master_dist_gloo_ports = ",".join(map(lambda p: str(p), master_ports[args.num_omega_groups + 1:]))
 
     
     server_env_vars = construct_dgl_server_env_vars(
@@ -520,7 +521,8 @@ def submit_jobs(args, dry_run=False):
         f"--ip_config {args.ip_config} " +
         f"--master_ip {master_addr} " +
         f"--master_rpc_port {master_rpc_port} " +
-        f"--master_dist_comm_ports {master_dist_comm_ports} " +
+        f"--master_dist_nccl_ports {master_dist_nccl_ports} " +
+        f"--master_dist_gloo_ports {master_dist_gloo_ports} " +
         f"--num_omega_groups {args.num_omega_groups} " +
         f"--num_machines {len(hosts)} " +
         f"--num_gpus_per_machine {args.num_gpus_per_machine} " +

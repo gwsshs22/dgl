@@ -33,13 +33,14 @@ void SampleBlocksCgp(
 
 void DoneTask(
   const SamplingExecutor::Task& task,
-  const std::vector<std::pair<HeteroGraphPtr, IdArray>>& blocks,
+  const std::vector<std::tuple<HeteroGraphPtr, IdArray, IdArray>>& blocks,
   const std::vector<NDArray>& src_inputs_list) {
   List<Value> ret_list;
 
   for (int i = 0; i < blocks.size(); i++) {
-    ret_list.push_back(Value(MakeValue(HeteroGraphRef(blocks[i].first))));
-    ret_list.push_back(Value(MakeValue(blocks[i].second)));
+    ret_list.push_back(Value(MakeValue(HeteroGraphRef(std::get<0>(blocks[i])))));
+    ret_list.push_back(Value(MakeValue(std::get<1>(blocks[i]))));
+    ret_list.push_back(Value(MakeValue(std::get<2>(blocks[i]))));
     ret_list.push_back(Value(MakeValue(src_inputs_list[i])));
   }
 
@@ -65,7 +66,7 @@ void SampleBlocksDp(
   const SamplingExecutor& executor,
   const SamplingExecutor::Task& task) {
 
-  std::vector<std::pair<HeteroGraphPtr, IdArray>> blocks;
+  std::vector<std::tuple<HeteroGraphPtr, IdArray, IdArray>> blocks;
   std::vector<NDArray> src_inputs_list;
 
   IdArray root_srcs, root_dsts;
@@ -88,10 +89,10 @@ void SampleBlocksDp(
     task.target_gnids,
     root_srcs,
     root_dsts);
-  blocks.insert(blocks.begin(), root_block_ret);
+  blocks.insert(blocks.begin(), std::make_tuple(root_block_ret.first, root_block_ret.second, executor.null_array()));
 
   for (int layer_idx = 1; layer_idx < executor.num_layers(); layer_idx++) {
-    auto src_ids = blocks[0].second;
+    auto src_ids = std::get<1>(blocks[0]);
     auto seeds = src_ids.CreateView({ src_ids->shape[0] - num_targets }, src_ids->dtype, num_targets * sizeof(int64_t));
 
     auto dist_sampling_ret = executor.DistSampling(seeds, executor.fanouts()[layer_idx]);
@@ -109,10 +110,10 @@ void SampleBlocksDp(
       all_srcs,
       all_dsts);
 
-    blocks.insert(blocks.begin(), block_ret);
+    blocks.insert(blocks.begin(), std::make_tuple(block_ret.first, block_ret.second, executor.null_array()));
   }
 
-  auto src_ids = blocks[0].second;
+  auto src_ids = std::get<1>(blocks[0]);
   auto fetch_nids = src_ids.CreateView({ src_ids->shape[0] - num_targets }, src_ids->dtype, num_targets * sizeof(int64_t));
   NDArray input_features = executor.Pull("features", fetch_nids);
 
@@ -128,7 +129,7 @@ void SampleBlocksDpWithPrecoms(
   const SamplingExecutor& executor,
   const SamplingExecutor::Task& task) {
 
-  std::vector<std::pair<HeteroGraphPtr, IdArray>> blocks;
+  std::vector<std::tuple<HeteroGraphPtr, IdArray, IdArray>> blocks;
   std::vector<NDArray> src_inputs_list;
 
   if (executor.full_sampling()) {
@@ -138,7 +139,7 @@ void SampleBlocksDpWithPrecoms(
         task.dst_gnids);
     
     for (int i = 0; i < executor.num_layers(); i++) {
-      blocks.insert(blocks.begin(), ret);
+      blocks.insert(blocks.begin(), std::make_tuple(ret.first, ret.second, executor.null_array()));
     }
   } else {
     auto sampled_edges = SampleEdges(task.target_gnids, task.src_gnids, task.dst_gnids, executor.fanouts());
@@ -149,7 +150,7 @@ void SampleBlocksDpWithPrecoms(
         sampled_edges[i].second
       );
 
-      blocks.insert(blocks.begin(), ret);
+      blocks.insert(blocks.begin(), std::make_tuple(ret.first, ret.second, executor.null_array()));
     }
   }
 
@@ -161,12 +162,15 @@ void SampleBlocksDpWithPrecoms(
       row_name = "layer_" + std::to_string(layer_idx - 1);
     }
 
-    int64_t num_src_nodes = blocks[layer_idx].first->NumVertices(0);
-    int64_t num_dst_nodes = blocks[layer_idx].first->NumVertices(1);
 
-    IdArray src_node_ids = blocks[layer_idx].second.CreateView(
+    auto graph_idx = std::get<0>(blocks[layer_idx]);
+    auto block_src_ids = std::get<1>(blocks[layer_idx]);
+    int64_t num_src_nodes = graph_idx->NumVertices(0);
+    int64_t num_dst_nodes = graph_idx->NumVertices(1);
+
+    IdArray src_node_ids = block_src_ids.CreateView(
       { num_src_nodes - num_dst_nodes },
-      blocks[layer_idx].second->dtype,
+      block_src_ids->dtype,
       num_dst_nodes * sizeof(int64_t));
 
     NDArray src_inputs = executor.Pull(row_name, src_node_ids);
@@ -179,7 +183,7 @@ void SampleBlocksDpWithPrecoms(
 void SampleBlocksCgp(
   const SamplingExecutor& executor,
   const SamplingExecutor::Task& task) {
-  std::vector<std::pair<HeteroGraphPtr, IdArray>> blocks;
+  std::vector<std::tuple<HeteroGraphPtr, IdArray, IdArray>> blocks;
   std::vector<NDArray> src_inputs_list;
 
   if (executor.full_sampling()) {
@@ -213,11 +217,13 @@ void SampleBlocksCgp(
       row_name = "layer_" + std::to_string(layer_idx - 1);
     }
 
-    int64_t num_src_nodes = blocks[layer_idx].first->NumVertices(0);
+    auto graph_idx = std::get<0>(blocks[layer_idx]);
+    auto block_src_ids = std::get<1>(blocks[layer_idx]);
+    int64_t num_src_nodes = graph_idx->NumVertices(0);
 
-    IdArray src_node_ids = blocks[layer_idx].second.CreateView(
+    IdArray src_node_ids = block_src_ids.CreateView(
       { num_src_nodes - num_local_targets },
-      blocks[layer_idx].second->dtype,
+      block_src_ids->dtype,
       num_local_targets * sizeof(int64_t));
 
     NDArray src_inputs = executor.Pull(row_name, src_node_ids);
@@ -398,7 +404,7 @@ int64_t SamplingExecutor::GetNumLocalTargets(int64_t num_targets) const {
   return num_assigned_target_per_gpu[machine_rank_ * num_gpus_per_machine_in_group_ + local_gpu_rank_in_group_];
 }
 
-std::pair<HeteroGraphPtr, IdArray> SamplingExecutor::ToDistributedBlock_(
+std::tuple<HeteroGraphPtr, IdArray, IdArray> SamplingExecutor::ToDistributedBlock_(
   const IdArray& target_gnids, const IdArray& src_gnids, const IdArray& dst_gnids) const {
   return ToDistributedBlock(
     num_machines_,

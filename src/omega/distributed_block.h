@@ -21,7 +21,7 @@ std::pair<std::vector<HeteroGraphPtr>, std::vector<IdArray>> ToDistributedBlocks
     const IdArray& target_gnids, const IdArray& src_gnids,
     const IdArray& src_part_ids, const IdArray& dst_gnids);
 
-std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock(
+std::tuple<HeteroGraphPtr, IdArray, IdArray> ToDistributedBlock(
     int num_machines, int machine_rank, int num_gpus_per_machine, int local_gpu_idx,
     const IdArray& target_gnids, const IdArray& src_gnids,
     const IdArray& src_part_ids, const IdArray& dst_gnids);
@@ -31,6 +31,12 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
                                            const IdArray& v,
                                            const IdArray& dst_ids,
                                            const IdArray& src_ids);
+
+HeteroGraphPtr CreateBlockGraphIndex(
+    const IdArray& u,
+    const IdArray& v,
+    const int64_t num_srcs,
+    const int64_t num_dsts);
 
 }
 }

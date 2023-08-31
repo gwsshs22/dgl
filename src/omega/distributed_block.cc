@@ -149,7 +149,7 @@ std::pair<std::vector<HeteroGraphPtr>, std::vector<IdArray>> ToDistributedBlocks
   return std::make_pair(graphs, src_gnids_in_blocks);
 }
 
-std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock(
+std::tuple<HeteroGraphPtr, IdArray, IdArray> ToDistributedBlock(
     int num_machines, int machine_rank, int num_gpus_per_machine, int local_gpu_idx,
     const IdArray& target_gnids, const IdArray& src_gnids,
     const IdArray& src_part_ids, const IdArray& dst_gnids) {
@@ -160,6 +160,13 @@ std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock(
   IdMap lhs_node_mapping;
   IdMap target_node_gpu_assignment;
   IdMap rhs_node_mapping;
+
+  const int64_t num_nodes = target_gnids->shape[0];
+  IdArray in_degrees = aten::NewIdArray(num_nodes);
+  int64_t* in_degrees_ptr = in_degrees.Ptr<int64_t>();
+  for (int i = 0; i < num_nodes; i++) {
+    in_degrees_ptr[i] = 0;
+  }
 
   const int64_t* target_gnids_data = static_cast<int64_t*>(target_gnids->data);
   const int64_t* src_gnids_data = static_cast<int64_t*>(src_gnids->data);
@@ -221,6 +228,7 @@ std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock(
 
     int64_t src_block_id = insert_ret.first->second;
     int64_t dst_block_id = rhs_node_mapping[dst_gnid];
+    in_degrees_ptr[dst_block_id]++;
 
     src_block_ids.push_back(src_block_id);
     dst_block_ids.push_back(dst_block_id);
@@ -249,7 +257,7 @@ std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock(
     src_gnids_in_block_data[pair.second] = pair.first;
   }
 
-  return std::make_pair(graph, src_gnids_in_block);
+  return std::make_tuple(graph, src_gnids_in_block, in_degrees);
 }
 
 
@@ -345,6 +353,28 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
 
     return std::make_pair(block_graph, src_orig_ids);
   }
+}
+
+HeteroGraphPtr CreateBlockGraphIndex(
+    const IdArray& u,
+    const IdArray& v,
+    const int64_t num_srcs,
+    const int64_t num_dsts) {
+  CHECK_EQ(u->ctx, v->ctx);
+  HeteroGraphPtr graph;
+
+  std::vector<HeteroGraphPtr> rel_graphs(1);
+  std::vector<int64_t> num_nodes_per_type(2);
+  num_nodes_per_type[0] = num_srcs;
+  num_nodes_per_type[1] = num_dsts;
+  rel_graphs[0] = CreateFromCOO(2, num_nodes_per_type[0], num_nodes_per_type[1], u, v);
+
+  const auto meta_graph = ImmutableGraph::CreateFromCOO(
+      2,
+      NDArray::FromVector(std::vector<int64_t>({0})),
+      NDArray::FromVector(std::vector<int64_t>({1})));
+
+  return CreateHeteroGraph(meta_graph, rel_graphs, num_nodes_per_type);
 }
 
 }

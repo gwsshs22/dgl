@@ -47,7 +47,6 @@ class DGLDistributedBlock(DGLBlock):
 
         self._node_frames[self._dtid] = frame.Frame(num_rows=self._num_local_target_nodes)
 
-
     def _set_dist_values(self, gpu_rank_in_group, gpu_ranks, num_assigned_target_nodes):
         self._gpu_rank_in_group = gpu_rank_in_group
         self._gpu_ranks = gpu_ranks
@@ -90,6 +89,9 @@ class DGLDistributedBlock(DGLBlock):
             self._in_degrees = local_in_degrees[self._target_start_idx:self._target_end_idx]
 
         return self._in_degrees
+    
+    def set_in_degrees(self, global_in_degrees):
+        self._in_degrees = global_in_degrees[self._target_start_idx:self._target_end_idx]
 
     def num_dst_nodes(self, ntype=None):
         assert ntype is None, "Distributed message passing currently supports homogeneous graphs only."

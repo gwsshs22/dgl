@@ -71,7 +71,8 @@ def main(args):
     req_generator = create_req_generator(
         args.trace_dir,
         -1.0 if args.exp_type == "latency" else args.req_per_sec,
-        args.arrival_type)
+        args.arrival_type,
+        args.random_seed)
 
     model_config = ModelConfig(
         gnn=args.gnn,
@@ -155,14 +156,14 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
     warm_up_futs = []
     num_worker_comms = len(worker_comms)
     batch_id = 0
+    req_generator.set_num_reqs(num_warmups)
     for batch_req in req_generator:
         comm_id = batch_id % num_worker_comms
         fut = worker_comms[comm_id].request(batch_id, batch_req)
         warm_up_futs.append(fut)
         batch_id += 1
 
-        if len(warm_up_futs) == num_warmups:
-            break
+    assert len(warm_up_futs) == num_warmups
 
     print(f"Waiting for {num_warmups} warmup requests.", flush=True)
     wait_for_warmups(warm_up_futs)
@@ -174,7 +175,7 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
     req_start_t = time.time()
 
     num_reqs = int(args.req_per_sec * args.exp_secs)
-
+    req_generator.set_num_reqs(num_reqs)
     req_counts = 0
     for batch_req in req_generator:
         comm_id = batch_id % num_worker_comms
@@ -224,19 +225,20 @@ def run_latency_exp(worker_comms, req_generator):
     num_warmups = 4
     warm_up_futs = []
 
+    req_generator.set_num_reqs(num_warmups)
     batch_id = 0
     for batch_req in req_generator:
         fut = worker_comms[-1].request(batch_id, batch_req)
         warm_up_futs.append(fut)
         batch_id += 1
 
-        if len(warm_up_futs) == num_warmups:
-            break
+    assert len(warm_up_futs) == num_warmups
 
     print("Waiting for warmup requests.", flush=True)
     wait_for_warmups(warm_up_futs)
     print("Warmup done.", flush=True)
 
+    req_generator.set_num_reqs(args.num_reqs)
     req_counts = 0
     for batch_req in req_generator:
         start_t = time.time()
@@ -252,8 +254,7 @@ def run_latency_exp(worker_comms, req_generator):
         req_counts += 1
         batch_id += 1
 
-        if req_counts == args.num_reqs:
-            break
+    assert req_counts == args.num_reqs
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

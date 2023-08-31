@@ -10,11 +10,24 @@ from .. import function as fn
 from ..base import ALL, is_all
 from ..heterograph import DGLBlock
 
+COMM_ON_HOST = False
 NCCL_GROUP = None
+GLOO_GROUP = None
 
 def _set_nccl_group(nccl_group):
     global NCCL_GROUP
     NCCL_GROUP = nccl_group
+
+    assert NCCL_GROUP is not None
+
+def _enable_comm_on_host(gloo_group):
+    global COMM_ON_HOST
+    global GLOO_GROUP
+
+    COMM_ON_HOST = True
+    GLOO_GROUP = gloo_group
+
+    assert GLOO_GROUP is not None
 
 class DGLDistributedBlock(DGLBlock):
 
@@ -235,6 +248,7 @@ class DGLDistributedBlock(DGLBlock):
         self,
         local_aggr_fn,
         merge_fn):
+        global COMM_ON_HOST
 
         self._assert_context()
         local_g = self._create_local_graph()
@@ -248,42 +262,91 @@ class DGLDistributedBlock(DGLBlock):
             aggrs[k] = output_tensor
             req_handles.append(req_handle)
 
-        for r in req_handles:
-            r.wait()
+        if COMM_ON_HOST:
+            for r in req_handles:
+                for t in r:
+                    t.wait()
+            aggrs = { k: v.to(self.device) for k, v in aggrs.items() }
+            
+        else:
+            for r in req_handles:
+                r.wait()
 
         self._set_n_repr(self._dtid, ALL, merge_fn(aggrs))
 
     def all_to_all_aggrs(self, input_tensor):
+        global COMM_ON_HOST
+
+        if COMM_ON_HOST:
+            comm_device = "cpu"
+            input_tensor = input_tensor.to("cpu")
+        else:
+            comm_device = self.device
+
         output_tensor_dim = (self._num_gpus, self._num_local_target_nodes,)
         for i in range(1, input_tensor.dim()):
             output_tensor_dim += (input_tensor.shape[i],)
-        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=self.device)
+        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=comm_device)
 
         inputs = list(input_tensor.split(self._num_assigned_target_nodes))
         outputs = list(output_tensor.split([1] * self._num_gpus))
 
-        req_handle = dist.all_to_all(outputs, inputs, async_op=True, group=NCCL_GROUP)
-        return output_tensor, req_handle
+        if COMM_ON_HOST:
+            return output_tensor, self._all_to_all_aggrs_gloo(inputs, outputs)
+        else:
+            req_handle = dist.all_to_all(outputs, inputs, async_op=True, group=NCCL_GROUP)
+            return output_tensor, req_handle
+
+    def _all_to_all_aggrs_gloo(self, inputs, outputs):
+        global GLOO_GROUP
+        gpu_rank_in_group = self._gpu_rank_in_group
+        num_gpus = self._num_gpus
+
+        futs = []
+        for i in range(num_gpus):
+            if i != gpu_rank_in_group:
+                fut = dist.isend(inputs[i], self._gpu_ranks[i], tag=gpu_rank_in_group + i * num_gpus, group=GLOO_GROUP)
+                futs.append(fut)
+
+                fut = dist.irecv(outputs[i], self._gpu_ranks[i], tag=i + gpu_rank_in_group * num_gpus, group=GLOO_GROUP)
+                futs.append(fut)
+        
+        outputs[gpu_rank_in_group].copy_(inputs[gpu_rank_in_group])
+            
+        return futs
 
     def all_gather_dst_values(self, input_tensor):
+        global COMM_ON_HOST
+        comm_group = GLOO_GROUP if COMM_ON_HOST else NCCL_GROUP
+
+        if COMM_ON_HOST:
+            orig_device = input_tensor.device
+            comm_device = "cpu"
+            input_tensor = input_tensor.to("cpu")
+        else:
+            comm_device = self.device
+
         req_handles = []
 
         output_tensor_dim = (self._num_target_nodes,)
         for i in range(1, input_tensor.dim()):
             output_tensor_dim += (input_tensor.shape[i],)
-        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=self.device)
+        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=comm_device)
         outputs = list(output_tensor.split(self._num_assigned_target_nodes))
 
         for i in range(self._num_gpus):
             if i == self._gpu_rank_in_group:
-                req_handles.append(dist.broadcast(input_tensor, self._gpu_ranks[i], async_op=True, group=NCCL_GROUP))
+                req_handles.append(dist.broadcast(input_tensor, self._gpu_ranks[i], async_op=True, group=comm_group))
             else:
-                req_handles.append(dist.broadcast(outputs[i], self._gpu_ranks[i], async_op=True, group=NCCL_GROUP))
+                req_handles.append(dist.broadcast(outputs[i], self._gpu_ranks[i], async_op=True, group=comm_group))
 
         outputs[self._gpu_rank_in_group].copy_(input_tensor)
 
         for r in req_handles:
             r.wait()
+        
+        if COMM_ON_HOST:
+            output_tensor = output_tensor.to(orig_device)
 
         return output_tensor
 

@@ -10,7 +10,7 @@ from dgl.omega.omega_apis import (
     create_block,
     create_distributed_block,
 )
-from dgl.omega.dist_context import set_nccl_group
+from dgl.omega.dist_context import set_nccl_group, set_gloo_group
 
 from models import create_model
 from utils import init_torch_distributed
@@ -23,6 +23,7 @@ def gnn_executor_main(
     num_machines,
     machine_rank,
     num_gpus_per_machine,
+    num_omega_groups,
     omega_group_id,
     global_rank,
     local_rank,
@@ -30,6 +31,7 @@ def gnn_executor_main(
     gpu_ranks,
     local_gpu_rank_in_group,
     exec_mode,
+    enable_comm_on_host,
     use_precoms,
     model_config,
     full_sampling,
@@ -40,19 +42,35 @@ def gnn_executor_main(
     finish_event
 ):
 
-    nccl_group, nccl_group_ranks = init_torch_distributed(
-        exec_mode,
-        num_machines,
-        num_gpus_per_machine,
-        master_ip,
-        master_dist_nccl_port,
-        global_rank,
-        local_rank,
-        "nccl"
-    )
+    if exec_mode != "dp":
+        if enable_comm_on_host:
+            gloo_group, gloo_group_ranks = init_torch_distributed(
+                exec_mode,
+                num_machines,
+                num_gpus_per_machine,
+                master_ip,
+                master_dist_nccl_port,
+                global_rank,
+                local_rank,
+                "gloo"
+            )
 
-    assert nccl_group_ranks == gpu_ranks
-    set_nccl_group(nccl_group)
+            assert gloo_group_ranks == gpu_ranks
+            set_gloo_group(gloo_group)
+        else:
+            nccl_group, nccl_group_ranks = init_torch_distributed(
+                exec_mode,
+                num_machines,
+                num_gpus_per_machine,
+                master_ip,
+                master_dist_nccl_port,
+                global_rank,
+                local_rank,
+                "nccl"
+            )
+
+            assert nccl_group_ranks == gpu_ranks
+            set_nccl_group(nccl_group)
 
     exec_context = LocalExecutionContext(
         local_rank,

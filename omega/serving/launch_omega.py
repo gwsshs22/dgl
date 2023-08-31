@@ -668,8 +668,8 @@ def main():
     parser.add_argument('--req_per_sec', type=float)
     parser.add_argument('--exp_secs', type=float)
     parser.add_argument('--arrival_type', choices=['poisson', 'uniform'], default='poisson')
-    parser.add_argument("--use_precoms", action="store_true")
-
+    parser.add_argument("--use_precoms", action="store_true") 
+    parser.add_argument("--enable_comm_on_host", action="store_true")
     # Model configuration
     parser.add_argument('--gnn', type=str, required=True)
     parser.add_argument('--num_inputs', type=int, required=True)

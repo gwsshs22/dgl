@@ -9,7 +9,7 @@ import dgl
 from dgl.omega.omega_apis import (
     to_distributed_block,
     get_num_assigned_targets_per_gpu)
-from dgl.omega.dist_context import set_nccl_group
+from dgl.omega.dist_context import set_nccl_group, set_gloo_group
 from dgl import function as fn
 import dgl.nn as dglnn
 
@@ -22,15 +22,22 @@ def process_main(
     num_machines,
     machine_rank,
     num_gpus_per_machine,
-    gpu_rank):
+    gpu_rank,
+    test_comm_on_host):
 
     global_rank = machine_rank * num_gpus_per_machine + gpu_rank
+
+
     dist.init_process_group(
         backend='nccl',
         init_method=f'tcp://127.0.0.1:{test_port}',
         rank=global_rank,
         world_size=num_machines * num_gpus_per_machine)
     set_nccl_group(dist.new_group())
+
+    if test_comm_on_host:
+        set_gloo_group(dist.new_group(backend="gloo"))
+
     dist.barrier()
     device = torch.device(f"cuda:{gpu_rank}")
     raw_features, target_gnids, src_gnids, src_part_ids, dst_gnids = in_queue.get()
@@ -166,7 +173,8 @@ def test(args):
                     num_machines,
                     machine_rank,
                     num_gpus_per_machine,
-                    gpu_rank))
+                    gpu_rank,
+                    args.test_comm_on_host))
             p.start()
             child_processes.append(p)
 
@@ -235,6 +243,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_gpus", type=int, default=4)
     parser.add_argument("--test_port", type=int, default=34322)
+    parser.add_argument("--test_comm_on_host", action="store_true")
 
     args = parser.parse_args()
     test(args)

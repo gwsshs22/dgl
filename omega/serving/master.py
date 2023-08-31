@@ -111,12 +111,14 @@ def main(args):
                     num_gpus_per_machine,
                     args.worker_num_sampler_threads,
                     args.part_config_path,
+                    args.num_omega_groups,
                     omega_group_id,
                     Path(args.part_config_path).stem,
                     worker_idx // num_gpus_per_machine,
                     worker_idx,
                     worker_idx % num_gpus_per_machine,
                     exec_mode,
+                    args.enable_comm_on_host,
                     args.use_precoms,
                     model_config,
                     args.random_seed,
@@ -279,6 +281,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_gpus_per_machine', type=int)
     parser.add_argument('--part_config_path', type=str, required=True)
     parser.add_argument("--worker_num_sampler_threads", type=int, default=16)
+    parser.add_argument("--enable_comm_on_host", action="store_true")
     parser.add_argument('--use_precoms', action="store_true")
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)

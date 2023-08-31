@@ -142,6 +142,14 @@ def main(args):
     rpc.shutdown()
     print("Master shutdowned.", flush=True)
 
+def wait_for_warmups(warm_up_futs):
+    for ret in torch.futures.wait_all(warm_up_futs):
+        if isinstance(ret, list):
+            batch_id, result_tensor = ret[0].value()
+        else:
+            batch_id, result_tensor = ret
+        print(f"Warmup for batch_id={batch_id} done.", flush=True)
+
 def run_throughput_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
     warm_up_futs = []
@@ -157,9 +165,8 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
             break
 
     print(f"Waiting for {num_warmups} warmup requests.", flush=True)
-    torch.futures.wait_all(warm_up_futs)
+    wait_for_warmups(warm_up_futs)
     print("Warmup done.", flush=True)
-    time.sleep(2)
 
     done_context = RequestDoneContext()
     latencies = []
@@ -214,7 +221,7 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
 
 def run_latency_exp(worker_comms, req_generator):
     # Warm-ups
-    num_warmups = 5
+    num_warmups = 4
     warm_up_futs = []
 
     batch_id = 0
@@ -227,9 +234,8 @@ def run_latency_exp(worker_comms, req_generator):
             break
 
     print("Waiting for warmup requests.", flush=True)
-    torch.futures.wait_all(warm_up_futs)
+    wait_for_warmups(warm_up_futs)
     print("Warmup done.", flush=True)
-    time.sleep(2)
 
     req_counts = 0
     for batch_req in req_generator:
@@ -238,10 +244,10 @@ def run_latency_exp(worker_comms, req_generator):
         ret = fut.wait()
         done_t = time.time()
         if isinstance(ret, list):
-            batch_id = ret[0].value()[0]
+            batch_id, result_tensor = ret[0].value()
         else:
             batch_id, result_tensor = ret
-        print(f"batch_id={batch_id} done. Took {done_t - start_t}s", file=sys.stderr)
+        print(f"batch_id={batch_id} done. Took {done_t - start_t}s.", file=sys.stderr)
 
         req_counts += 1
         batch_id += 1

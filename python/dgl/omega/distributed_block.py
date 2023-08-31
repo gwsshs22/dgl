@@ -271,7 +271,7 @@ class DGLDistributedBlock(DGLBlock):
         output_tensor_dim = (self._num_target_nodes,)
         for i in range(1, input_tensor.dim()):
             output_tensor_dim += (input_tensor.shape[i],)
-        output_tensor = torch.zeros(output_tensor_dim, dtype=input_tensor.dtype, device=self.device)
+        output_tensor = torch.empty(output_tensor_dim, dtype=input_tensor.dtype, device=self.device)
         outputs = list(output_tensor.split(self._num_assigned_target_nodes))
 
         for i in range(self._num_gpus):

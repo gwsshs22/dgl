@@ -12,10 +12,10 @@ class GCN(nn.Module):
         self.n_hidden = n_hidden
         self.n_classes = n_classes
         self.layers = nn.ModuleList()
-        self.layers.append(dglnn.GraphConv(in_feats, n_hidden))
+        self.layers.append(dglnn.GraphConv(in_feats, n_hidden, allow_zero_in_degree=True))
         for i in range(1, n_layers - 1):
-            self.layers.append(dglnn.GraphConv(n_hidden, n_hidden))
-        self.layers.append(dglnn.GraphConv(n_hidden, n_classes))
+            self.layers.append(dglnn.GraphConv(n_hidden, n_hidden, allow_zero_in_degree=True))
+        self.layers.append(dglnn.GraphConv(n_hidden, n_classes, allow_zero_in_degree=True))
         self.dropout = nn.Dropout(dropout)
         self.activation = activation
 
@@ -73,10 +73,12 @@ class GAT(nn.Module):
         assert(num_layers == len(heads))
         self.num_layers = num_layers
         self.gat_layers = nn.ModuleList()
-        self.gat_layers.append(dglnn.GATConv(in_size, hid_size, heads[0], activation=F.elu, allow_zero_in_degree=True))
+        assert hid_size % heads[0] == 0
+        self.gat_layers.append(dglnn.GATConv(in_size, hid_size // heads[0], heads[0], activation=F.elu, allow_zero_in_degree=True))
         for i in range(num_layers - 2):
-            self.gat_layers.append(dglnn.GATConv(hid_size*heads[i], hid_size, heads[i + 1], residual=True, activation=F.elu, allow_zero_in_degree=True))
-        self.gat_layers.append(dglnn.GATConv(hid_size*heads[-2], out_size, heads[-1], residual=True, activation=None, allow_zero_in_degree=True))
+            assert hid_size % heads[i + 1] == 0
+            self.gat_layers.append(dglnn.GATConv(hid_size, hid_size // heads[i + 1], heads[i + 1], residual=True, activation=F.elu, allow_zero_in_degree=True))
+        self.gat_layers.append(dglnn.GATConv(hid_size, out_size, heads[-1], residual=True, activation=None, allow_zero_in_degree=True))
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, blocks, inputs):
@@ -89,7 +91,7 @@ class GAT(nn.Module):
                 h = h.flatten(1)
                 h = self.dropout(h)
         return h
-    
+
     def layer_foward(self, layer_idx, block, inputs):
         h = self.gat_layers[layer_idx](block, inputs)
         if layer_idx == self.num_layers - 1:  # last layer 

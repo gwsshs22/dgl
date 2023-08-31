@@ -68,8 +68,8 @@ def to_distributed_blocks(
 def to_distributed_block(
     num_machines,
     machine_rank,
-    num_gpus_per_machine,
-    local_gpu_idx,
+    num_gpus_per_machine_in_group,
+    local_gpu_rank_in_group,
     target_gnids,
     src_gnids,
     src_part_ids,
@@ -78,22 +78,22 @@ def to_distributed_block(
     ret = _CAPI_DGLOmegaToDistributedBlock(
         num_machines,
         machine_rank,
-        num_gpus_per_machine,
-        local_gpu_idx,
+        num_gpus_per_machine_in_group,
+        local_gpu_rank_in_group,
         F.zerocopy_to_dgl_ndarray(target_gnids),
         F.zerocopy_to_dgl_ndarray(src_gnids),
         F.zerocopy_to_dgl_ndarray(src_part_ids),
         F.zerocopy_to_dgl_ndarray(dst_gnids))
     
     num_assigned_target_nodes = get_num_assigned_targets_per_gpu(
-        num_machines, num_gpus_per_machine, target_gnids.shape[0])
+        num_machines, num_gpus_per_machine_in_group, target_gnids.shape[0])
 
     g_idx = ret[0]
     src_gnids_in_block = F.from_dgl_nd(ret[1])
-    gpu_rank_in_group = num_gpus_per_machine * machine_rank + local_gpu_idx
+    gpu_rank_in_group = num_gpus_per_machine_in_group * machine_rank + local_gpu_rank_in_group
 
     if gpu_ranks is None:
-        gpu_ranks = [i for i in range(num_machines * num_gpus_per_machine)]
+        gpu_ranks = [i for i in range(num_machines * num_gpus_per_machine_in_group)]
 
     dist_block = DGLDistributedBlock(
         gpu_rank_in_group,
@@ -108,6 +108,43 @@ def to_distributed_block(
 
     return dist_block
 
+def create_distributed_block(
+    num_machines,
+    machine_rank,
+    num_gpus_per_machine_in_group,
+    local_gpu_rank_in_group,
+    gpu_ranks,
+    u,
+    v,
+    src_ids,
+    num_srcs,
+    num_dsts
+):
+    graph_idx = _CAPI_DGLOmegaCreateBlockGraphIndex(
+        F.zerocopy_to_dgl_ndarray(u),
+        F.zerocopy_to_dgl_ndarray(v),
+        num_srcs,
+        num_dsts
+    )
+
+    num_assigned_target_nodes = get_num_assigned_targets_per_gpu(
+        num_machines, num_gpus_per_machine_in_group, num_dsts)
+
+    gpu_rank_in_group = num_gpus_per_machine_in_group * machine_rank + local_gpu_rank_in_group
+
+    dist_block = DGLDistributedBlock(
+        gpu_rank_in_group,
+        gpu_ranks,
+        num_assigned_target_nodes,
+        gidx=graph_idx,
+        ntypes=(['_N'], ['_N']),
+        etypes=['_E'])
+
+    assert dist_block.is_unibipartite
+    dist_block.srcdata[dgl.NID] = src_ids
+
+    return dist_block
+
 def to_block(u, v, dst_ids, src_ids=None):
     if src_ids == None:
         src_ids = empty_tensor
@@ -119,6 +156,18 @@ def to_block(u, v, dst_ids, src_ids=None):
                                                     F.zerocopy_to_dgl_ndarray(src_ids))
     block = DGLBlock(graph_idx, (["_N"], ["_N"]), ["_E"])
     block.srcdata[dgl.NID] = F.zerocopy_from_dgl_ndarray(src_orig_ids)
+    return block
+
+def create_block(u, v, src_ids, num_srcs, num_dsts):
+    graph_idx = _CAPI_DGLOmegaCreateBlockGraphIndex(
+        F.zerocopy_to_dgl_ndarray(u),
+        F.zerocopy_to_dgl_ndarray(v),
+        num_srcs,
+        num_dsts
+    )
+
+    block = DGLBlock(graph_idx, (["_N"], ["_N"]), ["_E"])
+    block.srcdata[dgl.NID] = src_ids
     return block
 
 def partition_request(

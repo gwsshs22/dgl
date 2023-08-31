@@ -87,6 +87,16 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToBlock")
     *rv = ret_list;
   });
 
+DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaCreateBlockGraphIndex")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    IdArray u = args[0];
+    IdArray v = args[1];
+    const int64_t num_srcs = args[2];
+    const int64_t num_dsts = args[3];
+
+    *rv = omega::CreateBlockGraphIndex(u, v, num_srcs, num_dsts);
+  });
+
 DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaPartitionRequest")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
     int num_machines = args[0];

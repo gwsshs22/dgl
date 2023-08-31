@@ -47,7 +47,6 @@ class DGLDistributedBlock(DGLBlock):
 
         self._node_frames[self._dtid] = frame.Frame(num_rows=self._num_local_target_nodes)
 
-
     def _set_dist_values(self, gpu_rank_in_group, gpu_ranks, num_assigned_target_nodes):
         self._gpu_rank_in_group = gpu_rank_in_group
         self._gpu_ranks = gpu_ranks
@@ -85,8 +84,11 @@ class DGLDistributedBlock(DGLBlock):
 
     def in_degrees(self):
         if self._in_degrees is None:
-            local_in_degrees = torch.clone(super(DGLDistributedBlock, self).in_degrees())
-            dist.all_reduce(local_in_degrees, group=NCCL_GROUP)
+            # local_in_degrees = torch.clone(super(DGLDistributedBlock, self).in_degrees())
+            # dist.all_reduce(local_in_degrees, group=NCCL_GROUP)
+            # self._in_degrees = local_in_degrees[self._target_start_idx:self._target_end_idx]
+            local_in_degrees = super(DGLDistributedBlock, self).in_degrees()
+            # dist.all_reduce(local_in_degrees, group=NCCL_GROUP)
             self._in_degrees = local_in_degrees[self._target_start_idx:self._target_end_idx]
 
         return self._in_degrees

@@ -347,5 +347,27 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
   }
 }
 
+HeteroGraphPtr CreateBlockGraphIndex(
+    const IdArray& u,
+    const IdArray& v,
+    const int64_t num_srcs,
+    const int64_t num_dsts) {
+  CHECK_EQ(u->ctx, v->ctx);
+  HeteroGraphPtr graph;
+
+  std::vector<HeteroGraphPtr> rel_graphs(1);
+  std::vector<int64_t> num_nodes_per_type(2);
+  num_nodes_per_type[0] = num_srcs;
+  num_nodes_per_type[1] = num_dsts;
+  rel_graphs[0] = CreateFromCOO(2, num_nodes_per_type[0], num_nodes_per_type[1], u, v);
+
+  const auto meta_graph = ImmutableGraph::CreateFromCOO(
+      2,
+      NDArray::FromVector(std::vector<int64_t>({0})),
+      NDArray::FromVector(std::vector<int64_t>({1})));
+
+  return CreateHeteroGraph(meta_graph, rel_graphs, num_nodes_per_type);
+}
+
 }
 }

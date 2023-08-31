@@ -1,5 +1,7 @@
 import os
 import sys
+from dataclasses import dataclass
+from typing import Any
 
 import torch
 
@@ -14,6 +16,12 @@ from .._ffi.function import _init_api
 from .._ffi.object import ObjectBase, register_object
 
 empty_graph = dgl.graph(([], []))
+
+@dataclass
+class SamplingResult:
+    block_graph_idx: Any
+    block_src_ids: Any
+    block_src_inputs: Any
 
 @register_object("omega.sampler.SamplingExecutor")
 class SamplingExecutor(ObjectBase):
@@ -42,7 +50,6 @@ class SamplerPool:
         num_machines,
         machine_rank,
         num_gpus_per_machine_in_group,
-        gpu_ranks,
         local_gpu_rank_in_group,
         exec_mode,
         use_precoms,
@@ -53,7 +60,6 @@ class SamplerPool:
         self._num_machines = num_machines
         self._machine_rank = machine_rank
         self._num_gpus_per_machine_in_group = num_gpus_per_machine_in_group
-        self._gpu_ranks = gpu_ranks
         self._local_gpu_rank_in_group = local_gpu_rank_in_group
         self._exec_mode = exec_mode
         self._use_precoms = use_precoms
@@ -74,35 +80,17 @@ class SamplerPool:
         cont):
 
         def callback(ret_list):
-            blocks = []
-            src_inputs_list = []
-            if self._exec_mode == "dp":
-                for layer_idx in range(self._num_layers):
-                    block = DGLBlock(ret_list[3 * layer_idx], (["_N"], ["_N"]), ["_E"])
-                    block.srcdata[dgl.NID] = F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 1])
-                    blocks.append(block)
-                    src_inputs_list.append(F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 2]))
-            else:
-                num_assigned_target_nodes = get_num_assigned_targets_per_gpu(
-                    self._num_machines,
-                    self._num_gpus_per_machine_in_group,
-                    target_gnids.shape[0])
-                gpu_rank_in_group = self._machine_rank * self._num_gpus_per_machine_in_group + self._local_gpu_rank_in_group
-                for layer_idx in range(self._num_layers):
-                    block = DGLDistributedBlock(
-                        gpu_rank_in_group,
-                        self._gpu_ranks,
-                        num_assigned_target_nodes,
-                        gidx=ret_list[3 * layer_idx],
-                        ntypes=(['_N'], ['_N']),
-                        etypes=['_E'])
-                    block.srcdata[dgl.NID] = F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 1])
-                    blocks.append(block)
-                    src_inputs_list.append(F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 2]))
+            ret = []
+            for layer_idx in range(self._num_layers):
+                ret.append(SamplingResult(
+                    block_graph_idx=ret_list[3 * layer_idx],
+                    block_src_ids=F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 1]),
+                    block_src_inputs=F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 2])
+                ))
 
-            cont(blocks, src_inputs_list)
+            cont(ret)
             self._callback_holder.remove(callback)
-        
+
         self._callback_holder.add(callback)
 
         self._executor.enqueue(
@@ -111,7 +99,7 @@ class SamplerPool:
             src_gnids,
             dst_gnids,
             callback)
-    
+
     def shutdown(self):
         self._executor.shutdown()
 
@@ -121,7 +109,6 @@ def create_sampler_pool(
     num_machines,
     machine_rank,
     num_gpus_per_machine_in_group,
-    gpu_ranks,
     local_gpu_rank_in_group,
     nid_partitions,
     exec_mode,
@@ -144,7 +131,6 @@ def create_sampler_pool(
         num_machines,
         machine_rank,
         num_gpus_per_machine_in_group,
-        gpu_ranks,
         local_gpu_rank_in_group,
         exec_mode,
         use_precoms,

@@ -192,6 +192,9 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
 
     while not done_context.finished():
         time.sleep(0.5)
+    
+    if done_context.error_marked():
+        print(f'Error!!! {done_context.get_ex()}', file=sys.stderr)
 
     latencies = np.array(latencies)
 

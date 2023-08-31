@@ -32,5 +32,11 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
                                            const IdArray& dst_ids,
                                            const IdArray& src_ids);
 
+HeteroGraphPtr CreateBlockGraphIndex(
+    const IdArray& u,
+    const IdArray& v,
+    const int64_t num_srcs,
+    const int64_t num_dsts);
+
 }
 }

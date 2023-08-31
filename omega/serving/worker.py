@@ -342,34 +342,45 @@ def process_main(
         tracing
     )
 
-    pending_requests = {}
-    req_id_heap = []
-    expected_req_id = 0
 
-    while True:
-        request = req_queue.get()
-        req_id = request[0]
-        if req_id < 0:
-            break
 
-        assert req_id >= expected_req_id
-        if expected_req_id == req_id:
-            expected_req_id += 1
-            gnn_executor_manager.send_req(request)
-        else:
-            # Handle out of order arrivals.
-            pending_requests[req_id] = request
-            heapq.heappush(req_id_heap, req_id)
+    def run():
+        pending_requests = {}
+        req_id_heap = []
+        expected_req_id = 0
 
-        while True:
-            if req_id_heap and req_id_heap[0] == expected_req_id:
-                req_id = heapq.heappop(req_id_heap)
-                request = pending_requests[req_id]
-                del pending_requests[req_id]
-                expected_req_id += 1
-                gnn_executor_manager.send_req(request)
-            else:
-                break
+        with torch.no_grad():
+            while True:
+                request = req_queue.get()
+                req_id = request[0]
+                if req_id < 0:
+                    break
+
+                assert req_id >= expected_req_id
+                if expected_req_id == req_id:
+                    expected_req_id += 1
+                    gnn_executor_manager.send_req(request)
+                else:
+                    # Handle out of order arrivals.
+                    pending_requests[req_id] = request
+                    heapq.heappush(req_id_heap, req_id)
+
+                while True:
+                    if req_id_heap and req_id_heap[0] == expected_req_id:
+                        req_id = heapq.heappop(req_id_heap)
+                        request = pending_requests[req_id]
+                        del pending_requests[req_id]
+                        expected_req_id += 1
+                        gnn_executor_manager.send_req(request)
+                    else:
+                        break
+
+    if tracing:
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+            run()
+        prof.export_chrome_trace(f"trace_worker_{omega_group_id}_{global_rank}_{exec_mode}.json")
+    else:
+        run()
 
     gnn_executor_manager.shutdown()
 
@@ -560,7 +571,11 @@ def main(args):
     rpc.init_rpc(
         f"worker-{rpc_global_rank}",
         rank=rpc_global_rank + 1,
-        world_size=world_size * num_omega_groups + 1 + num_machines
+        world_size=world_size * num_omega_groups + 1 + num_machines,
+        rpc_backend_options=rpc.TensorPipeRpcBackendOptions(
+            num_worker_threads=args.worker_rpc_threads,
+            rpc_timeout=300 # 5 min timeout
+        )
     )
     rpc.shutdown()
 
@@ -568,6 +583,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
+    parser.add_argument('--worker_rpc_threads', type=int)
     parser.add_argument('--master_dist_comm_port', type=int)
     parser.add_argument("--num_omega_groups", type=int, default=1)
     parser.add_argument("--omega_group_id", type=int)

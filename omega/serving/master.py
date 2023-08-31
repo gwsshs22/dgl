@@ -63,7 +63,15 @@ def main(args):
     os.environ["MASTER_ADDR"] = str(args.master_ip)
     os.environ["MASTER_PORT"] = str(args.master_rpc_port)
 
-    rpc.init_rpc("master", rank=0, world_size=world_size * num_omega_groups + 1 + num_machines)
+    rpc.init_rpc(
+        "master",
+        rank=0,
+        world_size=world_size * num_omega_groups + 1 + num_machines,
+        rpc_backend_options=rpc.TensorPipeRpcBackendOptions(
+            num_worker_threads=args.master_rpc_threads,
+            rpc_timeout=300 # 5 min timeout
+        )
+    )
 
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
@@ -263,6 +271,7 @@ if __name__ == "__main__":
                         help="backend net type, 'socket' or 'tensorpipe'")
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
+    parser.add_argument('--master_rpc_threads', type=int)
     parser.add_argument('--master_dist_nccl_ports', type=str)
     parser.add_argument('--master_dist_gloo_ports', type=str)
     parser.add_argument("--num_omega_groups", type=int, default=1)

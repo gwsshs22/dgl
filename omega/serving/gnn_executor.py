@@ -105,7 +105,7 @@ def gnn_executor_main(
     if tracing:
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
             run()
-        prof.export_chrome_trace(f"trace_{omega_group_id}_{local_rank}_{exec_mode}.json")
+        prof.export_chrome_trace(f"trace_gnn_{omega_group_id}_{global_rank}_{exec_mode}.json")
     else:
         run()
 

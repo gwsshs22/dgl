@@ -85,7 +85,11 @@ def main(args):
 
     rpc.init_rpc(f"server-{server_rank}",
         rank=world_size * num_omega_groups + 1 + server_rank,
-        world_size=world_size * num_omega_groups + 1 + num_machines
+        world_size=world_size * num_omega_groups + 1 + num_machines,
+        rpc_backend_options=rpc.TensorPipeRpcBackendOptions(
+            num_worker_threads=args.server_rpc_threads,
+            rpc_timeout=300 # 5 min timeout
+        )
     )
     rpc.shutdown()
     dgl_server_thread.join()
@@ -94,6 +98,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--master_ip', type=str)
     parser.add_argument('--master_rpc_port', type=int)
+    parser.add_argument('--server_rpc_threads', type=int)
     parser.add_argument("--num_omega_groups", type=int, default=1)
     parser.add_argument('--num_machines', type=int)
     parser.add_argument('--machine_rank', type=int)

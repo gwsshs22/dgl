@@ -479,6 +479,7 @@ def submit_jobs(args, dry_run=False):
             f"--random_seed {args.random_seed} "
             f"--master_ip {master_addr} " +
             f"--master_rpc_port {master_rpc_port} " +
+            f"--server_rpc_threads {args.server_rpc_threads} " +
             f"--num_omega_groups {args.num_omega_groups} " +
             f"--num_machines {len(hosts)} " +
             f"--num_gpus_per_machine {args.num_gpus_per_machine} " +
@@ -521,6 +522,7 @@ def submit_jobs(args, dry_run=False):
         f"--ip_config {args.ip_config} " +
         f"--master_ip {master_addr} " +
         f"--master_rpc_port {master_rpc_port} " +
+        f"--master_rpc_threads {args.master_rpc_threads} " +
         f"--master_dist_nccl_ports {master_dist_nccl_ports} " +
         f"--master_dist_gloo_ports {master_dist_gloo_ports} " +
         f"--num_omega_groups {args.num_omega_groups} " +
@@ -572,6 +574,7 @@ def submit_jobs(args, dry_run=False):
                     f"{args.python_bin} {args.dgl_home}/omega/serving/worker.py "
                     f"--master_ip {master_addr} "
                     f"--master_rpc_port {master_rpc_port} "
+                    f"--worker_rpc_threads {args.worker_rpc_threads} " +
                     f"--num_omega_groups {args.num_omega_groups} "
                     f"--omega_group_id {omega_group_id} "
                     f"--num_machines {len(hosts)} "
@@ -648,8 +651,12 @@ def main():
                         the contents of current directory will be rsyncd",
     )
     parser.add_argument("--master_omp_threads", type=int, default=8)
-    parser.add_argument("--worker_num_sampler_threads", type=int, default=16)
-    parser.add_argument("--worker_omp_threads", type=int, default=8)
+    parser.add_argument("--worker_omp_threads", type=int, default=16)
+    parser.add_argument("--server_omp_threads", type=int, default=4)
+    parser.add_argument('--master_rpc_threads', type=int, default=32)
+    parser.add_argument('--server_rpc_threads', type=int, default=32)
+    parser.add_argument('--worker_rpc_threads', type=int, default=16)
+    parser.add_argument("--worker_num_sampler_threads", type=int, default=64)
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)
     parser.add_argument('--tracing', action="store_true")
@@ -691,14 +698,6 @@ def main():
         "--ip_config",
         type=str,
         help="The file (in workspace) of IP configuration for server processes",
-    )
-    parser.add_argument(
-        "--server_omp_threads",
-        type=int,
-        default=4,
-        help="The number of OMP threads in the server process. \
-                        It should be small if server processes and trainer processes run on \
-                        the same machine. By default, it is 4.",
     )
     parser.add_argument(
         "--graph_format",

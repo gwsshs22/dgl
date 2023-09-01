@@ -71,7 +71,8 @@ def main(args):
     req_generator = create_req_generator(
         args.trace_dir,
         -1.0 if args.exp_type == "latency" else args.req_per_sec,
-        args.arrival_type)
+        args.arrival_type,
+        args.random_seed)
 
     model_config = ModelConfig(
         gnn=args.gnn,
@@ -142,6 +143,7 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
     warm_up_futs = []
     num_worker_comms = len(worker_comms)
+    req_generator.set_num_reqs(num_warmups)
     batch_id = 0
     for batch_req in req_generator:
         comm_id = batch_id % num_worker_comms
@@ -149,9 +151,7 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
         warm_up_futs.append(fut)
         batch_id += 1
 
-        if len(warm_up_futs) == num_warmups:
-            break
-
+    assert num_warmups == len(warm_up_futs)
     print(f"Waiting for {num_warmups} warmup requests.", flush=True)
     torch.futures.wait_all(warm_up_futs)
     print("Warmup done.", flush=True)
@@ -164,6 +164,7 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
 
     num_reqs = int(args.req_per_sec * args.exp_secs)
 
+    req_generator.set_num_reqs(num_reqs)
     req_counts = 0
     for batch_req in req_generator:
         comm_id = batch_id % num_worker_comms
@@ -173,7 +174,7 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
             try:
                 ret = fut.wait()
                 if isinstance(ret, list):
-                    batch_id = ret[0].value()[0]
+                    batch_id, result_tensor = ret[0].value()
                 else:
                     batch_id, result_tensor = ret
                 done_context.inc_done()
@@ -186,9 +187,6 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
         fut.add_done_callback(done_callback)
         req_counts += 1
         batch_id += 1
-
-        if req_counts == num_reqs:
-            break
 
     while not done_context.finished():
         time.sleep(0.5)
@@ -210,20 +208,19 @@ def run_latency_exp(worker_comms, req_generator):
     num_warmups = 5
     warm_up_futs = []
 
+    req_generator.set_num_reqs(num_warmups)
     batch_id = 0
     for batch_req in req_generator:
         fut = worker_comms[-1].request(batch_id, batch_req)
         warm_up_futs.append(fut)
         batch_id += 1
 
-        if len(warm_up_futs) == num_warmups:
-            break
-
     print("Waiting for warmup requests.", flush=True)
     torch.futures.wait_all(warm_up_futs)
     print("Warmup done.", flush=True)
     time.sleep(2)
 
+    req_generator.set_num_reqs(args.num_reqs)
     req_counts = 0
     for batch_req in req_generator:
         start_t = time.time()
@@ -231,16 +228,13 @@ def run_latency_exp(worker_comms, req_generator):
         ret = fut.wait()
         done_t = time.time()
         if isinstance(ret, list):
-            batch_id = ret[0].value()[0]
+            batch_id, result_tensor = ret[0].value()
         else:
             batch_id, result_tensor = ret
         print(f"batch_id={batch_id} done. Took {done_t - start_t}s", file=sys.stderr)
 
         req_counts += 1
         batch_id += 1
-
-        if req_counts == args.num_reqs:
-            break
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

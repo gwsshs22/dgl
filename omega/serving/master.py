@@ -157,7 +157,7 @@ def main(args):
     print("Master shutdowned.", flush=True)
 
     if args.result_dir:
-        write_result(args, num_warmups, latencies, traces)
+        write_result(args, req_generator.batch_size, num_warmups, latencies, traces)
 
 def run_throughput_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
@@ -265,17 +265,18 @@ def run_latency_exp(worker_comms, num_warmups, req_generator):
 
     return latencies
 
-def write_result(args, num_warmups, latencies, traces):
+def write_result(args, batch_size, num_warmups, latencies, traces):
     result_dir_path = Path(args.result_dir)
     os.makedirs(str(result_dir_path), exist_ok=True)
 
     args_dict = vars(args)
     args_dict["num_warmups"] = num_warmups
+    args_dict["batch_size"] = batch_size
 
     with open(result_dir_path / "traces.txt", "w") as f:
         for trace in traces:
             f.write(f"{trace.owner},{trace.batch_id},{trace.name},{trace.elapsed_micro}\n")
-    
+
     with open(result_dir_path / "config.json", "w") as f:
         f.write(json.dumps(args_dict, indent=4, sort_keys=True))
         f.write("\n")

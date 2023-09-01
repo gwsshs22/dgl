@@ -40,6 +40,7 @@ class RequestGenerator:
             target_features = tensors["target_features"]
             if self._feature_dim is not None:
                 target_features = torch.empty(target_features.shape[0], self._feature_dim)
+            self._batch_size = tensors["target_gnids"].shape[0]
             self._batch_requests.append(InferBatchRequest(
                 target_gnids=tensors["target_gnids"],
                 target_features=target_features,
@@ -69,6 +70,10 @@ class RequestGenerator:
 
     def set_num_reqs(self, num_reqs):
         self._num_reqs = num_reqs
+    
+    @property
+    def batch_size(self):
+        return self._batch_size
 
     def __iter__(self):
         self._queue = queue.SimpleQueue()

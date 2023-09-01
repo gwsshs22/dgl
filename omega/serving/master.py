@@ -220,6 +220,7 @@ def run_latency_exp(worker_comms, req_generator):
     print("Warmup done.", flush=True)
     time.sleep(2)
 
+    latencies = []
     req_generator.set_num_reqs(args.num_reqs)
     req_counts = 0
     for batch_req in req_generator:
@@ -231,10 +232,16 @@ def run_latency_exp(worker_comms, req_generator):
             batch_id, result_tensor = ret[0].value()
         else:
             batch_id, result_tensor = ret
-        print(f"batch_id={batch_id} done. Took {done_t - start_t}s", file=sys.stderr)
+        latency = done_t - start_t
+        print(f"batch_id={batch_id} done. Took {latency}s", file=sys.stderr)
+
+        latencies.append(latency)
 
         req_counts += 1
         batch_id += 1
+    
+    latencies = np.array(latencies)
+    print(f"Mean latency = {np.mean(latencies)}s")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

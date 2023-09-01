@@ -21,9 +21,13 @@ from dgl.omega.dist_context import set_nccl_group
 from dgl.omega.omega_apis import (
     get_num_assigned_targets_per_gpu,
     to_block,
-    to_distributed_block
+    to_distributed_block,
+    write_traces_cpp
 )
 from dgl.omega.sampler import create_sampler_pool
+
+from dgl.omega.trace import trace_me, write_traces, enable_tracing
+
 import dgl.backend as F
 
 from graph_server import OmegaGraphServer
@@ -60,7 +64,13 @@ class WorkerAsyncExecContext:
         use_precoms,
         model_config,
         random_seed,
-        tracing):
+        profiling,
+        breakdown_trace_dir):
+
+        self._global_rank = global_rank
+        self._breakdown_trace_dir = breakdown_trace_dir
+
+        enable_tracing(self._breakdown_trace_dir)
 
         num_gpus_per_machine_in_group, gpu_ranks, local_gpu_rank_in_group, nid_partitions = self._get_cgp_conf(
             num_machines, machine_rank, num_gpus_per_machine, global_rank, local_rank, exec_mode, part_config)
@@ -115,7 +125,7 @@ class WorkerAsyncExecContext:
                 use_precoms,
                 model_config,
                 random_seed,
-                tracing))
+                profiling))
         self._process_thread.start()
 
     def _get_cgp_conf(self, num_machines, machine_rank, num_gpus_per_machine, global_rank, local_rank, exec_mode, part_config):
@@ -160,6 +170,10 @@ class WorkerAsyncExecContext:
         self._req_queue.put((-1,))
         self._process_thread.join()
         self._sampler_pool.shutdown()
+        if self._breakdown_trace_dir:
+            write_traces(self._breakdown_trace_dir, f"worker_python_{self._global_rank}")
+            write_traces_cpp(self._breakdown_trace_dir, f"worker_cpp_{self._global_rank}")
+
 
 class DataProvider:
     def __init__(
@@ -292,7 +306,7 @@ def process_main(
     use_precoms,
     model_config,
     random_seed,
-    tracing):
+    profiling):
 
     gpu_ranks = None
     if exec_mode == "cgp" or exec_mode == "cgp-multi":
@@ -358,7 +372,7 @@ def process_main(
                 else:
                     break
 
-    if tracing:
+    if profiling:
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
             run()
         prof.export_chrome_trace(f"trace_{local_rank}_{exec_mode}.json")
@@ -411,54 +425,43 @@ class LocalExecutionContext:
 
     def process_request(self, req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, fut):
         with torch.no_grad():
-            if self._exec_mode == "dp":
-                if self._use_precoms:
-                    ret_tensor = self.run_dp_with_precoms(batch_id, target_gnids, target_features, blocks, src_inputs_list)
-                else:
-                    ret_tensor = self.run_dp(batch_id, target_gnids, target_features, blocks, src_inputs_list)
+            if self._use_precoms:
+                ret_tensor = self.run_with_precoms(batch_id, target_gnids, target_features, blocks, src_inputs_list)
             else:
-                ret_tensor = self.run_cgp(batch_id, target_gnids, target_features, blocks, src_inputs_list)
+                ret_tensor = self.run(batch_id, target_gnids, target_features, blocks, src_inputs_list)
 
             fut.set_result((batch_id, ret_tensor))
 
-    def run_dp(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
-        features = src_inputs_list[0]
-        blocks = [b.to(self._device) for b in blocks]
-        features = features.to(self._device)
-        target_features = target_features.to(self._device)
+    def run(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
+        with trace_me(batch_id, "copy", self._device):
+            features = src_inputs_list[0]
+            blocks = [b.to(self._device) for b in blocks]
+            features = features.to(self._device)
+            target_features = target_features.to(self._device)
 
-        features = torch.concat((target_features, features))
-        h = self._model(blocks, features)
+        with trace_me(batch_id, "compute", self._device):
+            features = torch.concat((target_features, features))
+            h = self._model(blocks, features)
 
-        return h.cpu()
+            return h.cpu()
 
-    def run_dp_with_precoms(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
-        num_layers = self._model_config.num_layers
+    def run_with_precoms(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
+        with trace_me(batch_id, "copy", self._device):
+            num_layers = self._model_config.num_layers
 
-        blocks = [b.to(self._device) for b in blocks]
-        inputs = [i.to(self._device) for i in src_inputs_list]
-        target_features = target_features.to(self._device)
-        h = torch.concat((target_features, inputs[0]))
-        for layer_idx in range(num_layers):
-            h = self._model.layer_foward(layer_idx, blocks[layer_idx], h)
-            if layer_idx != num_layers - 1:
-                h = torch.concat((h, inputs[layer_idx + 1]))
+            blocks = [b.to(self._device) for b in blocks]
+            inputs = [i.to(self._device) for i in src_inputs_list]
+            target_features = target_features.to(self._device)
 
-        return h.cpu()
+        with trace_me(batch_id, "compute", self._device):
+            h = torch.concat((target_features, inputs[0]))
+            for layer_idx in range(num_layers):
+                h = self._model.layer_foward(layer_idx, blocks[layer_idx], h)
+                if layer_idx != num_layers - 1:
+                    h = torch.concat((h, inputs[layer_idx + 1]))
 
-    def run_cgp(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
-        num_layers = self._model_config.num_layers
+            return h.cpu()
 
-        blocks = [b.to(self._device) for b in blocks]
-        inputs = [i.to(self._device) for i in src_inputs_list]
-        target_features = target_features.to(self._device)
-        h = torch.concat((target_features, inputs[0]))
-        for layer_idx in range(num_layers):
-            h = self._model.layer_foward(layer_idx, blocks[layer_idx], h)
-            if layer_idx != num_layers - 1:
-                h = torch.concat((h, inputs[layer_idx + 1]))
-
-        return h.cpu()
 
 def main(args):
     num_omega_groups = args.num_omega_groups

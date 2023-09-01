@@ -8,6 +8,7 @@
 #include "partition_request.h"
 #include "sampling.h"
 #include "trace_gen_helper.h"
+#include "trace.h"
 
 using namespace dgl::runtime;
 
@@ -198,6 +199,14 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaSampleEdges")
     }
 
     *rv = ret_list;
+  });
+
+DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaWriteTraces")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    std::string breakdown_trace_dir = args[0];
+    std::string filename = args[1];
+
+    omega::WriteTraces(breakdown_trace_dir, filename);
   });
 
 }

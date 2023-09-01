@@ -1,6 +1,7 @@
 #include "sampler.h"
 
 #include <algorithm>
+#include <chrono>
 
 #include <dgl/runtime/container.h>
 #include <dgl/runtime/parallel_for.h>
@@ -13,6 +14,7 @@
 
 #include "distributed_block.h"
 #include "sampling.h"
+#include "trace.h"
 
 namespace dgl {
 namespace omega {
@@ -114,7 +116,14 @@ void SampleBlocksDp(
 
   auto src_ids = blocks[0].second;
   auto fetch_nids = src_ids.CreateView({ src_ids->shape[0] - num_targets }, src_ids->dtype, num_targets * sizeof(int64_t));
-  NDArray input_features = executor.Pull("features", fetch_nids);
+  NDArray input_features;
+  {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    input_features = executor.Pull("features", fetch_nids);
+    auto end_time = std::chrono::high_resolution_clock::now();
+
+    PutTrace(task.batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  }
 
   src_inputs_list.push_back(input_features);
   for (int i = 0; i < executor.num_layers() - 1; i++) {
@@ -169,7 +178,14 @@ void SampleBlocksDpWithPrecoms(
       blocks[layer_idx].second->dtype,
       num_dst_nodes * sizeof(int64_t));
 
-    NDArray src_inputs = executor.Pull(row_name, src_node_ids);
+    NDArray src_inputs;
+    {
+      auto start_time = std::chrono::high_resolution_clock::now();
+      src_inputs = executor.Pull(row_name, src_node_ids);
+      auto end_time = std::chrono::high_resolution_clock::now();
+
+      PutTrace(task.batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    }
     src_inputs_list.push_back(src_inputs);
   }
 

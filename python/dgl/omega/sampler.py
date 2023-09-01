@@ -1,9 +1,12 @@
 import os
 import sys
+import time
 
 import torch
 
 import dgl
+
+from dgl.omega.trace import trace_me, write_traces, put_trace
 
 from .distributed_block import DGLDistributedBlock
 from .omega_apis import get_num_assigned_targets_per_gpu
@@ -73,6 +76,8 @@ class SamplerPool:
         dst_gnids,
         cont):
 
+        sampling_start = time.time()
+
         def callback(ret_list):
             blocks = []
             src_inputs_list = []
@@ -99,6 +104,8 @@ class SamplerPool:
                     block.srcdata[dgl.NID] = F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 1])
                     blocks.append(block)
                     src_inputs_list.append(F.zerocopy_from_dgl_ndarray(ret_list[3 * layer_idx + 2]))
+
+            put_trace(batch_id, "sampling", time.time() - sampling_start)
 
             cont(blocks, src_inputs_list)
             self._callback_holder.remove(callback)

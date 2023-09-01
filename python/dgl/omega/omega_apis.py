@@ -195,4 +195,8 @@ def trace_gen_helper(
 
     return target_gnids, src_gnids, dst_gnids
 
+
+def write_traces_cpp(breakdown_trace_dir, filename):
+    _CAPI_DGLOmegaWriteTraces(breakdown_trace_dir, filename)
+
 _init_api("dgl.omega.omega_apis")

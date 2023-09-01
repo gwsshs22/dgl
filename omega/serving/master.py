@@ -11,6 +11,8 @@ import numpy as np
 
 import dgl
 
+from dgl.omega.trace import trace_me, write_traces, put_trace, enable_tracing
+
 from infer_requests import create_req_generator
 from worker import WorkerAsyncExecContext, ModelConfig
 from worker_comm import create_worker_communicators
@@ -109,7 +111,8 @@ def main(args):
                     args.use_precoms,
                     model_config,
                     args.random_seed,
-                    args.tracing
+                    args.profiling,
+                    args.breakdown_trace_dir
                 )
             )
             for worker_idx in range(world_size)
@@ -123,11 +126,14 @@ def main(args):
         exec_mode,
         worker_async_exec_context_groups)
 
+    enable_tracing(args.breakdown_trace_dir)
+
     if args.exp_type == "throughput":
         num_warmups = world_size * num_omega_groups * 2
         run_throughput_exp(worker_comms, num_warmups, req_generator)
     elif args.exp_type == "latency":
-        run_latency_exp(worker_comms, req_generator)
+        num_warmups = 4
+        run_latency_exp(worker_comms, num_warmups, req_generator)
     else:
         raise f"Unknown exp_type={exp_type}"
     print("Master finished.", flush=True)
@@ -138,6 +144,8 @@ def main(args):
 
     rpc.shutdown()
     print("Master shutdowned.", flush=True)
+    if args.breakdown_trace_dir:
+        write_traces(args.breakdown_trace_dir, "master", num_warmups)
 
 def run_throughput_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
@@ -203,9 +211,8 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
         print(f"An exception occurred while executing inference requests: {done_context.get_ex()}")
 
 
-def run_latency_exp(worker_comms, req_generator):
+def run_latency_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
-    num_warmups = 5
     warm_up_futs = []
 
     req_generator.set_num_reqs(num_warmups)
@@ -234,12 +241,12 @@ def run_latency_exp(worker_comms, req_generator):
             batch_id, result_tensor = ret
         latency = done_t - start_t
         print(f"batch_id={batch_id} done. Took {latency}s", file=sys.stderr)
-
+        put_trace(batch_id, "latency", latency)
         latencies.append(latency)
 
         req_counts += 1
         batch_id += 1
-    
+
     latencies = np.array(latencies)
     print(f"Mean latency = {np.mean(latencies)}s")
 
@@ -260,8 +267,8 @@ if __name__ == "__main__":
     parser.add_argument('--use_precoms', action="store_true")
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)
-
-    parser.add_argument('--tracing', action="store_true")
+    parser.add_argument('--breakdown_trace_dir', type=str)
+    parser.add_argument('--profiling', action="store_true")
 
     parser.add_argument('--exp_type', type=str, choices=["latency", "throughput"], required=True)
     # For latency exp

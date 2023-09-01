@@ -6,7 +6,7 @@ import torch
 
 import dgl
 
-from dgl.omega.trace import trace_me, write_traces, put_trace
+from dgl.omega.trace import trace_me, put_trace
 
 from .distributed_block import DGLDistributedBlock
 from .omega_apis import get_num_assigned_targets_per_gpu
@@ -20,7 +20,7 @@ empty_graph = dgl.graph(([], []))
 
 @register_object("omega.sampler.SamplingExecutor")
 class SamplingExecutor(ObjectBase):
-    
+
     def __new__(cls):
         obj = ObjectBase.__new__(cls)
         obj._cache = {}

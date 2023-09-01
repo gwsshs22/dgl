@@ -8,6 +8,7 @@ import torch
 import dgl
 
 from dgl.omega.omega_apis import partition_request
+from dgl.omega.trace import trace_me
 
 class SingleWorkerCommunicator:
 
@@ -54,14 +55,15 @@ class WorkerGroupCommunicator:
         self._nid_partitions = torch.tensor(nid_partitions)
 
     def request(self, batch_id, batch_request):
-        partitioned_request = partition_request(
-            self._num_machines,
-            self._num_gpus_per_machine,
-            self._nid_partitions,
-            batch_request.target_gnids,
-            batch_request.target_features,
-            batch_request.src_gnids,
-            batch_request.dst_gnids)
+        with trace_me(batch_id, "part_req"):
+            partitioned_request = partition_request(
+                self._num_machines,
+                self._num_gpus_per_machine,
+                self._nid_partitions,
+                batch_request.target_gnids,
+                batch_request.target_features,
+                batch_request.src_gnids,
+                batch_request.dst_gnids)
 
         target_gnids_list, target_features_list, src_gnids_list, dst_gnids_list = partitioned_request
         futs = []

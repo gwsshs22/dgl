@@ -16,7 +16,7 @@ namespace omega {
 
 void PutTrace(int batch_id, const std::string& name, int elapsed_micro);
 
-void WriteTraces(const std::string& breakdown_trace_dir, const std::string& file_name);
+std::vector<std::tuple<int, std::string, int>> GetCppTraces();
 
 }
 }

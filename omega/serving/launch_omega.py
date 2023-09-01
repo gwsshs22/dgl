@@ -536,7 +536,8 @@ def submit_jobs(args, dry_run=False):
         (f"--num_reqs {args.num_reqs} " if args.num_reqs else "") +
         (f"--req_per_sec {args.req_per_sec} " if args.req_per_sec else "") +
         (f"--exp_secs {args.exp_secs} " if args.exp_secs else "") +
-        (f"--breakdown_trace_dir {args.breakdown_trace_dir} " if args.breakdown_trace_dir else "") +
+        (f"--result_dir {args.result_dir} " if args.result_dir else "") +
+        (f"--tracing " if args.tracing else "") +
         f"--arrival_type {args.arrival_type} " +
         f"--gnn {args.gnn} " +
         f"--num_inputs {args.num_inputs} " +
@@ -654,10 +655,11 @@ def main():
     parser.add_argument("--worker_omp_threads", type=int, default=8)
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)
-    parser.add_argument('--profiling', action="store_true")
     parser.add_argument('--exp_type', type=str, choices=["latency", "throughput"], required=True)
 
-    parser.add_argument('--breakdown_trace_dir', type=str)
+    parser.add_argument('--profiling', action="store_true")
+    parser.add_argument('--tracing', action="store_true")
+    parser.add_argument('--result_dir', type=str)
     # For latency exp
     parser.add_argument('--num_reqs', type=int)
     # For throughput exp
@@ -755,6 +757,9 @@ def main():
 
     if args.exec_mode == "cgp" or args.exec_mode == "cgp-multi":
         assert args.use_precoms
+    
+    if args.tracing:
+        assert args.result_dir is not None
 
     submit_jobs(args)
 

@@ -4,6 +4,7 @@ import sys
 import time
 from pathlib import Path
 import os
+import json
 
 import torch
 import torch.distributed.rpc as rpc
@@ -11,7 +12,7 @@ import numpy as np
 
 import dgl
 
-from dgl.omega.trace import trace_me, write_traces, put_trace, enable_tracing
+from dgl.omega.trace import trace_me, get_traces, put_trace, enable_tracing
 
 from infer_requests import create_req_generator
 from worker import WorkerAsyncExecContext, ModelConfig
@@ -113,7 +114,7 @@ def main(args):
                     model_config,
                     args.random_seed,
                     args.profiling,
-                    args.breakdown_trace_dir
+                    args.tracing
                 )
             )
             for worker_idx in range(world_size)
@@ -127,17 +128,26 @@ def main(args):
         exec_mode,
         worker_async_exec_context_groups)
 
-    enable_tracing(args.breakdown_trace_dir)
+    if args.tracing:
+        enable_tracing()
 
     if args.exp_type == "throughput":
         num_warmups = world_size * num_omega_groups * 2
-        run_throughput_exp(worker_comms, num_warmups, req_generator)
+        latencies = run_throughput_exp(worker_comms, num_warmups, req_generator)
     elif args.exp_type == "latency":
         num_warmups = 4
-        run_latency_exp(worker_comms, num_warmups, req_generator)
+        latencies = run_latency_exp(worker_comms, num_warmups, req_generator)
     else:
         raise f"Unknown exp_type={exp_type}"
     print("Master finished.", flush=True)
+
+    traces = []
+    if args.tracing:
+        traces = get_traces("master")
+
+        for worker_async_exec_contexts in worker_async_exec_context_groups:
+            for async_exec_context in worker_async_exec_contexts:
+                traces += async_exec_context.rpc_sync().collect_traces()
 
     for worker_async_exec_contexts in worker_async_exec_context_groups:
         for async_exec_context in worker_async_exec_contexts:
@@ -145,8 +155,9 @@ def main(args):
 
     rpc.shutdown()
     print("Master shutdowned.", flush=True)
-    if args.breakdown_trace_dir:
-        write_traces(args.breakdown_trace_dir, "master", num_warmups)
+
+    if args.result_dir:
+        write_result(args, num_warmups, latencies, traces)
 
 def run_throughput_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
@@ -211,6 +222,7 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
     if done_context.error_marked():
         print(f"An exception occurred while executing inference requests: {done_context.get_ex()}")
 
+    return latencies
 
 def run_latency_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
@@ -251,6 +263,23 @@ def run_latency_exp(worker_comms, num_warmups, req_generator):
     latencies = np.array(latencies)
     print(f"Mean latency = {np.mean(latencies)}s")
 
+    return latencies
+
+def write_result(args, num_warmups, latencies, traces):
+    result_dir_path = Path(args.result_dir)
+    os.makedirs(str(result_dir_path), exist_ok=True)
+
+    args_dict = vars(args)
+    args_dict["num_warmups"] = num_warmups
+
+    with open(result_dir_path / "traces.txt", "w") as f:
+        for trace in traces:
+            f.write(f"{trace.owner},{trace.batch_id},{trace.name},{trace.elapsed_micro}\n")
+    
+    with open(result_dir_path / "config.json", "w") as f:
+        f.write(json.dumps(args_dict, indent=4, sort_keys=True))
+        f.write("\n")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -268,8 +297,10 @@ if __name__ == "__main__":
     parser.add_argument('--use_precoms', action="store_true")
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)
-    parser.add_argument('--breakdown_trace_dir', type=str)
+
     parser.add_argument('--profiling', action="store_true")
+    parser.add_argument('--tracing', action="store_true")
+    parser.add_argument('--result_dir', type=str)
     parser.add_argument('--feature_dim', type=int)
 
     parser.add_argument('--exp_type', type=str, choices=["latency", "throughput"], required=True)

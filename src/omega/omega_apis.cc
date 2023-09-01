@@ -201,12 +201,15 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaSampleEdges")
     *rv = ret_list;
   });
 
-DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaWriteTraces")
+DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaGetCppTraces")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
-    std::string breakdown_trace_dir = args[0];
-    std::string filename = args[1];
-
-    omega::WriteTraces(breakdown_trace_dir, filename);
+    runtime::List<runtime::Value> ret_list;
+    for (auto t : omega::GetCppTraces()) {
+      ret_list.push_back(runtime::Value(MakeValue(std::get<0>(t))));
+      ret_list.push_back(runtime::Value(MakeValue(std::get<1>(t))));
+      ret_list.push_back(runtime::Value(MakeValue(std::get<2>(t))));
+    }
+    *rv = ret_list;
   });
 
 }

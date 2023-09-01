@@ -22,11 +22,10 @@ from dgl.omega.omega_apis import (
     get_num_assigned_targets_per_gpu,
     to_block,
     to_distributed_block,
-    write_traces_cpp
 )
 from dgl.omega.sampler import create_sampler_pool
 
-from dgl.omega.trace import trace_me, write_traces, enable_tracing
+from dgl.omega.trace import trace_me, get_traces, get_cpp_traces, enable_tracing
 
 import dgl.backend as F
 
@@ -65,12 +64,12 @@ class WorkerAsyncExecContext:
         model_config,
         random_seed,
         profiling,
-        breakdown_trace_dir):
+        tracing):
 
         self._global_rank = global_rank
-        self._breakdown_trace_dir = breakdown_trace_dir
 
-        enable_tracing(self._breakdown_trace_dir)
+        if tracing:
+            enable_tracing()
 
         num_gpus_per_machine_in_group, gpu_ranks, local_gpu_rank_in_group, nid_partitions = self._get_cgp_conf(
             num_machines, machine_rank, num_gpus_per_machine, global_rank, local_rank, exec_mode, part_config)
@@ -166,13 +165,16 @@ class WorkerAsyncExecContext:
 
         return fut
 
+    def collect_traces(self):
+        python_traces = get_traces(f"worker_{self._global_rank}")
+        cpp_traces = get_cpp_traces(f"worker_{self._global_rank}")
+
+        return python_traces + cpp_traces
+
     def shutdown(self):
         self._req_queue.put((-1,))
         self._process_thread.join()
         self._sampler_pool.shutdown()
-        if self._breakdown_trace_dir:
-            write_traces(self._breakdown_trace_dir, f"worker_python_{self._global_rank}")
-            write_traces_cpp(self._breakdown_trace_dir, f"worker_cpp_{self._global_rank}")
 
 
 class DataProvider:

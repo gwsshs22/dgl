@@ -25,7 +25,7 @@ from dgl.omega.omega_apis import (
 )
 from dgl.omega.sampler import create_sampler_pool
 
-from dgl.omega.trace import trace_me, get_traces, get_cpp_traces, enable_tracing
+from dgl.omega.trace import trace_me, get_traces, get_cpp_traces, enable_tracing, put_trace
 
 import dgl.backend as F
 
@@ -106,7 +106,7 @@ class WorkerAsyncExecContext:
             self._data_provider.pull_fn,
             self._data_provider.dist_sampling_fn)
 
-        self._req_queue = queue.Queue()
+        self._req_queue = queue.SimpleQueue()
         self._process_thread = threading.Thread(
             target=process_main,
             args=(
@@ -124,7 +124,8 @@ class WorkerAsyncExecContext:
                 use_precoms,
                 model_config,
                 random_seed,
-                profiling))
+                profiling,
+                tracing))
         self._process_thread.start()
 
     def _get_cgp_conf(self, num_machines, machine_rank, num_gpus_per_machine, global_rank, local_rank, exec_mode, part_config):
@@ -152,9 +153,12 @@ class WorkerAsyncExecContext:
     @rpc.functions.async_execution
     def process(self, req_id, batch_id, target_gnids, target_features, src_gnids, dst_gnids):
         fut = torch.futures.Future()
+        worker_arrival_time = time.time()
 
         def continuation(blocks, src_inputs_list):
-            self._req_queue.put((req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, fut))
+            compute_queue_enqueued_time = time.time()
+            timestamps = [worker_arrival_time, compute_queue_enqueued_time]
+            self._req_queue.put((req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, timestamps, fut))
 
         self._sampler_pool.enqueue(
             batch_id,
@@ -308,7 +312,8 @@ def process_main(
     use_precoms,
     model_config,
     random_seed,
-    profiling):
+    profiling,
+    tracing):
 
     gpu_ranks = None
     if exec_mode == "cgp" or exec_mode == "cgp-multi":
@@ -342,7 +347,8 @@ def process_main(
         exec_mode,
         use_precoms,
         model_config,
-        random_seed)
+        random_seed,
+        tracing)
 
     def run():
         pending_requests = {}
@@ -354,6 +360,8 @@ def process_main(
             req_id = request[0]
             if req_id < 0:
                 break
+
+            request[-2].append(time.time()) # compute_queue_dequeded_time
 
             assert req_id >= expected_req_id
             if expected_req_id == req_id:
@@ -394,7 +402,8 @@ class LocalExecutionContext:
         exec_mode,
         use_precoms,
         model_config,
-        random_seed):
+        random_seed,
+        tracing):
 
         self._num_machines = num_machines
         self._num_gpus_per_machine = num_gpus_per_machine
@@ -405,6 +414,7 @@ class LocalExecutionContext:
         self._exec_mode = exec_mode
         self._use_precoms = use_precoms
         self._model_config = model_config
+        self._tracing = tracing
 
         self._device = f"cuda:{self._local_rank}"
 
@@ -425,7 +435,7 @@ class LocalExecutionContext:
 
         self._model = self._model.to(self._device)
 
-    def process_request(self, req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, fut):
+    def process_request(self, req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, timestamps, fut):
         with torch.no_grad():
             if self._use_precoms:
                 ret_tensor = self.run_with_precoms(batch_id, target_gnids, target_features, blocks, src_inputs_list)
@@ -433,6 +443,9 @@ class LocalExecutionContext:
                 ret_tensor = self.run(batch_id, target_gnids, target_features, blocks, src_inputs_list)
 
             fut.set_result((batch_id, ret_tensor))
+            compute_done_time = time.time()
+            timestamps.append(compute_done_time)
+            self._record_timestamps(batch_id, timestamps)
 
     def run(self, batch_id, target_gnids, target_features, blocks, src_inputs_list):
         with trace_me(batch_id, "copy", self._device):
@@ -463,6 +476,25 @@ class LocalExecutionContext:
                     h = torch.concat((h, inputs[layer_idx + 1]))
 
             return h.cpu()
+    
+    def _record_timestamps(self, batch_id, timestamps):
+        if not self._tracing:
+            return
+        # timestamps = [worker_arrival_time, compute_queue_enqueued_time, compute_queue_dequeded_time, compute_done_time]
+        (worker_arrival_time,
+            compute_queue_enqueued_time,
+            compute_queue_dequeded_time,
+            compute_done_time) = timestamps
+        process_time = compute_done_time - worker_arrival_time
+        sampling_total_time = compute_queue_enqueued_time - worker_arrival_time
+        compute_queue_delay_time = compute_queue_dequeded_time - compute_queue_enqueued_time
+        compute_total_time = compute_done_time - compute_queue_dequeded_time
+
+        put_trace(batch_id, "process", process_time)
+        put_trace(batch_id, "sampling_total", sampling_total_time)
+        put_trace(batch_id, "compute_queue_delay", compute_queue_delay_time)
+        put_trace(batch_id, "compute_total", compute_total_time)
+
 
 def main(args):
     num_omega_groups = args.num_omega_groups

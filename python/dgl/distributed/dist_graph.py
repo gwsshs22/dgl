@@ -294,7 +294,7 @@ class DistGraphServer(KVServer):
                  num_clients, part_config, disable_shared_mem=False,
                  graph_format=('csc', 'coo'), keep_alive=False,
                  net_type='socket',
-                 load_precoms=False, num_layers=0, num_hiddens=0, precom_path=""):
+                 feature_dim=None, load_precoms=False, num_layers=0, num_hiddens=0, precom_path=""):
         super(DistGraphServer, self).__init__(server_id=server_id,
                                               ip_config=ip_config,
                                               num_servers=num_servers,
@@ -311,7 +311,7 @@ class DistGraphServer(KVServer):
         else:
             # Loading of node/edge_feats are deferred to lower the peak memory consumption.
             self.client_g, _, _, self.gpb, graph_name, \
-                    ntypes, etypes = load_partition(part_config, self.part_id, load_feats=False)
+                    ntypes, etypes = load_partition(part_config, self.part_id, feature_dim=feature_dim, load_feats=False)
             print('load ' + graph_name)
             # formatting dtype
             # TODO(Rui) Formatting forcely is not a perfect solution.
@@ -330,6 +330,7 @@ class DistGraphServer(KVServer):
             if not disable_shared_mem:
                 self.client_g = _copy_graph_to_shared_mem(self.client_g, graph_name, graph_format)
 
+        num_nodes_in_partition = self.gpb._local_ntype_offset[1]
         if not disable_shared_mem:
             self.gpb.shared_memory(graph_name)
         assert self.gpb.partid == self.part_id
@@ -342,7 +343,7 @@ class DistGraphServer(KVServer):
 
         if not self.is_backup_server():
             node_feats, _ = load_partition_feats(part_config, self.part_id,
-                load_nodes=True, load_edges=False)
+                num_nodes_in_partition, feature_dim=feature_dim, load_nodes=True, load_edges=False)
 
             for name in node_feats:
                 # The feature name has the following format: node_type + "/" + feature_name to avoid
@@ -353,7 +354,7 @@ class DistGraphServer(KVServer):
                                data_tensor=node_feats[name])
                 self.orig_data.add(str(data_name))
 
-                num_nodes_in_partition = node_feats[name].shape[0]
+                assert node_feats[name].shape[0] == num_nodes_in_partition
             # Let's free once node features are copied to shared memory
             del node_feats
             gc.collect()

@@ -121,7 +121,7 @@ def _get_part_ranges(id_ranges):
         res[key] = np.concatenate([np.array(l) for l in id_ranges[key]]).reshape(-1, 2)
     return res
 
-def load_partition(part_config, part_id, load_feats=True):
+def load_partition(part_config, part_id, load_feats=True, feature_dim=None):
     ''' Load data of a partition from the data path.
 
     A partition data includes a graph structure of the partition, a dict of node tensors,
@@ -175,6 +175,7 @@ def load_partition(part_config, part_id, load_feats=True):
     assert EID in graph.edata, "the partition graph should contain edge mapping to global edge ID"
 
     gpb, graph_name, ntypes, etypes = load_partition_book(part_config, part_id)
+    num_nodes_in_partition = gpb._local_ntype_offset[1]
     ntypes_list = list(ntypes.keys())
     etypes_list = list(etypes.keys())
     if 'DGL_DIST_DEBUG' in os.environ:
@@ -208,11 +209,11 @@ def load_partition(part_config, part_id, load_feats=True):
     node_feats = {}
     edge_feats = {}
     if load_feats:
-        node_feats, edge_feats = load_partition_feats(part_config, part_id)
+        node_feats, edge_feats = load_partition_feats(part_config, part_id, num_nodes_in_partition=num_nodes_in_partition, feature_dim=feature_dim)
 
     return graph, node_feats, edge_feats, gpb, graph_name, ntypes_list, etypes_list
 
-def load_partition_feats(part_config, part_id, load_nodes=True, load_edges=True):
+def load_partition_feats(part_config, part_id, num_nodes_in_partition=None, feature_dim=None, load_nodes=True, load_edges=True):
     '''Load node/edge feature data from a partition.
 
     Parameters
@@ -266,6 +267,13 @@ def load_partition_feats(part_config, part_id, load_nodes=True, load_edges=True)
                 name = _etype_tuple_to_str(DEFAULT_ETYPE) + '/' + name
             new_feats[name] = feat
         edge_feats = new_feats
+
+    if feature_dim is not None:
+        new_node_feats = {
+            k: torch.empty(num_nodes_in_partition, feature_dim, dtype=v.dtype)
+            for k, v in node_feats.items()
+        }
+        node_feats = new_node_feats
 
     return node_feats, edge_feats
 

@@ -462,7 +462,6 @@ class LocalExecutionContext:
 
             return h.cpu()
 
-
 def main(args):
     num_omega_groups = args.num_omega_groups
     omega_group_id = args.omega_group_id

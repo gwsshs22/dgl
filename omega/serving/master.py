@@ -74,7 +74,8 @@ def main(args):
         args.trace_dir,
         -1.0 if args.exp_type == "latency" else args.req_per_sec,
         args.arrival_type,
-        args.random_seed)
+        args.random_seed,
+        args.feature_dim)
 
     model_config = ModelConfig(
         gnn=args.gnn,
@@ -269,6 +270,7 @@ if __name__ == "__main__":
     parser.add_argument('--trace_dir', type=str, required=True)
     parser.add_argument('--breakdown_trace_dir', type=str)
     parser.add_argument('--profiling', action="store_true")
+    parser.add_argument('--feature_dim', type=int)
 
     parser.add_argument('--exp_type', type=str, choices=["latency", "throughput"], required=True)
     # For latency exp

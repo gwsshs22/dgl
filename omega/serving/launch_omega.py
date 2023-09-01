@@ -473,6 +473,7 @@ def submit_jobs(args, dry_run=False):
             f"--ip_config {args.ip_config} " +
             f"--num_layers {args.num_layers} " +
             f"--num_hiddens {args.num_hiddens} " +
+            (f"--feature_dim {args.feature_dim} " if args.feature_dim else "") +
             (f"--use_precoms  " if args.use_precoms else "") +
             (f"--precom_path {args.precom_path} " if args.precom_path else "") +
             f"--random_seed {args.random_seed} "
@@ -527,6 +528,7 @@ def submit_jobs(args, dry_run=False):
         f"--part_config_path {part_config} " +
         f"--worker_num_sampler_threads {args.worker_num_sampler_threads} " +
         f"--exec_mode {args.exec_mode} " +
+        (f"--feature_dim {args.feature_dim} " if args.feature_dim else "") +
         (f"--use_precoms " if args.use_precoms else "") +
         f"--trace_dir {args.trace_dir} " +
         (f"--profiling " if args.profiling else "") +
@@ -646,6 +648,7 @@ def main():
                         This is used to specify a destination location where \
                         the contents of current directory will be rsyncd",
     )
+    parser.add_argument('--feature_dim', type=int)
     parser.add_argument("--master_omp_threads", type=int, default=8)
     parser.add_argument("--worker_num_sampler_threads", type=int, default=16)
     parser.add_argument("--worker_omp_threads", type=int, default=8)

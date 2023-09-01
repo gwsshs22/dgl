@@ -17,6 +17,7 @@ import dgl.backend as F
 def dgl_server_main(
     ip_config,
     net_type,
+    feature_dim,
     use_precoms,
     num_layers,
     num_hiddens,
@@ -29,6 +30,7 @@ def dgl_server_main(
     dgl.distributed.initialize(
         ip_config,
         net_type=net_type,
+        feature_dim=feature_dim,
         load_precoms=use_precoms,
         num_layers=num_layers,
         num_hiddens=num_hiddens,
@@ -64,6 +66,7 @@ def main(args):
         args=(
             args.ip_config,
             args.net_type,
+            args.feature_dim,
             args.use_precoms,
             args.num_layers,
             args.num_hiddens,
@@ -101,6 +104,7 @@ if __name__ == "__main__":
     parser.add_argument('--ip_config', type=str, help='The file for IP configuration')
     parser.add_argument('--net_type', type=str, default='socket',
                         help="backend net type, 'socket' or 'tensorpipe'")
+    parser.add_argument('--feature_dim', type=int)
     parser.add_argument("--use_precoms", action="store_true")
     parser.add_argument("--num_layers", type=int)
     parser.add_argument("--num_hiddens", type=int)

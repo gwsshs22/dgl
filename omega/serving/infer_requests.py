@@ -19,11 +19,13 @@ class InferBatchRequest:
 
 class RequestGenerator:
 
-    def __init__(self, trace_dir, req_per_sec, arrival_type, random_seed):
-        self._load_traces(trace_dir)
+    def __init__(self, trace_dir, req_per_sec, arrival_type, random_seed, feature_dim):
         self._req_per_sec = req_per_sec
         self._arrival_type = arrival_type
         self._random_seed = random_seed
+        self._feature_dim = feature_dim
+
+        self._load_traces(trace_dir)
 
         self._num_reqs = None
         self._req_gen_thread = None
@@ -35,9 +37,12 @@ class RequestGenerator:
         self._batch_requests = []
         for i in range(self._num_traces):
             tensors = dgl.data.load_tensors(str(trace_dir / f"{i}.dgl"))
+            target_features = tensors["target_features"]
+            if self._feature_dim is not None:
+                target_features = torch.empty(target_features.shape[0], self._feature_dim)
             self._batch_requests.append(InferBatchRequest(
                 target_gnids=tensors["target_gnids"],
-                target_features=tensors["target_features"],
+                target_features=target_features,
                 src_gnids=tensors["src_gnids"],
                 dst_gnids=tensors["dst_gnids"]
             ))
@@ -92,5 +97,5 @@ class RequestGenerator:
         return self._batch_requests[idx % self._num_traces]
 
 
-def create_req_generator(trace_dir, req_per_sec, arrival_type, random_seed):
-    return RequestGenerator(trace_dir, req_per_sec, arrival_type, random_seed)
+def create_req_generator(trace_dir, req_per_sec, arrival_type, random_seed, feature_dim):
+    return RequestGenerator(trace_dir, req_per_sec, arrival_type, random_seed, feature_dim)

@@ -443,7 +443,7 @@ def submit_jobs(args, dry_run=False):
         hosts
     ), "The number of graph partitions has to match the number of machines in the cluster."
 
-
+    graph_name = part_metadata["graph_name"]
     num_samplers = args.num_omega_groups - 1
     state_q = queue.Queue()
     tot_num_clients = args.num_gpus_per_machine * (1 + num_samplers) * len(hosts)
@@ -525,6 +525,7 @@ def submit_jobs(args, dry_run=False):
         f"--num_omega_groups {args.num_omega_groups} " +
         f"--num_machines {len(hosts)} " +
         f"--num_gpus_per_machine {args.num_gpus_per_machine} " +
+        f"--graph_name {graph_name} "
         f"--part_config_path {part_config} " +
         f"--worker_num_sampler_threads {args.worker_num_sampler_threads} " +
         f"--exec_mode {args.exec_mode} " +

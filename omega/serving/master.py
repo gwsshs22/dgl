@@ -294,11 +294,11 @@ if __name__ == "__main__":
     parser.add_argument('--num_machines', type=int)
     parser.add_argument('--num_gpus_per_machine', type=int)
     parser.add_argument('--part_config_path', type=str, required=True)
+    parser.add_argument('--graph_name', type=str, required=True)
     parser.add_argument("--worker_num_sampler_threads", type=int, default=16)
     parser.add_argument('--use_precoms', action="store_true")
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument('--trace_dir', type=str, required=True)
-
     parser.add_argument('--profiling', action="store_true")
     parser.add_argument('--tracing', action="store_true")
     parser.add_argument('--result_dir', type=str)

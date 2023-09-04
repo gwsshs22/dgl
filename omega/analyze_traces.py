@@ -17,6 +17,12 @@ class TraceSummary:
     sampling: int
     copy: int
     compute: int
+    latency_std: int
+    transfer_std: int
+    fetch_std: int
+    sampling_std: int
+    copy_std: int
+    compute_std: int
 
 def _summary_traces(exp_config, trace_path):
     num_warmups = exp_config["num_warmups"]
@@ -74,7 +80,13 @@ def _summary_traces(exp_config, trace_path):
         fetch=np.mean(fetches),
         sampling=np.mean(samplings),
         copy=np.mean(copies),
-        compute=np.mean(computes)
+        compute=np.mean(computes),
+        latency_std=np.std(latencies),
+        transfer_std=np.std(transfers),
+        fetch_std=np.std(fetches),
+        sampling_std=np.std(samplings),
+        copy_std=np.std(copies),
+        compute_std=np.std(computes)
     )
 
 def analyze_exp(root_dir, result_dir):
@@ -100,6 +112,7 @@ def main(args):
     with open(exp_root_dir / "latency_breakdown.csv", "w") as f:
         head = ",".join([
             "num_machines",
+            "graph_name",
             "gnn",
             "num_layers",
             "num_inputs",
@@ -114,6 +127,12 @@ def main(args):
             "fetch",
             "copy",
             "compute",
+            "latency_std",
+            "transfer_std",
+            "sampling_std",
+            "fetch_std",
+            "copy_std",
+            "compute_std",
             "rel_path"
         ])
 
@@ -127,6 +146,7 @@ def main(args):
 
             row = ",".join([str(c) for c in [
                 exp_config["num_machines"],
+                exp_config["graph_name"] if "graph_name" in exp_config else "",
                 exp_config["gnn"],
                 exp_config["num_layers"],
                 exp_config["num_inputs"],
@@ -141,6 +161,12 @@ def main(args):
                 trace_summary.fetch,
                 trace_summary.copy,
                 trace_summary.compute,
+                trace_summary.latency_std,
+                trace_summary.transfer_std,
+                trace_summary.sampling_std,
+                trace_summary.fetch_std,
+                trace_summary.copy_std,
+                trace_summary.compute_std,
                 relative_path
             ]])
 

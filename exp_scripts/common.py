@@ -1,4 +1,5 @@
 import os
+import sys
 from dataclasses import dataclass
 
 @dataclass
@@ -21,6 +22,7 @@ class ThroughputExpParams:
 dataset_configs = {
     "reddit": DatasetConfig("reddit", 41, 602),
     "ogbn-products": DatasetConfig("ogbn-products", 47, 100),
+    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128)
 }
 
 def run_exp(
@@ -135,4 +137,4 @@ def run_exp(
         sys.exit(-1)
 
 if __name__ == "__main__":
-    run_exp(4, "ogbn-products", "sage", 3, [5, 10, 15], "cgp-multi", "latency", latency_exp_params=LatencyExpParams(num_reqs=50))
+    run_exp(4, "ogbn-papers100M", "sage", 3, [5, 10, 15], "cgp-multi", "latency", latency_exp_params=LatencyExpParams(num_reqs=50), exp_result_dir="$DGL_DATA_HOME/papers/result")

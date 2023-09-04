@@ -66,7 +66,15 @@ def main(args):
     os.environ["MASTER_ADDR"] = str(args.master_ip)
     os.environ["MASTER_PORT"] = str(args.master_rpc_port)
 
-    rpc.init_rpc("master", rank=0, world_size=world_size * num_omega_groups + 1 + num_machines)
+    rpc.init_rpc(
+        "master",
+        rank=0,
+        world_size=world_size * num_omega_groups + 1 + num_machines,
+        rpc_backend_options=rpc.TensorPipeRpcBackendOptions(
+            num_worker_threads=16,
+            rpc_timeout=600 # 10 minutes timeout
+        )
+    )
 
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)

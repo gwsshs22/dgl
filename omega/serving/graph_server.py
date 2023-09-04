@@ -88,7 +88,11 @@ def main(args):
 
     rpc.init_rpc(f"server-{server_rank}",
         rank=world_size * num_omega_groups + 1 + server_rank,
-        world_size=world_size * num_omega_groups + 1 + num_machines
+        world_size=world_size * num_omega_groups + 1 + num_machines,
+        rpc_backend_options=rpc.TensorPipeRpcBackendOptions(
+            num_worker_threads=16,
+            rpc_timeout=600 # 10 minutes timeout
+        )
     )
     rpc.shutdown()
     dgl_server_thread.join()

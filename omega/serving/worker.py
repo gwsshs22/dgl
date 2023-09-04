@@ -514,7 +514,11 @@ def main(args):
     rpc.init_rpc(
         f"worker-{rpc_global_rank}",
         rank=rpc_global_rank + 1,
-        world_size=world_size * num_omega_groups + 1 + num_machines
+        world_size=world_size * num_omega_groups + 1 + num_machines,
+        rpc_backend_options=rpc.TensorPipeRpcBackendOptions(
+            num_worker_threads=16,
+            rpc_timeout=600 # 10 minutes timeout
+        )
     )
     rpc.shutdown()
 

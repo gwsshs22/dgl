@@ -41,7 +41,7 @@ def save_infer_graph(args, org_g):
     else:
         id_mappings = {}
     id_mappings["infer_target_mask"] = infer_target_mask
-    id_mappings["infer_target_orig_ids"] = infer_target_nids
+
     dgl.data.save_tensors(id_mappings_path, id_mappings)
 
     print("Build inference target graph done.")
@@ -59,16 +59,16 @@ def partition_org_graph(args, org_g):
 def delete_infer_edges(args):
     output_path = Path(args.output)
     id_mappings = dgl.data.load_tensors(str(Path(args.output) / "id_mappings.dgl"))
-    
+
     infer_target_mask = id_mappings["infer_target_mask"]
-    infer_target_orig_ids = id_mappings["infer_target_orig_ids"]
+    orig_nids = id_mappings["orig_nids"]
 
     inner_edge_counts = []
     for part_id in range(args.num_parts):
         part_graph_path = Path(args.output) / f'part{part_id}' / 'graph.dgl'
         part_graph = dgl.load_graphs(str(part_graph_path))[0][0]
 
-        part_infer_target_mask = infer_target_mask[part_graph.ndata[dgl.NID]]
+        part_infer_target_mask = infer_target_mask[orig_nids[part_graph.ndata[dgl.NID]]]
         part_infer_target_local_ids = th.masked_select(th.arange(part_infer_target_mask.shape[0]), part_infer_target_mask)
         infer_in_edge_eids = part_graph.in_edges(part_infer_target_local_ids, 'eid')
         infer_out_edge_eids = part_graph.out_edges(part_infer_target_local_ids, 'eid')

@@ -458,8 +458,8 @@ def submit_jobs(args, dry_run=False):
         num_samplers=num_samplers,
         server_omp_threads=args.server_omp_threads,
         tot_num_clients=tot_num_clients,
-        part_config=args.part_config,
-        ip_config=args.ip_config,
+        part_config=part_config,
+        ip_config=ip_config,
         num_servers=num_servers,
         graph_format=args.graph_format,
         keep_alive=args.keep_alive,
@@ -470,7 +470,7 @@ def submit_jobs(args, dry_run=False):
         server_env_vars_cur = f"{server_env_vars} DGL_SERVER_ID={i}"
         server_command = (
             f"{args.python_bin} {args.dgl_home}/omega/serving/graph_server.py " +
-            f"--ip_config {args.ip_config} " +
+            f"--ip_config {ip_config} " +
             f"--num_layers {args.num_layers} " +
             f"--num_hiddens {args.num_hiddens} " +
             (f"--feature_dim {args.feature_dim} " if args.feature_dim else "") +
@@ -507,8 +507,8 @@ def submit_jobs(args, dry_run=False):
     client_env_vars = construct_dgl_client_env_vars(
         num_samplers=num_samplers,
         tot_num_clients=tot_num_clients,
-        part_config=args.part_config,
-        ip_config=args.ip_config,
+        part_config=part_config,
+        ip_config=ip_config,
         num_servers=num_servers,
         graph_format=args.graph_format,
         group_id=0,
@@ -518,7 +518,7 @@ def submit_jobs(args, dry_run=False):
     # Launch master
     master_command = (
         f"{args.python_bin} {args.dgl_home}/omega/serving/master.py " +
-        f"--ip_config {args.ip_config} " +
+        f"--ip_config {ip_config} " +
         f"--master_ip {master_addr} " +
         f"--master_rpc_port {master_rpc_port} " +
         f"--master_dist_comm_ports {master_dist_comm_ports} " +

@@ -121,7 +121,7 @@ def _get_part_ranges(id_ranges):
         res[key] = np.concatenate([np.array(l) for l in id_ranges[key]]).reshape(-1, 2)
     return res
 
-def load_partition(part_config, part_id, load_feats=True, feature_dim=None):
+def load_partition(part_config, part_id, load_feats=True, feature_dim=None, load_dgl_graph=True):
     ''' Load data of a partition from the data path.
 
     A partition data includes a graph structure of the partition, a dict of node tensors,
@@ -169,10 +169,13 @@ def load_partition(part_config, part_id, load_feats=True, feature_dim=None):
     assert 'part-{}'.format(part_id) in part_metadata, "part-{} does not exist".format(part_id)
     part_files = part_metadata['part-{}'.format(part_id)]
     assert 'part_graph' in part_files, "the partition does not contain graph structure."
-    graph = load_graphs(relative_to_config(part_files['part_graph']))[0][0]
 
-    assert NID in graph.ndata, "the partition graph should contain node mapping to global node ID"
-    assert EID in graph.edata, "the partition graph should contain edge mapping to global edge ID"
+    if load_dgl_graph:
+        graph = load_graphs(relative_to_config(part_files['part_graph']))[0][0]
+        assert NID in graph.ndata, "the partition graph should contain node mapping to global node ID"
+        assert EID in graph.edata, "the partition graph should contain edge mapping to global edge ID"
+    else:
+        graph = None
 
     gpb, graph_name, ntypes, etypes = load_partition_book(part_config, part_id)
     num_nodes_in_partition = gpb._local_ntype_offset[1]

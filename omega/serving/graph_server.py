@@ -22,6 +22,7 @@ def dgl_server_main(
     num_layers,
     num_hiddens,
     precom_path,
+    load_dgl_graph,
     random_seed):
 
     np.random.seed(random_seed)
@@ -34,7 +35,8 @@ def dgl_server_main(
         load_precoms=use_precoms,
         num_layers=num_layers,
         num_hiddens=num_hiddens,
-        precom_path=precom_path)
+        precom_path=precom_path,
+        load_dgl_graph=load_dgl_graph)
 
 class OmegaGraphServer:
 
@@ -61,6 +63,7 @@ class OmegaGraphServer:
         return sample_edges(self._local_g, seeds, fanout)
 
 def main(args):
+    load_dgl_graph = load_dgl_graph = args.exec_mode == "dp" and not args.use_precoms
     dgl_server_thread = threading.Thread(
         target=dgl_server_main,
         args=(
@@ -71,6 +74,7 @@ def main(args):
             args.num_layers,
             args.num_hiddens,
             args.precom_path,
+            load_dgl_graph,
             args.random_seed))
     dgl_server_thread.start()
 
@@ -109,6 +113,7 @@ if __name__ == "__main__":
     parser.add_argument('--net_type', type=str, default='socket',
                         help="backend net type, 'socket' or 'tensorpipe'")
     parser.add_argument('--feature_dim', type=int)
+    parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument("--use_precoms", action="store_true")
     parser.add_argument("--num_layers", type=int)
     parser.add_argument("--num_hiddens", type=int)

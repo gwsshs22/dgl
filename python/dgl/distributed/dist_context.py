@@ -242,7 +242,8 @@ def initialize(
     load_precoms=False,
     num_layers=0,
     num_hiddens=0,
-    precom_path=""
+    precom_path="",
+    load_dgl_graph=True
 ):
     """Initialize DGL's distributed module
 
@@ -309,7 +310,8 @@ def initialize(
             load_precoms=load_precoms,
             num_layers=num_layers,
             num_hiddens=num_hiddens,
-            precom_path=precom_path
+            precom_path=precom_path,
+            load_dgl_graph=load_dgl_graph
         )
         DIST_GRAPH_SERVER = serv
         serv.start()

@@ -200,7 +200,8 @@ class DataProvider:
             net_type,
             omega_group_id)
 
-        self._dist_g = dgl.distributed.DistGraph(graph_name, part_config=part_config)
+        load_dgl_graph = exec_mode == "dp" and not use_precoms
+        self._dist_g = dgl.distributed.DistGraph(graph_name, part_config=part_config, load_dgl_graph=load_dgl_graph)
         self._dist_g.barrier()
 
         self._local_g = self._dist_g.local_partition

@@ -147,6 +147,9 @@ def create_sampler_pool(
         local_data_names.append(k)
         local_data_tensors.append(F.zerocopy_to_dgl_ndarray(v))
 
+    local_graph_idx = local_g._graph if local_g else empty_graph._graph
+    local_grph_nid = local_g.ndata[dgl.NID] if local_g else torch.tensor([], dtype=torch.int64)
+
     return SamplerPool(
         num_machines,
         machine_rank,
@@ -172,8 +175,8 @@ def create_sampler_pool(
             pull_fn,
             dist_sampling_fn,
             empty_graph._graph,
-            local_g._graph,
-            F.zerocopy_to_dgl_ndarray(local_g.ndata[dgl.NID]),
+            local_graph_idx,
+            F.zerocopy_to_dgl_ndarray(local_grph_nid),
             local_data_names,
             local_data_tensors)
     )

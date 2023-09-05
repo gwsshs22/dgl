@@ -473,6 +473,7 @@ def submit_jobs(args, dry_run=False):
             f"--ip_config {ip_config} " +
             f"--num_layers {args.num_layers} " +
             f"--num_hiddens {args.num_hiddens} " +
+            f"--exec_mode {args.exec_mode} " +
             (f"--feature_dim {args.feature_dim} " if args.feature_dim else "") +
             (f"--use_precoms  " if args.use_precoms else "") +
             (f"--precom_path {args.precom_path} " if args.precom_path else "") +

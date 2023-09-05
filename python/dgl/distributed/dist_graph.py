@@ -294,7 +294,7 @@ class DistGraphServer(KVServer):
                  num_clients, part_config, disable_shared_mem=False,
                  graph_format=('csc', 'coo'), keep_alive=False,
                  net_type='socket',
-                 feature_dim=None, load_precoms=False, num_layers=0, num_hiddens=0, precom_path=""):
+                 feature_dim=None, load_precoms=False, num_layers=0, num_hiddens=0, precom_path="", load_dgl_graph=True):
         super(DistGraphServer, self).__init__(server_id=server_id,
                                               ip_config=ip_config,
                                               num_servers=num_servers,
@@ -311,7 +311,7 @@ class DistGraphServer(KVServer):
         else:
             # Loading of node/edge_feats are deferred to lower the peak memory consumption.
             self.client_g, _, _, self.gpb, graph_name, \
-                    ntypes, etypes = load_partition(part_config, self.part_id, feature_dim=feature_dim, load_feats=False)
+                    ntypes, etypes = load_partition(part_config, self.part_id, feature_dim=feature_dim, load_feats=False, load_dgl_graph=load_dgl_graph)
             print('load ' + graph_name)
             # formatting dtype
             # TODO(Rui) Formatting forcely is not a perfect solution.
@@ -325,10 +325,11 @@ class DistGraphServer(KVServer):
                     self.client_g.edata[k] = F.astype(
                         self.client_g.edata[k], dtype)
             # Create the graph formats specified the users.
-            self.client_g = self.client_g.formats(graph_format)
-            self.client_g.create_formats_()
-            if not disable_shared_mem:
-                self.client_g = _copy_graph_to_shared_mem(self.client_g, graph_name, graph_format)
+            if load_dgl_graph:
+                self.client_g = self.client_g.formats(graph_format)
+                self.client_g.create_formats_()
+                if not disable_shared_mem:
+                    self.client_g = _copy_graph_to_shared_mem(self.client_g, graph_name, graph_format)
 
         num_nodes_in_partition = self.gpb._local_ntype_offset[1]
         if not disable_shared_mem:
@@ -477,8 +478,9 @@ class DistGraph:
     set of machines. If users need to run them on different sets of machines, it requires
     manually setting up servers and trainers. The setup is not fully tested yet.
     '''
-    def __init__(self, graph_name, gpb=None, part_config=None):
+    def __init__(self, graph_name, gpb=None, part_config=None, load_dgl_graph=True):
         self.graph_name = graph_name
+        self._load_dgl_graph = load_dgl_graph
         if os.environ.get('DGL_DIST_MODE', 'standalone') == 'standalone':
             assert part_config is not None, \
                     'When running in the standalone model, the partition config file is required'
@@ -533,7 +535,12 @@ class DistGraph:
         self._client = get_kvstore()
         assert self._client is not None, \
                 'Distributed module is not initialized. Please call dgl.distributed.initialize.'
-        self._g = _get_graph_from_shared_mem(self.graph_name)
+        
+        if self._load_dgl_graph:
+            self._g = _get_graph_from_shared_mem(self.graph_name)
+        else:
+            self._g
+
         self._gpb = get_shared_mem_partition_book(self.graph_name)
         if self._gpb is None:
             self._gpb = gpb

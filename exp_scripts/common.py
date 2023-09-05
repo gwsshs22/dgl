@@ -22,7 +22,9 @@ class ThroughputExpParams:
 dataset_configs = {
     "reddit": DatasetConfig("reddit", 41, 602),
     "ogbn-products": DatasetConfig("ogbn-products", 47, 100),
-    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128)
+    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128),
+    "fb5b": DatasetConfig("fb5b", 128, 16),
+    "fb10b": DatasetConfig("fb10b", 128, 16),
 }
 
 def run_exp(
@@ -136,4 +138,4 @@ def run_exp(
         print(f"Run experiment failed. command={command}")
 
 if __name__ == "__main__":
-    run_exp(4, "ogbn-papers100M", "sage", 3, [5, 10, 15], "cgp-multi", "latency", latency_exp_params=LatencyExpParams(num_reqs=50), exp_result_dir="$DGL_DATA_HOME/papers/result")
+    run_exp(4, "fb5b", "sage", 3, [5, 10, 15], "cgp-multi", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=50), exp_result_dir="$DGL_DATA_HOME/fb5b/result")

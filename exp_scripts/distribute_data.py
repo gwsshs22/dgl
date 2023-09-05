@@ -9,7 +9,7 @@ def main(args):
     for i, part_id in enumerate(range(num_parts)):
         target_path = f"$DGL_DATA_HOME/omega_datasets-{num_parts}/{args.dataset}-random-{num_parts}/{args.dataset}.json"
         os.system(f"rsync -avP --mkpath {target_path} {args.ssh_username}@{machine_ips[i]}:{target_path}")
-        target_path = f"$DGL_DATA_HOME/omega_datasets-{num_parts}/{args.dataset}-random-{num_parts}/part{i}"
+        target_path = f"$DGL_DATA_HOME/omega_datasets-{num_parts}/{args.dataset}-random-{num_parts}/part{i}/"
         os.system(f"rsync -avP --mkpath {target_path} {args.ssh_username}@{machine_ips[i]}:{target_path}")
 
 if __name__ == "__main__":

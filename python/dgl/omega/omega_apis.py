@@ -198,5 +198,20 @@ def trace_gen_helper(
 def collect_cpp_traces():
     return _CAPI_DGLOmegaGetCppTraces()
 
+def partition_facebook_dataset(
+    num_parts,
+    input_dir,
+    edge_file_paths,
+    infer_prob,
+    num_omp_threads
+):
+    _CAPI_DGLOmegaPartitionFacebookDataset(
+        num_parts,
+        input_dir,
+        edge_file_paths,
+        infer_prob,
+        num_omp_threads
+    )
+
 
 _init_api("dgl.omega.omega_apis")

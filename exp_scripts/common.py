@@ -130,11 +130,10 @@ def run_exp(
     {exp_args} \
     {exp_result_args}
     """
-    # print(command)
+
     exit_code = os.system(command)
     if exit_code != 0:
         print(f"Run experiment failed. command={command}")
-        sys.exit(-1)
 
 if __name__ == "__main__":
     run_exp(4, "ogbn-papers100M", "sage", 3, [5, 10, 15], "cgp-multi", "latency", latency_exp_params=LatencyExpParams(num_reqs=50), exp_result_dir="$DGL_DATA_HOME/papers/result")

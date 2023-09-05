@@ -85,6 +85,7 @@ def delete_infer_edges(args):
 
     assert "_N:_E:_N" in config["edge_map"]
     config["edge_map"]["_N:_E:_N"] = l
+    config["num_edges"] = l[-1][-1]
 
     with open(Path(args.output) / f'{args.dataset}.json', 'w') as outfile:
         json.dump(config, outfile, sort_keys=True, indent=4)

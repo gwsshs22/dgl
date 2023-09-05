@@ -1,6 +1,8 @@
 #include <iostream>
 
 #include <dgl/runtime/container.h>
+#include <dgl/runtime/object.h>
+#include <dgl/packed_func_ext.h>
 #include "../c_api_common.h"
 
 #include "distributed_block.h"
@@ -9,6 +11,7 @@
 #include "sampling.h"
 #include "trace_gen_helper.h"
 #include "trace.h"
+#include "facebook_dataset_partition.h"
 
 using namespace dgl::runtime;
 
@@ -210,6 +213,22 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaGetCppTraces")
       ret_list.push_back(runtime::Value(MakeValue(std::get<2>(t))));
     }
     *rv = ret_list;
+  });
+
+DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaPartitionFacebookDataset")
+  .set_body([](DGLArgs args, DGLRetValue* rv) {
+    const int num_parts = args[0];
+    const std::string input_dir = args[1];
+    const List<Value> edge_file_paths_values = args[2];
+    const double infer_prob = args[3];
+    const int num_omp_threads = args[4];
+
+    std::vector<std::string> edge_file_paths;
+    for (int i = 0; i < edge_file_paths_values.size(); i++) {
+      edge_file_paths.push_back(edge_file_paths_values[i]->data);
+    }
+
+    omega::PartitionFacebookDataset(num_parts, input_dir, edge_file_paths, infer_prob, num_omp_threads);
   });
 
 }

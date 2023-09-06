@@ -4,6 +4,7 @@ import time
 from common import run_exp, LatencyExpParams
 
 def main(args):
+    print(f"Start run_overall_latency.py args={args}")
     start_t = time.time()
     gnn_names = ["gcn", "sage", "gat"]
     graph_names = ["ogbn-products", "reddit", "amazon", "fb5b", "fb10b"]

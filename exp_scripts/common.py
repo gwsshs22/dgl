@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from dataclasses import dataclass
 
 @dataclass
@@ -148,7 +149,8 @@ def run_exp(
         exit_code = os.system(command)
         if exit_code != 0:
             print(f"Run experiment failed. command={command}")
+        time.sleep(10) # Wait for socket release
 
 
 if __name__ == "__main__":
-    run_exp(4, "fb10b", "sage", 3, [], "dp", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1))
+    run_exp(4, "ogbn-products", "sage", 3, [], "cgp-multi", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1))

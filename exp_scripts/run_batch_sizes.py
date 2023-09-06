@@ -4,6 +4,7 @@ import time
 from common import run_exp, LatencyExpParams
 
 def main(args):
+    print(f"Start run_batch_sizes.py args={args}")
     start_t = time.time()
 
     graph_names = ["ogbn-products", "fb10b"]

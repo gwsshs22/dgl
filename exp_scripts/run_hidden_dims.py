@@ -4,6 +4,7 @@ import time
 from common import run_exp, LatencyExpParams
 
 def main(args):
+    print(f"Start run_hidden_dims.py args={args}")
     start_t = time.time()
 
     graph_names = ["fb10b"]

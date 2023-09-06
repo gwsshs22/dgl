@@ -6,8 +6,8 @@ from common import run_exp, LatencyExpParams
 def main(args):
     start_t = time.time()
     gnn_names = ["gcn", "sage", "gat"]
-    graph_names = ["fb10b", "fb5b", "ogbn-products", "reddit", "amazon"]
-    exec_types = ["dp", "dp-precoms", "cgp-multi", "cgp"]
+    graph_names = ["ogbn-products", "reddit", "amazon", "fb5b", "fb10b"]
+    exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
 
     extra_env_names = []
     if args.extra_env_names:

@@ -7,7 +7,7 @@ def main(args):
     start_t = time.time()
 
     graph_names = ["fb10b"]
-    exec_types = ["dp", "dp-precoms", "cgp-multi", "cgp"]
+    exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
     feature_dims = [128, 256, 512, 1024, 2048, 4096]
 
     extra_env_names = []

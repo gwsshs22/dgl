@@ -39,6 +39,42 @@ def main(args):
                 if exec_type == "dp":
                     full_infer_num_reqs = args.full_dp_num_reqs
 
+                # run_exp(
+                #     num_machines=4,
+                #     graph_name=graph_name,
+                #     gnn=gnn,
+                #     num_layers=num_layers,
+                #     fanouts=None,
+                #     exec_type=exec_type,
+                #     exp_type="latency",
+                #     latency_exp_params=LatencyExpParams(num_reqs=full_infer_num_reqs),
+                #     batch_size=batch_size,
+                #     exp_result_dir=f"{exp_result_dir}/{graph_name}_{fanout_str}_{exec_type}_full",
+                #     extra_env_names=extra_env_names
+                # )
+
+    for graph_name in graph_names:
+        for num_layers in [2, 3, 4]:
+            for exec_type in exec_types:
+                fanout_str = "_".join(["0"] * num_layers)
+                # run_exp(
+                #     num_machines=4,
+                #     graph_name=graph_name,
+                #     gnn=gnn,
+                #     num_layers=num_layers,
+                #     fanouts=fanouts,
+                #     exec_type=exec_type,
+                #     exp_type="latency",
+                #     latency_exp_params=LatencyExpParams(num_reqs=args.num_reqs),
+                #     batch_size=batch_size,
+                #     exp_result_dir=f"{exp_result_dir}/{graph_name}_{fanout_str}_{exec_type}_sampled",
+                #     extra_env_names=extra_env_names
+                # )
+
+                full_infer_num_reqs = args.num_reqs
+                if exec_type == "dp":
+                    full_infer_num_reqs = args.full_dp_num_reqs
+
                 run_exp(
                     num_machines=4,
                     graph_name=graph_name,

@@ -438,10 +438,14 @@ class LocalExecutionContext:
 
     def process_request(self, req_id, batch_id, target_gnids, target_features, blocks, src_inputs_list, timestamps, fut):
         with torch.no_grad():
-            if self._use_precoms:
-                ret_tensor = self.run_with_precoms(batch_id, target_gnids, target_features, blocks, src_inputs_list)
-            else:
-                ret_tensor = self.run(batch_id, target_gnids, target_features, blocks, src_inputs_list)
+            try:
+                if self._use_precoms:
+                    ret_tensor = self.run_with_precoms(batch_id, target_gnids, target_features, blocks, src_inputs_list)
+                else:
+                    ret_tensor = self.run(batch_id, target_gnids, target_features, blocks, src_inputs_list)
+            except Exception as ex:
+                fut.set_exception(ex)
+                return
 
             fut.set_result((batch_id, ret_tensor))
             compute_done_time = time.time()

@@ -139,23 +139,28 @@ def main(args):
     if args.tracing:
         enable_tracing()
 
-    if args.exp_type == "throughput":
-        num_warmups = world_size * num_omega_groups * 2
-        latencies = run_throughput_exp(worker_comms, num_warmups, req_generator)
-    elif args.exp_type == "latency":
-        num_warmups = 4
-        latencies = run_latency_exp(worker_comms, num_warmups, req_generator)
-    else:
-        raise f"Unknown exp_type={exp_type}"
-    print("Master finished.", flush=True)
+    try:
+        if args.exp_type == "throughput":
+            num_warmups = world_size * num_omega_groups * 2
+            latencies = run_throughput_exp(worker_comms, num_warmups, req_generator)
+        elif args.exp_type == "latency":
+            num_warmups = 4
+            latencies = run_latency_exp(worker_comms, num_warmups, req_generator)
+        else:
+            raise f"Unknown exp_type={exp_type}"
+        traces = []
+        if args.tracing:
+            traces = get_traces("master")
 
-    traces = []
-    if args.tracing:
-        traces = get_traces("master")
+            for worker_async_exec_contexts in worker_async_exec_context_groups:
+                for async_exec_context in worker_async_exec_contexts:
+                    traces += async_exec_context.rpc_sync().collect_traces()
+        if args.result_dir:
+            write_result(args, req_generator.batch_size, num_warmups, latencies, traces)
+        print("Master finished.", flush=True)
+    except Exception as ex:
+        print(f"Experiment failed with exception {ex}")
 
-        for worker_async_exec_contexts in worker_async_exec_context_groups:
-            for async_exec_context in worker_async_exec_contexts:
-                traces += async_exec_context.rpc_sync().collect_traces()
 
     for worker_async_exec_contexts in worker_async_exec_context_groups:
         for async_exec_context in worker_async_exec_contexts:
@@ -163,9 +168,6 @@ def main(args):
 
     rpc.shutdown()
     print("Master shutdowned.", flush=True)
-
-    if args.result_dir:
-        write_result(args, req_generator.batch_size, num_warmups, latencies, traces)
 
 def run_throughput_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups

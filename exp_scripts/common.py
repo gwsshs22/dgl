@@ -54,7 +54,7 @@ def run_exp(
     num_inputs = dataset_config.num_inputs
 
     if (graph_name == "fb5b" or graph_name == "fb10b") and feature_dim is None:
-        feature_dim = 2048
+        feature_dim = 1024
 
     if feature_dim is not None:
         num_inputs = feature_dim
@@ -70,14 +70,14 @@ def run_exp(
     else:
         fanouts_str = ",".join(["0"] * num_layers)
         sampling = False
-    
+
     if gat_heads:
         assert len(gat_heads) == num_layers
         assert all([h > 0 for h in gat_heads])
         gat_heads_str = ",".join([str(h) for h in gat_heads])
     else:
         gat_heads_str = ",".join(["4"] * num_layers)
-    
+
 
     input_trace_dir = f"$DGL_DATA_HOME/omega_traces/{graph_name}-{graph_partitioning}-{num_machines}-bs-{batch_size}"
     if sampling:
@@ -137,6 +137,10 @@ def run_exp(
     {exp_result_args}
     """
 
+    if (exec_type == "dp" and not sampling) and graph_name != "ogbn-products":
+        print(f"Do not run experiment with full dp execution except for ogbn-products. command={command}")
+        return
+
     OMEGA_DEBUG = os.environ.get("OMEGA_DEBUG", "0")
     if OMEGA_DEBUG == "1":
         print(f"[DEBUG] {command}")
@@ -144,7 +148,7 @@ def run_exp(
         exit_code = os.system(command)
         if exit_code != 0:
             print(f"Run experiment failed. command={command}")
-        
+
 
 if __name__ == "__main__":
-    run_exp(4, "fb5b", "sage", 3, [5, 10, 15], "cgp-multi", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1))
+    run_exp(4, "fb10b", "sage", 3, [], "dp", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1))

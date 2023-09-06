@@ -777,7 +777,7 @@ std::pair<IdArray, IdArray> SamplingExecutor::LocalSampling(const IdArray& seeds
   auto local_edges = local_sampled_subg.graph->Edges(0);
   auto src_local_ids = local_edges.src;
   auto dst_local_ids = local_edges.dst;
-  const int num_edges = src_local_ids->shape[0];
+  const int64_t num_edges = src_local_ids->shape[0];
 
   CHECK_EQ(dst_local_ids->shape[0], num_edges);
   const int64_t* src_local_ids_ptr = src_local_ids.Ptr<int64_t>();

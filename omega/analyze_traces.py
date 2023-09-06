@@ -11,18 +11,18 @@ def is_leaf_dir(target_dir):
 
 @dataclass
 class TraceSummary:
-    latency: int
-    transfer: int
-    fetch: int
-    sampling: int
-    copy: int
-    compute: int
-    latency_std: int
-    transfer_std: int
-    fetch_std: int
-    sampling_std: int
-    copy_std: int
-    compute_std: int
+    latency: float
+    transfer: float
+    fetch: float
+    sampling: float
+    copy: float
+    compute: float
+    latency_std: float = 0.0
+    transfer_std: float = 0.0
+    fetch_std: float = 0.0
+    sampling_std: float = 0.0
+    copy_std: float = 0.0
+    compute_std: float = 0.0
 
 def _summary_traces(exp_config, trace_path):
     num_warmups = exp_config["num_warmups"]
@@ -43,6 +43,8 @@ def _summary_traces(exp_config, trace_path):
             per_batch_data[batch_id][name] = [elapsed_micro]
 
     latencies = []
+    summaries = []
+
     fetches = []
     samplings = []
     computes = []
@@ -57,7 +59,7 @@ def _summary_traces(exp_config, trace_path):
         compute = np.mean(batch_data["compute"])
         compute_queue_delay = np.mean(batch_data["compute_queue_delay"])
         sampling = np.mean(batch_data["sampling"])
-        
+
         assert len(batch_data["latency"]) == 1
         latency = batch_data["latency"][0]
 
@@ -67,12 +69,39 @@ def _summary_traces(exp_config, trace_path):
         copy = np.mean(batch_data["copy"])
         transfer = latency - fetch - sampling - compute - copy
 
+
+
         latencies.append(latency)
-        fetches.append(fetch)
-        samplings.append(sampling)
-        computes.append(compute)
-        copies.append(copy)
-        transfers.append(transfer)
+        summaries.append(
+            TraceSummary(
+                latency=latency,
+                transfer=transfer,
+                fetch=fetch,
+                sampling=sampling,
+                copy=copy,
+                compute=compute
+            )
+        )
+
+    # Ignore top 5% latency because our baseline shows too high variance in cloudlab.
+    p95_latency = np.percentile(latencies, 95)
+
+    latencies = []
+    fetches = []
+    samplings = []
+    computes = []
+    copies = []
+    transfers = []
+
+    for summary in summaries:
+        if summary.latency >= p95_latency:
+            continue
+        latencies.append(summary.latency)
+        fetches.append(summary.fetch)
+        samplings.append(summary.sampling)
+        computes.append(summary.compute)
+        copies.append(summary.copy)
+        transfers.append(summary.transfer)
 
     return TraceSummary(
         latency=np.mean(latencies),

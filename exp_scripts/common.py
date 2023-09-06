@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 @dataclass
@@ -144,12 +145,23 @@ def run_exp(
 
     OMEGA_DEBUG = os.environ.get("OMEGA_DEBUG", "0")
     if OMEGA_DEBUG == "1":
-        print(f"[DEBUG] {command}")
+        print(f"[DEBUG] command={command}")
+    elif exp_has_been_done(exp_result_dir):
+        print(f"SKip running as it has been done. command={command}")
     else:
         exit_code = os.system(command)
         if exit_code != 0:
             print(f"Run experiment failed. command={command}")
-        time.sleep(10) # Wait for socket release
+        if exec_type == "dp":
+            time.sleep(20) # Wait for socket release
+        else:
+            time.sleep(10) # Wait for socket release
+
+def exp_has_been_done(exp_result_dir):
+    if not exp_result_dir:
+        return False
+    exp_result_dir = Path(exp_result_dir)
+    return (exp_result_dir / "config.json").exists() and (exp_result_dir / "traces.txt").exists()
 
 
 if __name__ == "__main__":

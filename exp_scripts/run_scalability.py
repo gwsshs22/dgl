@@ -9,7 +9,7 @@ def main(args):
 
     graph_names = ["ogbn-products", "fb10b"]
     exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
-    num_machines_list = [2, 3]
+    num_machines_list = [2, 3, 4]
 
     extra_env_names = []
     if args.extra_env_names:

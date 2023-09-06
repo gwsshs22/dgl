@@ -18,7 +18,7 @@ def main(args):
     batch_size = 1024
     exp_result_dir = f"{args.exp_root_dir}/layers"
     for graph_name in graph_names:
-        for fanouts in [[10, 25], [5, 10], [5, 10, 15], [5, 10, 15, 20]]:
+        for fanouts in [[5, 10], [5, 10, 15], [5, 10, 15, 20]]:
             for exec_type in exec_types:
                 fanout_str = "_".join([str(f) for f in fanouts])
                 num_layers = len(fanouts)

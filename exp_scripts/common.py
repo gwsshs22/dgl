@@ -55,7 +55,7 @@ def run_exp(
     num_inputs = dataset_config.num_inputs
 
     if (graph_name == "fb5b" or graph_name == "fb10b") and feature_dim is None:
-        feature_dim = 1024
+        feature_dim = 2048
 
     if feature_dim is not None:
         num_inputs = feature_dim

@@ -5,19 +5,19 @@ from common import run_exp, LatencyExpParams
 
 def main(args):
     start_t = time.time()
-    gnn_names = ["gcn", "sage", "gat"]
-    graph_names = ["fb10b", "fb5b", "ogbn-products", "reddit", "amazon"]
+
+    graph_names = ["fb10b", "ogbn-products"]
     exec_types = ["dp", "dp-precoms", "cgp-multi", "cgp"]
+    batch_sizes = [64, 128, 256, 512, 1024, 2048]
 
     extra_env_names = []
     if args.extra_env_names:
         extra_env_names = args.extra_env_names.split(",")
-    batch_size = 1024
 
-    exp_result_dir = f"{args.exp_root_dir}/overall_latency"
-
+    exp_result_dir = f"{args.exp_root_dir}/batch_sizes"
+    gnn = "sage"
     for graph_name in graph_names:
-        for gnn in gnn_names:
+        for batch_size in batch_sizes:
             for exec_type in exec_types:
                 run_exp(
                     num_machines=4,
@@ -29,7 +29,7 @@ def main(args):
                     exp_type="latency",
                     latency_exp_params=LatencyExpParams(num_reqs=args.num_reqs),
                     batch_size=batch_size,
-                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_sampled",
+                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{batch_size}_{exec_type}_sampled",
                     extra_env_names=extra_env_names
                 )
 
@@ -47,10 +47,10 @@ def main(args):
                     exp_type="latency",
                     latency_exp_params=LatencyExpParams(num_reqs=full_infer_num_reqs),
                     batch_size=batch_size,
-                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_full",
+                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{batch_size}_{exec_type}_full",
                     extra_env_names=extra_env_names
                 )
-
+    
     print(f"Total experiments time={time.time() - start_t}s")
 
 if __name__ == "__main__":

@@ -5,31 +5,33 @@ from common import run_exp, LatencyExpParams
 
 def main(args):
     start_t = time.time()
-    gnn_names = ["gcn", "sage", "gat"]
-    graph_names = ["fb10b", "fb5b", "ogbn-products", "reddit", "amazon"]
+
+    graph_names = ["fb10b", "ogbn-products"]
     exec_types = ["dp", "dp-precoms", "cgp-multi", "cgp"]
 
     extra_env_names = []
     if args.extra_env_names:
         extra_env_names = args.extra_env_names.split(",")
+
+    gnn = "sage"
     batch_size = 1024
-
-    exp_result_dir = f"{args.exp_root_dir}/overall_latency"
-
+    exp_result_dir = f"{args.exp_root_dir}/layers"
     for graph_name in graph_names:
-        for gnn in gnn_names:
+        for fanouts in [[10, 25], [5, 10], [5, 10, 15], [5, 10, 15, 20]]:
             for exec_type in exec_types:
+                fanout_str = "_".join([str(f) for f in fanouts])
+                num_layers = len(fanouts)
                 run_exp(
                     num_machines=4,
                     graph_name=graph_name,
                     gnn=gnn,
-                    num_layers=3,
-                    fanouts=[5, 10, 15],
+                    num_layers=num_layers,
+                    fanouts=fanouts,
                     exec_type=exec_type,
                     exp_type="latency",
                     latency_exp_params=LatencyExpParams(num_reqs=args.num_reqs),
                     batch_size=batch_size,
-                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_sampled",
+                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{fanout_str}_{exec_type}_sampled",
                     extra_env_names=extra_env_names
                 )
 
@@ -41,13 +43,13 @@ def main(args):
                     num_machines=4,
                     graph_name=graph_name,
                     gnn=gnn,
-                    num_layers=3,
+                    num_layers=num_layers,
                     fanouts=None,
                     exec_type=exec_type,
                     exp_type="latency",
                     latency_exp_params=LatencyExpParams(num_reqs=full_infer_num_reqs),
                     batch_size=batch_size,
-                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_full",
+                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{fanout_str}_{exec_type}_full",
                     extra_env_names=extra_env_names
                 )
 

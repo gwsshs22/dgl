@@ -22,6 +22,7 @@ class ThroughputExpParams:
 dataset_configs = {
     "reddit": DatasetConfig("reddit", 41, 602),
     "ogbn-products": DatasetConfig("ogbn-products", 47, 100),
+    "amazon": DatasetConfig("amazon", 107, 200),
     "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128),
     "fb5b": DatasetConfig("fb5b", 128, 16),
     "fb10b": DatasetConfig("fb10b", 128, 16),
@@ -51,6 +52,9 @@ def run_exp(
     dataset_config = dataset_configs[graph_name]
     num_classes = dataset_config.num_classes
     num_inputs = dataset_config.num_inputs
+
+    if (graph_name == "fb5b" or graph_name == "fb10b") and feature_dim is None:
+        feature_dim = 2048
 
     if feature_dim is not None:
         num_inputs = feature_dim
@@ -133,9 +137,14 @@ def run_exp(
     {exp_result_args}
     """
 
-    exit_code = os.system(command)
-    if exit_code != 0:
-        print(f"Run experiment failed. command={command}")
+    OMEGA_DEBUG = os.environ.get("OMEGA_DEBUG", "0")
+    if OMEGA_DEBUG == "1":
+        print(f"[DEBUG] {command}")
+    else:
+        exit_code = os.system(command)
+        if exit_code != 0:
+            print(f"Run experiment failed. command={command}")
+        
 
 if __name__ == "__main__":
     run_exp(4, "fb5b", "sage", 3, [5, 10, 15], "cgp-multi", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1))

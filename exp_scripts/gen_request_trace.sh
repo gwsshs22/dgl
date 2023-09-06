@@ -1,3 +1,5 @@
+#!/bin/bash
+
 GRAPH_NAME=$1
 NUM_PARTS=$2
 BATCH_SIZE=$3

@@ -34,7 +34,6 @@ def main(args):
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-
     
     global_data = dgl.data.load_tensors(str(input_dir / "global-data.dgl"))
     num_nodes_per_parts = global_data["num_nodes_per_parts"].tolist()
@@ -52,9 +51,10 @@ def main(args):
         dgl_nids = graph_data["dgl_nids"]
         part_id_arr = graph_data["part_id"]
         src_ids, dst_ids = graph_data["new_src_ids"], graph_data["new_dst_ids"]
-        part_g = dgl.graph((src_ids, dst_ids))
+
+        num_nodes = dgl_nids.shape[0]
+        part_g = dgl.graph((src_ids, dst_ids), num_nodes=num_nodes)
         num_inner_nodes = num_nodes_per_parts[part_id]
-        num_nodes = part_g.number_of_nodes()
         num_edges = part_g.number_of_edges()
 
         inner_node_arr = torch.zeros(num_nodes, dtype=torch.bool)
@@ -79,7 +79,7 @@ def main(args):
 
     dgl_nids = infer_graph_data["dgl_nids"]
     src_ids, dst_ids = infer_graph_data["new_src_ids"], infer_graph_data["new_dst_ids"]
-    infer_g = dgl.graph((src_ids, dst_ids))
+    infer_g = dgl.graph((src_ids, dst_ids), num_nodes=dgl_nids.shape[0])
     infer_g.ndata[dgl.NID] = dgl_nids
     infer_g.ndata["infer_target_mask"] = infer_graph_data["infer_target_mask"]
     infer_g.ndata["features"] = torch.rand(infer_g.number_of_nodes(), args.feature_dim)

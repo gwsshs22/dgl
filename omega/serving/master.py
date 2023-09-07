@@ -236,17 +236,14 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
 
 def run_latency_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
-    warm_up_futs = []
-
     req_generator.set_num_reqs(num_warmups)
     batch_id = 0
     for batch_req in req_generator:
         fut = worker_comms[-1].request(batch_id, batch_req)
-        warm_up_futs.append(fut)
+        ret = fut.wait()
+        print(f"Warmup request {batch_id} done.", file=sys.stderr)
         batch_id += 1
 
-    print("Waiting for warmup requests.", flush=True)
-    torch.futures.wait_all(warm_up_futs)
     print("Warmup done.", flush=True)
     time.sleep(2)
 

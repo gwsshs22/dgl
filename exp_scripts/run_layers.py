@@ -22,6 +22,10 @@ def main(args):
             for exec_type in exec_types:
                 fanout_str = "_".join([str(f) for f in fanouts])
                 num_layers = len(fanouts)
+                if num_layers == 4 and exec_type == "dp":
+                    # Cannot run b/c CUDA OOM
+                    continue
+
                 run_exp(
                     num_machines=4,
                     graph_name=graph_name,

@@ -7,7 +7,7 @@ def main(args):
     print(f"Start run_layers.py args={args}", flush=True)
     start_t = time.time()
 
-    graph_names = ["ogbn-products", "fb10b"]
+    graph_names = ["fb10b", "ogbn-products"]
     exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
 
     extra_env_names = []
@@ -61,7 +61,8 @@ def main(args):
                     latency_exp_params=LatencyExpParams(num_reqs=full_infer_num_reqs),
                     batch_size=batch_size,
                     exp_result_dir=f"{exp_result_dir}/{graph_name}_{fanout_str}_{exec_type}_full",
-                    extra_env_names=extra_env_names
+                    extra_env_names=extra_env_names,
+                    force_run_dp=True
                 )
 
     print(f"Total experiments time={time.time() - start_t}s", flush=True)

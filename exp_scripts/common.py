@@ -48,7 +48,8 @@ def run_exp(
     num_gpus_per_machine=2,
     graph_partitioning="random",
     worker_num_sampler_threads=1,
-    extra_env_names=[]
+    extra_env_names=[],
+    force_run_dp=False
 ):
     extra_envs = " ".join([f"{key}={os.environ[key]}" for key in extra_env_names])
     dataset_config = dataset_configs[graph_name]
@@ -139,7 +140,7 @@ def run_exp(
     {exp_result_args}
     """
 
-    if (exec_type == "dp" and not sampling) and graph_name != "ogbn-products":
+    if not force_run_dp and (exec_type == "dp" and not sampling) and graph_name != "ogbn-products":
         print(f"Do not run experiment with full dp execution except for ogbn-products. command={command}")
         return
 

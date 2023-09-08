@@ -22,7 +22,7 @@ def main(args):
             for exec_type in exec_types:
                 fanout_str = "_".join([str(f) for f in fanouts])
                 num_layers = len(fanouts)
-                if num_layers == 4 and exec_type == "dp":
+                if num_layers == 4 and exec_type == "dp" and graph_name == "fb10b":
                     # Cannot run b/c CUDA OOM
                     continue
 
@@ -65,8 +65,7 @@ def main(args):
                     latency_exp_params=LatencyExpParams(num_reqs=full_infer_num_reqs),
                     batch_size=batch_size,
                     exp_result_dir=f"{exp_result_dir}/{graph_name}_{fanout_str}_{exec_type}_full",
-                    extra_env_names=extra_env_names,
-                    force_run_dp=True
+                    extra_env_names=extra_env_names
                 )
 
     print(f"Total experiments time={time.time() - start_t}s", flush=True)

@@ -702,10 +702,10 @@ def main():
     parser.add_argument(
         "--server_omp_threads",
         type=int,
-        default=4,
+        default=16,
         help="The number of OMP threads in the server process. \
                         It should be small if server processes and trainer processes run on \
-                        the same machine. By default, it is 4.",
+                        the same machine. By default, it is 16.",
     )
     parser.add_argument(
         "--graph_format",

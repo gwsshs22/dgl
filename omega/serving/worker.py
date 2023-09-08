@@ -363,8 +363,6 @@ def process_main(
             if req_id < 0:
                 break
 
-            if exec_mode == "dp" and not use_precoms:
-                gc.collect()
             request[-2].append(time.time()) # compute_queue_dequeded_time
 
             assert req_id >= expected_req_id

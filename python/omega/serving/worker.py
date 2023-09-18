@@ -7,6 +7,7 @@ import threading
 import queue
 import json
 import time
+import gc
 from pathlib import Path
 from contextlib import contextmanager
 

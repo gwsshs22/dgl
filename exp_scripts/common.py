@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 @dataclass
@@ -47,7 +48,8 @@ def run_exp(
     num_gpus_per_machine=2,
     graph_partitioning="random",
     worker_num_sampler_threads=1,
-    extra_env_names=[]
+    extra_env_names=[],
+    force_run_dp=False
 ):
     extra_envs = " ".join([f"{key}={os.environ[key]}" for key in extra_env_names])
     dataset_config = dataset_configs[graph_name]
@@ -55,7 +57,7 @@ def run_exp(
     num_inputs = dataset_config.num_inputs
 
     if (graph_name == "fb5b" or graph_name == "fb10b") and feature_dim is None:
-        feature_dim = 1024
+        feature_dim = 2048
 
     if feature_dim is not None:
         num_inputs = feature_dim
@@ -138,18 +140,29 @@ def run_exp(
     {exp_result_args}
     """
 
-    if (exec_type == "dp" and not sampling) and graph_name != "ogbn-products":
+    if not force_run_dp and (exec_type == "dp" and not sampling) and graph_name != "ogbn-products":
         print(f"Do not run experiment with full dp execution except for ogbn-products. command={command}")
         return
 
     OMEGA_DEBUG = os.environ.get("OMEGA_DEBUG", "0")
     if OMEGA_DEBUG == "1":
-        print(f"[DEBUG] {command}")
+        print(f"[DEBUG] command={command}")
+    elif exp_has_been_done(exp_result_dir):
+        print(f"SKip running as it has been done. command={command}")
     else:
         exit_code = os.system(command)
         if exit_code != 0:
             print(f"Run experiment failed. command={command}")
-        time.sleep(10) # Wait for socket release
+        if exec_type == "dp":
+            time.sleep(20) # Wait for socket release
+        else:
+            time.sleep(10) # Wait for socket release
+
+def exp_has_been_done(exp_result_dir):
+    if not exp_result_dir:
+        return False
+    exp_result_dir = Path(exp_result_dir)
+    return (exp_result_dir / "config.json").exists() and (exp_result_dir / "traces.txt").exists()
 
 
 if __name__ == "__main__":

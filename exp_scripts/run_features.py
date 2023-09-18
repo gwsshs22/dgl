@@ -4,7 +4,7 @@ import time
 from common import run_exp, LatencyExpParams
 
 def main(args):
-    print(f"Start run_features.py args={args}")
+    print(f"Start run_features.py args={args}", flush=True)
     start_t = time.time()
 
     graph_names = ["fb10b"]
@@ -55,7 +55,7 @@ def main(args):
                     extra_env_names=extra_env_names
                 )
     
-    print(f"Total experiments time={time.time() - start_t}s")
+    print(f"Total experiments time={time.time() - start_t}s", flush=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

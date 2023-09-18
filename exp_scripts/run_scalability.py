@@ -4,12 +4,12 @@ import time
 from common import run_exp, LatencyExpParams
 
 def main(args):
-    print(f"Start run_scalability.py args={args}")
+    print(f"Start run_scalability.py args={args}", flush=True)
     start_t = time.time()
 
     graph_names = ["ogbn-products", "fb10b"]
     exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
-    num_machines_list = [2, 3]
+    num_machines_list = [2, 3, 4]
 
     extra_env_names = []
     if args.extra_env_names:
@@ -54,7 +54,7 @@ def main(args):
                     extra_env_names=extra_env_names
                 )
     
-    print(f"Total experiments time={time.time() - start_t}s")
+    print(f"Total experiments time={time.time() - start_t}s", flush=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

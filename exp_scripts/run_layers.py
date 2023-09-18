@@ -4,10 +4,10 @@ import time
 from common import run_exp, LatencyExpParams
 
 def main(args):
-    print(f"Start run_layers.py args={args}")
+    print(f"Start run_layers.py args={args}", flush=True)
     start_t = time.time()
 
-    graph_names = ["ogbn-products", "fb10b"]
+    graph_names = ["fb10b", "ogbn-products"]
     exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
 
     extra_env_names = []
@@ -18,10 +18,14 @@ def main(args):
     batch_size = 1024
     exp_result_dir = f"{args.exp_root_dir}/layers"
     for graph_name in graph_names:
-        for fanouts in [[10, 25], [5, 10], [5, 10, 15], [5, 10, 15, 20]]:
+        for fanouts in [[5, 10], [5, 10, 15], [5, 10, 15, 20]]:
             for exec_type in exec_types:
                 fanout_str = "_".join([str(f) for f in fanouts])
                 num_layers = len(fanouts)
+                if num_layers == 4 and exec_type == "dp" and graph_name == "fb10b":
+                    # Cannot run b/c CUDA OOM
+                    continue
+
                 run_exp(
                     num_machines=4,
                     graph_name=graph_name,
@@ -64,7 +68,7 @@ def main(args):
                     extra_env_names=extra_env_names
                 )
 
-    print(f"Total experiments time={time.time() - start_t}s")
+    print(f"Total experiments time={time.time() - start_t}s", flush=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

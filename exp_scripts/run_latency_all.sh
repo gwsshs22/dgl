@@ -3,6 +3,8 @@
 EXP_ROOT_DIR=$1
 EXTRA_ENV_NAME=$2
 
+start=$(date +%s)
+
 python $DGL_HOME/exp_scripts/run_overall_latency.py --exp_root_dir $EXP_ROOT_DIR --extra_env_names "$EXTRA_ENV_NAME"
 
 python $DGL_HOME/exp_scripts/run_layers.py --exp_root_dir $EXP_ROOT_DIR --extra_env_names "$EXTRA_ENV_NAME"
@@ -15,3 +17,5 @@ python $DGL_HOME/exp_scripts/run_hidden_dims.py --exp_root_dir $EXP_ROOT_DIR --e
 
 python $DGL_HOME/exp_scripts/run_scalability.py --exp_root_dir $EXP_ROOT_DIR --extra_env_names "$EXTRA_ENV_NAME"
 
+end=$(date +%s)
+echo "Elapsed Time: $(($end-$start)) seconds"

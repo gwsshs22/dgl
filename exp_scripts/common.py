@@ -115,7 +115,7 @@ def run_exp(
         exp_result_args = ""
 
     command = f"""
-    python $DGL_HOME/omega/serving/launch_omega.py \
+    python $DGL_HOME/python/omega/tools/launch_omega.py \
     --dgl_home $DGL_HOME \
     --python_bin `which python` \
     --workspace $DGL_DATA_HOME \
@@ -153,4 +153,4 @@ def run_exp(
 
 
 if __name__ == "__main__":
-    run_exp(4, "ogbn-products", "sage", 3, [], "cgp-multi", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1))
+    run_exp(4, "ogbn-products", "sage", 3, [], "cgp-multi", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1), extra_env_names=["NCCL_IB_DISABLE"])

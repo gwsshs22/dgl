@@ -29,8 +29,8 @@ from dgl.omega.trace import trace_me, get_traces, get_cpp_traces, enable_tracing
 
 import dgl.backend as F
 
-from graph_server import OmegaGraphServer
-from models import create_model
+from omega.serving.graph_server import OmegaGraphServer
+from omega.models import create_model
 
 @dataclass(frozen=True)
 class ModelConfig:

@@ -14,9 +14,9 @@ import dgl
 
 from dgl.omega.trace import trace_me, get_traces, put_trace, enable_tracing
 
-from infer_requests import create_req_generator
-from worker import WorkerAsyncExecContext, ModelConfig
-from worker_comm import create_worker_communicators
+from omega.serving.infer_requests import create_req_generator
+from omega.serving.worker import WorkerAsyncExecContext, ModelConfig
+from omega.serving.worker_comm import create_worker_communicators
 
 class RequestDoneContext:
 

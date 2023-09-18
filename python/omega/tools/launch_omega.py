@@ -469,7 +469,7 @@ def submit_jobs(args, dry_run=False):
         ip, _ = hosts[int(i / server_count_per_machine)]
         server_env_vars_cur = f"{server_env_vars} DGL_SERVER_ID={i}"
         server_command = (
-            f"{args.python_bin} {args.dgl_home}/omega/serving/graph_server.py " +
+            f"{args.python_bin} -m omega.serving.graph_server " +
             f"--ip_config {ip_config} " +
             f"--num_layers {args.num_layers} " +
             f"--num_hiddens {args.num_hiddens} " +
@@ -518,7 +518,7 @@ def submit_jobs(args, dry_run=False):
 
     # Launch master
     master_command = (
-        f"{args.python_bin} {args.dgl_home}/omega/serving/master.py " +
+        f"{args.python_bin} -m omega.serving.master " +
         f"--ip_config {ip_config} " +
         f"--master_ip {master_addr} " +
         f"--master_rpc_port {master_rpc_port} " +
@@ -573,7 +573,7 @@ def submit_jobs(args, dry_run=False):
             ip, _ = host
             for local_rank in range(args.num_gpus_per_machine):
                 worker_command = (
-                    f"{args.python_bin} {args.dgl_home}/omega/serving/worker.py "
+                    f"{args.python_bin} -m omega.serving.worker "
                     f"--master_ip {master_addr} "
                     f"--master_rpc_port {master_rpc_port} "
                     f"--num_omega_groups {args.num_omega_groups} "
@@ -606,7 +606,7 @@ def submit_jobs(args, dry_run=False):
 
     # Start a cleanup process dedicated for cleaning up remote training jobs.
     conn1, conn2 = multiprocessing.Pipe()
-    func = partial(get_all_remote_pids, hosts, args.ssh_port, f"{args.python_bin}.*{args.dgl_home}/omega/serving.*")
+    func = partial(get_all_remote_pids, hosts, args.ssh_port, f"{args.python_bin}.*omega.serving.*")
     process = multiprocessing.Process(target=cleanup_proc, args=(func, conn1))
     process.start()
 

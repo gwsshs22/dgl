@@ -1,8 +1,12 @@
+from pathlib import Path
+import json
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import dgl.nn as dglnn
+from omega.utils import get_dataset_config
 
 class GCN(nn.Module):
     def __init__(
@@ -106,4 +110,32 @@ def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_head
         model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr='mean')
     elif gnn == "gat":
         model = GAT(num_inputs, num_hiddens, num_classes, num_layers, heads=gat_heads, dropout=dropout)
+    return model
+
+def create_model_from(training_dir):
+    training_dir = Path(training_dir)
+    model_path = training_dir / "model.pt"
+    config_path = training_dir / "config.json"
+    assert model_path.exists()
+    assert config_path.exists()
+
+    training_config = json.loads(config_path.read_text())
+    dataset_config = get_dataset_config(training_config["graph_name"])
+
+    gnn = training_config["gnn"]
+    num_layers = training_config["num_layers"]
+    gat_heads = [int(h) for h in training_config["gat_heads"].split(",")]
+    if gnn == "gat":
+        assert all([h > 0 for h in gat_heads])
+        assert len(gat_heads) == num_layers
+
+    model = create_model(
+        training_config["gnn"],
+        dataset_config.num_inputs,
+        training_config["num_hiddens"],
+        dataset_config.num_classes,
+        num_layers,
+        gat_heads)
+    
+    model.load_state_dict(torch.load(model_path))
     return model

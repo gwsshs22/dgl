@@ -244,4 +244,5 @@ if __name__ == "__main__":
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--random_seed', type=int, default=5123412)
     args = parser.parse_args()
+    print(f"Training args={args}")
     main(args)

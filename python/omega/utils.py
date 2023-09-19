@@ -1,5 +1,6 @@
 import time
 import contextlib
+from dataclasses import dataclass
 import os
 from functools import namedtuple
 import json
@@ -16,6 +17,28 @@ import scipy.sparse
 
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
+
+@dataclass
+class DatasetConfig:
+    name: str
+    num_classes: int
+    num_inputs: int
+    multilabel: bool
+    inductive: bool
+
+dataset_configs = {
+    "reddit": DatasetConfig("reddit", 41, 602, False, True),
+    "ogbn-products": DatasetConfig("ogbn-products", 47, 100, False, False),
+    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128, False, False),
+    "flickr": DatasetConfig("flickr", 7, 500, False, True),
+    "yelp": DatasetConfig("yelp", 100, 300, True, True),
+    "amazon": DatasetConfig("amazon", 107, 200, True, True),
+    "fb5b": DatasetConfig("fb5b", 128, 16, False, False),
+    "fb10b": DatasetConfig("fb10b", 128, 16, False, False),
+}
+
+def get_dataset_config(graph_name):
+    return dataset_configs[graph_name]
 
 def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None):
     if graph_name == "reddit":

@@ -4,11 +4,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-@dataclass
-class DatasetConfig:
-    name: str
-    num_classes: int
-    num_inputs: int
+from omega.utils import get_dataset_config
 
 @dataclass
 class LatencyExpParams:
@@ -19,16 +15,6 @@ class ThroughputExpParams:
     req_per_sec: float
     exp_secs: float
     arrival_type: str = "poisson"
-
-
-dataset_configs = {
-    "reddit": DatasetConfig("reddit", 41, 602),
-    "ogbn-products": DatasetConfig("ogbn-products", 47, 100),
-    "amazon": DatasetConfig("amazon", 107, 200),
-    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128),
-    "fb5b": DatasetConfig("fb5b", 128, 16),
-    "fb10b": DatasetConfig("fb10b", 128, 16),
-}
 
 def run_exp(
     num_machines,
@@ -52,7 +38,7 @@ def run_exp(
     force_run_dp=False
 ):
     extra_envs = " ".join([f"{key}={os.environ[key]}" for key in extra_env_names])
-    dataset_config = dataset_configs[graph_name]
+    dataset_config = get_dataset_config(graph_name)
     num_classes = dataset_config.num_classes
     num_inputs = dataset_config.num_inputs
 

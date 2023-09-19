@@ -99,8 +99,7 @@ class GAT(nn.Module):
             h = self.dropout(h)
         return h
 
-def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads):
-    dropout = 0.0
+def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, dropout=0.0):
     if gnn == "gcn":
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout)
     elif gnn == "sage":

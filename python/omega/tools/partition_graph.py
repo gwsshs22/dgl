@@ -10,7 +10,7 @@ import dgl
 import numpy as np
 import torch as th
 
-from utils import load_graph
+from omega.serving.utils import load_graph
 
 def save_infer_graph(args, org_g):
     output_path = Path(args.output)
@@ -91,7 +91,7 @@ def delete_infer_edges(args):
         json.dump(config, outfile, sort_keys=True, indent=4)
 
 def main(args):
-    org_g = load_graph(args.dataset, args.amazon_path)
+    org_g = load_graph(args.dataset, ogbn_data_root=args.ogbn_data_root, saint_data_root=args.saint_data_root)
     save_infer_graph(args, org_g)
     partition_org_graph(args, org_g)
     del org_g
@@ -101,8 +101,9 @@ def main(args):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("Partition graphs")
     argparser.add_argument('--dataset', type=str, default='reddit',
-                           help='datasets: reddit, ogbn-products, ogbn-papers100M, amazon')
-    argparser.add_argument('--amazon_path', type=str)
+                           help='datasets: reddit, ogbn-products, ogbn-papers100M, amazon, yelp, flickr')
+    argparser.add_argument('--ogbn_data_root', type=str)
+    argparser.add_argument('--saint_data_root', type=str)
     argparser.add_argument('--num_parts', type=int, default=4,
                            help='number of partitions')
     argparser.add_argument('--part_method', type=str, default='random', choices=["random", "metis"],
@@ -115,7 +116,9 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     np.random.seed(args.random_seed)
 
-    if args.dataset == "amazon":
-        assert args.amazon_path is not None
+    if args.dataset == "amazon" or args.dataset == "yelp" or args.dataset == "flickr":
+        assert args.saint_data_root is not None
+    elif args.dataset == "ogbn-products" or args.dataset == "ogbn-papers100M":
+        assert args.ogbn_data_root is not None
 
     main(args)

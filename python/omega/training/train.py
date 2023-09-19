@@ -11,7 +11,7 @@ from omega.utils import load_graph
 from omega.utils import get_dataset_config
 from omega.models import create_model
 
-def do_full_training(args, g, model, device, dataset_config, result_dir):
+def do_full_training(args, g, model, device, dataset_config, result_dir, val_every):
     model_path = result_dir / "model.pt"
 
     best_val_f1 = -1
@@ -37,8 +37,12 @@ def do_full_training(args, g, model, device, dataset_config, result_dir):
         train_g = g
 
     blocks = [train_g] * args.num_layers
+    patience = args.patience
 
     for epoch in range(args.num_epochs):
+        if patience < 0:
+            break
+
         model.train()
         logits = model(blocks, train_g.ndata["features"])
         labels = train_g.ndata["labels"]
@@ -52,23 +56,26 @@ def do_full_training(args, g, model, device, dataset_config, result_dir):
         loss.backward()
         optimizer.step()
 
-        if (epoch + 1) % args.val_every == 0:
+        if (epoch + 1) % val_every == 0:
             val_f1_mic, val_f1_mac = evaluate(model, g, val_mask, num_layers, multilabel)
             print(f"Epoch {epoch:05d} | Loss {loss.item():.4f} | Val F1_mic {val_f1_mic:.4f} | Val F1_mac {val_f1_mac:.4f}")
             if val_f1_mic > best_val_f1:
+                patience = args.patience
                 best_val_f1 = val_f1_mic
                 print("Found best validation f1_mic.")
                 # TODO(gwkim): Save the best model.
                 torch.save(model.state_dict(), model_path)
+            else:
+                patience -= 1
         else:
             print(f"Epoch {epoch:05d} | Loss {loss.item():.4f} |")
 
     model.load_state_dict(torch.load(model_path))
     f1_mic, f1_mac = evaluate(model, g, test_mask, num_layers, multilabel)
     print(f"Test F1_mic {f1_mic:.4f} | Test F1_mac {f1_mac:.4f}")
-    return f1_mic
+    return f1_mic, epoch
 
-def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_dir):
+def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_dir, val_every):
     model_path = result_dir / "model.pt"
 
     best_val_f1 = -1
@@ -103,7 +110,11 @@ def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_
         drop_last=False
     )
 
+    patience = args.patience
     for epoch in range(args.num_epochs):
+        if patience < 0:
+            break
+
         model.train()
 
         for input_nids, seeds, blocks in train_loader:
@@ -115,21 +126,24 @@ def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_
             loss.backward()
             optimizer.step()
 
-        if (epoch + 1) % args.val_every == 0:
+        if (epoch + 1) % val_every == 0:
             val_f1_mic, val_f1_mac = evaluate(model, g, val_mask, num_layers, multilabel)
             print(f"Epoch {epoch:05d} | Loss {loss.item():.4f} | Val F1_mic {val_f1_mic:.4f} | Val F1_mac {val_f1_mac:.4f}")
             if val_f1_mic > best_val_f1:
                 best_val_f1 = val_f1_mic
+                patience = args.patience
                 print("Found best validation f1_mic.")
                 # TODO(gwkim): Save the best model.
                 torch.save(model.state_dict(), model_path)
+            else:
+                patience -= 1
         else:
             print(f"Epoch {epoch:05d} | Loss {loss.item():.4f} |")
 
     model.load_state_dict(torch.load(model_path))
     f1_mic, f1_mac = evaluate(model, g, test_mask, num_layers, multilabel)
     print(f"Test F1_mic {f1_mic:.4f} | Test F1_mac {f1_mac:.4f}")
-    return f1_mic
+    return f1_mic, epoch
 
 def evaluate(model, g, mask, num_layers, multilabel):
 
@@ -189,26 +203,31 @@ def main(args):
     result_dir = Path(args.result_dir)
     result_dir.mkdir(parents=True, exist_ok=True)
     if full_training:
-        test_f1_mic = do_full_training(args, g, model, device, dataset_config, result_dir)
+        val_every = args.val_every if args.val_every else 10
+        test_f1_mic, running_epochs = do_full_training(args, g, model, device, dataset_config, result_dir, val_every)
     else:
-        test_f1_mic = do_sampled_training(args, g, model, device, fanouts, dataset_config, result_dir)
-    
+        val_every = args.val_every if args.val_every else 1
+        test_f1_mic, running_epochs = do_sampled_training(args, g, model, device, fanouts, dataset_config, result_dir, val_every)
+
     args_dict = vars(args)
     args_dict["test_f1_mic"] = test_f1_mic
+    args_dict["running_epochs"] = running_epochs
+    args_dict["val_every"] = val_every
+    args_dict["fanouts"] = ",".join([str(f) for f in fanouts])
 
     with open(result_dir / "config.json", "w") as f:
         f.write(json.dumps(args_dict, indent=4, sort_keys=True))
         f.write("\n")
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--result_dir", type=str, required=True)
     parser.add_argument("--num_epochs", type=int, default=10) # For fixed_epochs
+    parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--lr", default=5e-3, type=float)
     parser.add_argument("--weight_decay", default=0.0, type=float)
     parser.add_argument("--batch_size", default=1024, type=int)
-    parser.add_argument("--val_every", default=10, type=int)
+    parser.add_argument("--val_every", type=int)
 
     parser.add_argument('--graph_name', type=str, default='reddit',
                         help='datasets: reddit, ogbn-products, ogbn-papers100M, amazon, yelp, flickr')

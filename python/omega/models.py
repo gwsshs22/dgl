@@ -112,7 +112,7 @@ def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_head
         model = GAT(num_inputs, num_hiddens, num_classes, num_layers, heads=gat_heads, dropout=dropout)
     return model
 
-def create_model_from(training_dir):
+def load_model_from(training_dir):
     training_dir = Path(training_dir)
     model_path = training_dir / "model.pt"
     config_path = training_dir / "config.json"
@@ -138,4 +138,4 @@ def create_model_from(training_dir):
         gat_heads)
     
     model.load_state_dict(torch.load(model_path))
-    return model
+    return model, training_config, dataset_config

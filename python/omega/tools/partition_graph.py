@@ -10,7 +10,7 @@ import dgl
 import numpy as np
 import torch as th
 
-from omega.serving.utils import load_graph
+from omega.utils import load_graph
 
 def save_infer_graph(args, org_g):
     output_path = Path(args.output)
@@ -20,14 +20,27 @@ def save_infer_graph(args, org_g):
     # Save infer_target_graph
     print("Build inference target graph.")
 
-    # Build infer_target_g by selecting about 10% of nodes in the graph
-    infer_target_mask = th.BoolTensor(np.random.choice([False, True], size=(org_g.number_of_nodes(),), p=[1 - infer_prob, infer_prob]))
+    # Build infer_target_g by selecting about 10% of test nodes in the graph
+    all_nids = th.arange(org_g.number_of_nodes())
+    test_nids = all_nids[org_g.ndata["test_mask"]]
+    num_infer_targets = min(int(infer_prob * org_g.number_of_nodes()), test_nids.shape[0])
+    infer_prob_within_test_nodes = num_infer_targets / test_nids.shape[0]
+    mask = th.BoolTensor(np.random.choice(
+        [False, True],
+        size=(test_nids.shape[0],),
+        p=[1 - infer_prob_within_test_nodes, infer_prob_within_test_nodes]
+    ))
+
+    infer_target_nids = test_nids[mask]
+    infer_target_mask = th.zeros(org_g.number_of_nodes(), dtype=th.bool)
+    infer_target_mask[infer_target_nids] = True
+
     num_infer_targets = infer_target_mask.sum()
+    print(f"infer_prob={infer_prob}, num_infer_targets/num_nodes = {num_infer_targets / org_g.number_of_nodes()}")
     org_g.ndata['infer_target_mask'] = infer_target_mask
 
     id_arr = th.arange(org_g.number_of_nodes())
 
-    infer_target_nids = th.masked_select(id_arr, infer_target_mask)
     infer_target_in_eids = org_g.in_edges(infer_target_nids, 'eid')
     infer_target_out_eids = org_g.out_edges(infer_target_nids, 'eid')
     infer_target_eids = np.union1d(infer_target_in_eids, infer_target_out_eids)

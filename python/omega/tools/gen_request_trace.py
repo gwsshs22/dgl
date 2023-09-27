@@ -29,13 +29,16 @@ def main(args):
 
     infer_target_mask = infer_g.ndata["infer_target_mask"].bool()
     infer_target_local_ids = torch.masked_select(torch.arange(infer_target_mask.shape[0]), infer_target_mask)
+    infer_target_local_ids = infer_target_local_ids[torch.randperm(infer_target_local_ids.shape[0])]
+    num_infer_targets = infer_target_mask.sum().item()
+    num_infer_batches = num_infer_targets // args.batch_size
 
     with open(trace_output_dir / "num_traces.txt", "w") as f:
-        f.write(f"{args.num_traces}\n")
+        f.write(f"{num_infer_batches}\n")
 
     infer_target_mask = infer_target_mask.type(torch.int64)
-    for trace_idx in range(args.num_traces):
-        batch_local_ids = torch.tensor(np.random.choice(infer_target_local_ids, (args.batch_size,), replace=False))
+    for trace_idx in range(num_infer_batches):
+        batch_local_ids = infer_target_local_ids[trace_idx * args.batch_size:(trace_idx + 1) * args.batch_size]
         target_features = infer_g.ndata["features"][batch_local_ids]
 
         u, v = infer_g.in_edges(batch_local_ids, 'uv')
@@ -67,7 +70,6 @@ if __name__ == "__main__":
     parser.add_argument('--graph_name', type=str, required=True)
     parser.add_argument('--part_config', type=str, required=True)
     parser.add_argument('--batch_size', type=int, required=True)
-    parser.add_argument('--num_traces', type=int, required=True)
     parser.add_argument('--random_seed', type=int, default=451241)
     parser.add_argument('--sampled', action='store_true')
     parser.add_argument('--fanout', type=int, default=25)

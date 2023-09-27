@@ -140,6 +140,17 @@ def load_saint(saint_data_root, graph_name, multilabel):
     dgl.save_graphs(dgl_graph_path, [g])
     return g
 
+def cal_metrics(y_true, y_pred, multilabel):
+    if multilabel:
+        y_pred[y_pred > 0] = 1
+        y_pred[y_pred <= 0] = 0
+        return f1_score(y_true, y_pred, average="micro"), \
+            f1_score(y_true, y_pred, average="macro")
+    else:
+        y_pred = np.argmax(y_pred, axis=1)
+        return f1_score(y_true, y_pred, average="micro"), \
+            f1_score(y_true, y_pred, average="macro")
+
 class Timer:
     def __init__(self):
         self.values = {}

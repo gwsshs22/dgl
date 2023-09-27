@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import secrets
 
 import numpy as np
 import torch
@@ -93,7 +94,7 @@ class GAT(nn.Module):
                 h = h.flatten(1)
                 h = self.dropout(h)
         return h
-    
+
     def layer_foward(self, layer_idx, block, inputs):
         h = self.gat_layers[layer_idx](block, inputs)
         if layer_idx == self.num_layers - 1:  # last layer 
@@ -120,6 +121,13 @@ def load_model_from(training_dir):
     assert config_path.exists()
 
     training_config = json.loads(config_path.read_text())
+
+    if "id" not in training_config:
+        training_config["id"] = secrets.token_hex(10)
+        with open(config_path, "w") as f:
+            f.write(json.dumps(training_config, indent=4, sort_keys=True))
+            f.write("\n")
+
     dataset_config = get_dataset_config(training_config["graph_name"])
 
     gnn = training_config["gnn"]

@@ -1,14 +1,14 @@
 import argparse
 from pathlib import Path
 import json
+import secrets
 
 import torch
 import numpy as np
 from sklearn.metrics import f1_score
 
 import dgl
-from omega.utils import load_graph
-from omega.utils import get_dataset_config
+from omega.utils import load_graph, get_dataset_config, cal_metrics
 from omega.models import create_model
 
 def do_full_training(args, g, model, device, dataset_config, result_dir, val_every):
@@ -157,17 +157,6 @@ def evaluate(model, g, mask, num_layers, multilabel):
         return cal_metrics(labels.cpu().numpy(),
                     logits.cpu().numpy(), multilabel)
 
-def cal_metrics(y_true, y_pred, multilabel):
-    if multilabel:
-        y_pred[y_pred > 0] = 1
-        y_pred[y_pred <= 0] = 0
-        return f1_score(y_true, y_pred, average="micro"), \
-            f1_score(y_true, y_pred, average="macro")
-    else:
-        y_pred = np.argmax(y_pred, axis=1)
-        return f1_score(y_true, y_pred, average="micro"), \
-            f1_score(y_true, y_pred, average="macro")
-
 def main(args):
     device = f"cuda:{args.local_rank}"
     dataset_config = get_dataset_config(args.graph_name)
@@ -214,6 +203,7 @@ def main(args):
     args_dict["running_epochs"] = running_epochs
     args_dict["val_every"] = val_every
     args_dict["fanouts"] = ",".join([str(f) for f in fanouts])
+    args_dict["id"] = secrets.token_hex(10)
 
     with open(result_dir / "config.json", "w") as f:
         f.write(json.dumps(args_dict, indent=4, sort_keys=True))

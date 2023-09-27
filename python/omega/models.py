@@ -137,5 +137,5 @@ def load_model_from(training_dir):
         num_layers,
         gat_heads)
     
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location="cpu"))
     return model, training_config, dataset_config

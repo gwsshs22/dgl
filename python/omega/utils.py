@@ -3,7 +3,9 @@ import contextlib
 from dataclasses import dataclass
 import os
 from functools import namedtuple
+from pathlib import Path
 import json
+from typing import Any
 
 import torch
 
@@ -150,6 +152,33 @@ def cal_metrics(y_true, y_pred, multilabel):
         y_pred = np.argmax(y_pred, axis=1)
         return f1_score(y_true, y_pred, average="micro"), \
             f1_score(y_true, y_pred, average="macro")
+
+
+@dataclass(frozen=True)
+class InferBatchRequest:
+    target_gnids: Any
+    target_features: Any
+    src_gnids: Any
+    dst_gnids: Any
+
+def load_traces(trace_dir, feature_dim=None):
+    trace_dir = Path(trace_dir)
+    num_traces = int((trace_dir / "num_traces.txt").read_text())
+    batch_requests = []
+    for i in range(num_traces):
+        tensors = dgl.data.load_tensors(str(trace_dir / f"{i}.dgl"))
+        target_features = tensors["target_features"]
+        if feature_dim is not None:
+            target_features = torch.empty(target_features.shape[0], feature_dim)
+
+        batch_requests.append(InferBatchRequest(
+            target_gnids=tensors["target_gnids"],
+            target_features=target_features,
+            src_gnids=tensors["src_gnids"],
+            dst_gnids=tensors["dst_gnids"]
+        ))
+
+    return batch_requests
 
 class Timer:
     def __init__(self):

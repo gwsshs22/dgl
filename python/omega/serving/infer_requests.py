@@ -1,6 +1,3 @@
-from dataclasses import dataclass
-from typing import Any
-from pathlib import Path
 import time
 import threading
 import queue
@@ -10,12 +7,7 @@ import numpy as np
 
 import dgl
 
-@dataclass(frozen=True)
-class InferBatchRequest:
-    target_gnids: Any
-    target_features: Any
-    src_gnids: Any
-    dst_gnids: Any
+from omega.utils import load_traces
 
 class RequestGenerator:
 
@@ -25,29 +17,16 @@ class RequestGenerator:
         self._random_seed = random_seed
         self._feature_dim = feature_dim
 
-        self._load_traces(trace_dir)
+        self._batch_requests = load_traces(
+            trace_dir,
+            feature_dim
+        )
+        self._num_traces = len(self._batch_requests)
+        self._batch_size = self._batch_requests[0].target_gnids.shape[0]
 
         self._num_reqs = None
         self._req_gen_thread = None
         self._queue = None
-
-    def _load_traces(self, trace_dir):
-        trace_dir = Path(trace_dir)
-        self._num_traces = int((trace_dir / "num_traces.txt").read_text())
-        self._batch_requests = []
-        for i in range(self._num_traces):
-            tensors = dgl.data.load_tensors(str(trace_dir / f"{i}.dgl"))
-            target_features = tensors["target_features"]
-            if self._feature_dim is not None:
-                target_features = torch.empty(target_features.shape[0], self._feature_dim)
-            self._batch_size = tensors["target_gnids"].shape[0]
-            self._batch_requests.append(InferBatchRequest(
-                target_gnids=tensors["target_gnids"],
-                target_features=target_features,
-                src_gnids=tensors["src_gnids"],
-                dst_gnids=tensors["dst_gnids"]
-            ))
-
 
     @staticmethod
     def req_gen_thread_main(q, num_reqs, req_per_sec, arrival_type, random_seed):

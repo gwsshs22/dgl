@@ -19,6 +19,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --num_hiddens $HIDDEN_DIMS \
   --gat_heads 8,8 \
   --num_layers 2 \
+  --dropout $DROPOUT \
   --local_rank 1
 
 python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/10_25_${LR}_do_${DROPOUT} --lr $LR \
@@ -30,6 +31,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --gat_heads 8,8 \
   --num_layers 2 \
   --fanouts 10,25 \
+  --dropout $DROPOUT \
   --local_rank 1
 
 python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/0_0_0_lr_${LR}_do_${DROPOUT} --lr $LR \
@@ -40,6 +42,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --num_hiddens $HIDDEN_DIMS \
   --gat_heads 8,8,8 \
   --num_layers 3 \
+  --dropout $DROPOUT \
   --local_rank 1
 
 python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/5_10_15_${LR}_do_${DROPOUT} --lr $LR \
@@ -51,6 +54,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --gat_heads 8,8,8 \
   --num_layers 3 \
   --fanouts 5,10,15 \
+  --dropout $DROPOUT \
   --local_rank 1
 
 python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/0_0_0_0_lr_${LR}_do_${DROPOUT} --lr $LR \
@@ -61,6 +65,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --num_hiddens $HIDDEN_DIMS \
   --gat_heads 8,8,8,8 \
   --num_layers 4 \
+  --dropout $DROPOUT \
   --local_rank 1
 
 python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/5_10_15_20_${LR}_do_${DROPOUT} --lr $LR \
@@ -72,6 +77,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --gat_heads 8,8,8,8 \
   --num_layers 4 \
   --fanouts 5,10,15,20 \
+  --dropout $DROPOUT \
   --local_rank 1
 
 done

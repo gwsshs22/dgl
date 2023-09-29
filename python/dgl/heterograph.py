@@ -6170,6 +6170,18 @@ class DGLBlock(DGLGraph):
     # serialization that contains the is_block flag.
     is_block = True
 
+    def set_out_degrees(self, out_degrees):
+        assert(self.num_src_nodes() == out_degrees.shape[0])
+        setattr(self, "__out_degrees", out_degrees)
+    
+    def out_degrees(self, u=ALL, etype=None):
+        assert etype == None
+        out_degs = getattr(self, "__out_degrees", None)
+        if out_degs is None:
+            return super(DGLBlock, self).out_degrees(u, etype)
+        else:
+            return out_degs
+
     def __repr__(self):
         if len(self.srctypes) == 1 and len(self.dsttypes) == 1 and len(self.etypes) == 1:
             ret = 'Block(num_src_nodes={srcnode}, num_dst_nodes={dstnode}, num_edges={edge})'

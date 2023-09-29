@@ -23,6 +23,7 @@ def main(args):
     assert training_config["graph_name"] == part_config["graph_name"]
     assert part_config["num_parts"] == 1
     model = model.to(device)
+    model.eval()
     num_layers = training_config["num_layers"]
     num_hiddens = training_config["num_hiddens"]
 
@@ -37,6 +38,7 @@ def main(args):
     node_feats = dgl.data.load_tensors(str(part_config_dir / "part0" / "node_feat.dgl"))
     h = node_feats["_N/features"].to(device)
     labels = node_feats["_N/labels"].to(device)
+    infer_target_mask = node_feats["_N/infer_target_mask"].type(torch.bool)
     pes = []
 
     for layer_idx in range(num_layers):
@@ -50,14 +52,23 @@ def main(args):
     loss.backward()
 
     remaining_test_mask = torch.logical_and(
-        node_feats["_N/test_mask"],
-        torch.logical_not(node_feats["_N/infer_target_mask"])
+        node_feats["_N/test_mask"].type(torch.bool),
+        torch.logical_not(infer_target_mask)
     )
+
+
+    labels = labels.cpu().clone()
+    logits = h.clone().detach().cpu()
 
     # Sanity check
     print(cal_metrics(
-        labels.cpu().numpy()[remaining_test_mask],
-        h.detach().cpu().numpy()[remaining_test_mask],
+        labels[remaining_test_mask],
+        logits[remaining_test_mask],
+        dataset_config.multilabel))
+
+    print(cal_metrics(
+        labels[infer_target_mask],
+        logits[infer_target_mask],
         dataset_config.multilabel))
 
     pe_grads = [p.grad.cpu() for p in pes]
@@ -70,20 +81,6 @@ def main(args):
         "pes": pes,
         "pe_grads": pe_grads
     }, data_dir / "tensors.pth")
-
-    # tensor_dict = {}
-    # for layer_idx, pe in enumerate(pes):
-    #     tensor_dict[f"pe_{layer_idx}"] = pe
-
-    # for layer_idx, pe_grad in enumerate(pe_grads):
-    #     tensor_dict[f"pe_grad_{layer_idx}"] = pe_grad
-
-    # data_dir = part_config_dir / "part0" / "data" / training_id
-    # data_dir.mkdir(parents=True, exist_ok=True)
-    # dgl.data.save_tensors(
-    #     str(data_dir / "tensors.dgl"),
-    #     tensor_dict
-    # )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

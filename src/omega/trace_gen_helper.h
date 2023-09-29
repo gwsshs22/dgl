@@ -20,7 +20,8 @@ std::vector<IdArray> TraceGenHelper(
     const IdArray& u,
     const IdArray& v,
     const IdArray& u_in_partitions,
-    const IdArray& v_in_partitions);
+    const IdArray& v_in_partitions,
+    bool independent);
 
 }
 }

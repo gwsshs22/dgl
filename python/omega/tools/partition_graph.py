@@ -23,7 +23,12 @@ def save_infer_graph(args, org_g):
     # Build infer_target_g by selecting about 10% of test nodes in the graph
     all_nids = th.arange(org_g.number_of_nodes())
     test_nids = all_nids[org_g.ndata["test_mask"]]
-    num_infer_targets = min(int(infer_prob * org_g.number_of_nodes()), test_nids.shape[0])
+
+    if args.rel_to_tests:
+        num_infer_targets = int(infer_prob * test_nids.shape[0])
+    else:
+        num_infer_targets = min(int(infer_prob * org_g.number_of_nodes()), test_nids.shape[0])
+
     infer_prob_within_test_nodes = num_infer_targets / test_nids.shape[0]
     mask = th.BoolTensor(np.random.choice(
         [False, True],
@@ -121,10 +126,11 @@ if __name__ == "__main__":
                            help='number of partitions')
     argparser.add_argument('--part_method', type=str, default='random', choices=["random", "metis"],
                            help='the partition method')
-    argparser.add_argument('--random_seed', type=int, default=42421)
+    argparser.add_argument('--random_seed', type=int, default=412523)
     argparser.add_argument('--output', type=str, default='data',
                            help='Output path of partitioned graph.', required=True)
     argparser.add_argument('--infer_prob', type=float, default=0.1)
+    argparser.add_argument('--rel_to_tests', action="store_true")
 
     args = argparser.parse_args()
     np.random.seed(args.random_seed)

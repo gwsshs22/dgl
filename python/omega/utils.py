@@ -156,8 +156,10 @@ def cal_metrics(y_true, y_pred, multilabel):
 
 @dataclass(frozen=True)
 class InferBatchRequest:
+    org_gnids: Any
     target_gnids: Any
     target_features: Any
+    target_labels: Any
     src_gnids: Any
     dst_gnids: Any
 
@@ -172,8 +174,10 @@ def load_traces(trace_dir, feature_dim=None):
             target_features = torch.empty(target_features.shape[0], feature_dim)
 
         batch_requests.append(InferBatchRequest(
+            org_gnids=tensors["org_gnids"] if "org_gnids" in tensors else None,
             target_gnids=tensors["target_gnids"],
             target_features=target_features,
+            target_labels=tensors["target_labels"] if "target_labels" in tensors else None,
             src_gnids=tensors["src_gnids"],
             dst_gnids=tensors["dst_gnids"]
         ))

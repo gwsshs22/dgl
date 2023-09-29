@@ -49,17 +49,27 @@ def main(args):
         v_in_partitions = find_index_of_values(orig_nids, orig_nids_sorter, v_orig)
 
         target_gnids, src_gnids, dst_gnids = trace_gen_helper(
-            first_new_gnid, infer_target_mask, batch_local_ids, u, v, u_in_partitions, v_in_partitions)
+            first_new_gnid,
+            infer_target_mask,
+            batch_local_ids,
+            u,
+            v,
+            u_in_partitions,
+            v_in_partitions,
+            args.independent
+        )
 
         if args.sampled:
             sampled_ret = sample_edges(target_gnids, src_gnids, dst_gnids, [args.fanout])
             src_gnids, dst_gnids = sampled_ret[0][0], sampled_ret[0][1]
 
         dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), {
+            "org_gnids": infer_g.ndata[dgl.NID][batch_local_ids],
             "target_gnids": target_gnids,
             "src_gnids": src_gnids,
             "dst_gnids": dst_gnids,
-            "target_features": target_features.type(torch.float32)
+            "target_features": target_features.type(torch.float32),
+            "target_labels": infer_g.ndata["labels"][batch_local_ids]
         })
 
         if trace_idx % 100 == 0:
@@ -70,9 +80,10 @@ if __name__ == "__main__":
     parser.add_argument('--graph_name', type=str, required=True)
     parser.add_argument('--part_config', type=str, required=True)
     parser.add_argument('--batch_size', type=int, required=True)
-    parser.add_argument('--random_seed', type=int, default=451241)
+    parser.add_argument('--random_seed', type=int, default=582943)
     parser.add_argument('--sampled', action='store_true')
     parser.add_argument('--fanout', type=int, default=25)
+    parser.add_argument('--independent', action='store_true')
     parser.add_argument('--output', type=str, required=True)
 
     args = parser.parse_args()

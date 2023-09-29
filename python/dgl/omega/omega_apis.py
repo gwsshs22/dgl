@@ -179,7 +179,8 @@ def trace_gen_helper(
     u,
     v,
     u_in_partitions,
-    v_in_partitions):
+    v_in_partitions,
+    independent):
     ret = _CAPI_DGLOmegaTraceGenHelper(
         first_new_gnid,
         F.zerocopy_to_dgl_ndarray(infer_target_mask),
@@ -187,7 +188,8 @@ def trace_gen_helper(
         F.zerocopy_to_dgl_ndarray(u),
         F.zerocopy_to_dgl_ndarray(v),
         F.zerocopy_to_dgl_ndarray(u_in_partitions),
-        F.zerocopy_to_dgl_ndarray(v_in_partitions))
+        F.zerocopy_to_dgl_ndarray(v_in_partitions),
+        independent)
 
     target_gnids = F.from_dgl_nd(ret[0])
     src_gnids = F.from_dgl_nd(ret[1])

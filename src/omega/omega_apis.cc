@@ -131,6 +131,7 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaTraceGenHelper")
     IdArray v = args[4];
     IdArray u_in_partitions = args[5];
     IdArray v_in_partitions = args[6];
+    bool independent = args[7];
 
     auto ret = omega::TraceGenHelper(
       first_new_gnid,
@@ -139,7 +140,8 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaTraceGenHelper")
       u,
       v,
       u_in_partitions,
-      v_in_partitions);
+      v_in_partitions,
+      independent);
 
     runtime::List<runtime::Value> ret_list;
     for (int i = 0; i < 3; i++) {

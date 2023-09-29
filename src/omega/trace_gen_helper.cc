@@ -18,7 +18,8 @@ std::vector<IdArray> TraceGenHelper(
     const IdArray& u,
     const IdArray& v,
     const IdArray& u_in_partitions,
-    const IdArray& v_in_partitions) {
+    const IdArray& v_in_partitions,
+    const bool independent) {
 
   int batch_size = batch_local_ids->shape[0];
   int num_edges = u->shape[0];
@@ -54,13 +55,20 @@ std::vector<IdArray> TraceGenHelper(
     auto u_find_ret = new_id_map.find(u_val);
     auto v_find_ret = new_id_map.find(v_val);
 
-    if (infer_target_mask_data[u_val] > 0 && u_find_ret == new_id_map.end()) {
-      continue;
+    if (independent) {
+      if (infer_target_mask_data[u_val] > 0 && (u_find_ret == new_id_map.end() || u_val != v_val)) {
+        continue;
+      }
+    } else {
+      if (infer_target_mask_data[u_val] > 0 && u_find_ret == new_id_map.end()) {
+        continue;
+      }
+
+      if (infer_target_mask_data[v_val] > 0 && v_find_ret == new_id_map.end()) {
+        continue;
+      }
     }
 
-    if (infer_target_mask_data[v_val] > 0 && v_find_ret == new_id_map.end()) {
-      continue;
-    }
 
     if (u_find_ret == new_id_map.end()) {
       src_gnids_vec.push_back(u_val_in_partitions);

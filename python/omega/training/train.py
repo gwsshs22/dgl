@@ -76,6 +76,8 @@ def do_full_training(args, g, model, device, dataset_config, result_dir, val_eve
     return f1_mic, epoch
 
 def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_dir, val_every):
+    is_gcn = args.gnn == "gcn"
+
     model_path = result_dir / "model.pt"
 
     best_val_f1 = -1
@@ -118,6 +120,10 @@ def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_
         model.train()
 
         for input_nids, seeds, blocks in train_loader:
+            if is_gcn:
+                for b in blocks:
+                    b.set_out_degrees(train_g.out_degrees(b.srcdata[dgl.NID]))
+
             input_features = train_g.ndata["features"][input_nids]
             logits = model(blocks, input_features)
             labels = train_g.ndata["labels"][seeds]

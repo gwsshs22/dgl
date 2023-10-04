@@ -6,6 +6,8 @@ import numpy as np
 from pathlib import Path
 from collections import defaultdict
 
+from omega.models import load_training_config
+
 def is_leaf_dir(target_dir):
     return not any(d.is_dir() for d in target_dir.iterdir())
 
@@ -22,10 +24,12 @@ class TrainingResult:
     running_epochs: int
     patience: int
     val_every: int
+    gcn_norm: str
     
 
 def analyze_result(root_dir, result_dir, training_config_path):
-    training_config = json.loads(training_config_path.read_text())
+    training_config = load_training_config(training_config_path)
+    
     relative_path = result_dir.relative_to(root_dir)
 
     training_result = TrainingResult(
@@ -39,7 +43,8 @@ def analyze_result(root_dir, result_dir, training_config_path):
         num_epochs=training_config["num_epochs"],
         running_epochs=training_config["running_epochs"],
         patience=training_config["patience"],
-        val_every=training_config["val_every"]
+        val_every=training_config["val_every"],
+        gcn_norm=training_config["gcn_norm"]
     )
 
     return training_config, relative_path, training_result
@@ -65,6 +70,7 @@ def main(args):
             "fanouts",
             "f1mic",
             "lr",
+            "gcn_norm",
             "num_epochs",
             "running_epochs",
             "patience",
@@ -84,6 +90,7 @@ def main(args):
                 training_result.fanouts,
                 training_result.f1mic,
                 training_result.lr,
+                training_result.gcn_norm,
                 training_result.num_epochs,
                 training_result.running_epochs,
                 training_result.patience,

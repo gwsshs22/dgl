@@ -76,8 +76,6 @@ def do_full_training(args, g, model, device, dataset_config, result_dir, val_eve
     return f1_mic, epoch
 
 def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_dir, val_every):
-    is_gcn = args.gnn == "gcn"
-
     model_path = result_dir / "model.pt"
 
     best_val_f1 = -1
@@ -120,10 +118,6 @@ def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_
         model.train()
 
         for input_nids, seeds, blocks in train_loader:
-            if is_gcn:
-                for b in blocks:
-                    b.set_out_degrees(train_g.out_degrees(b.srcdata[dgl.NID]))
-
             input_features = train_g.ndata["features"][input_nids]
             logits = model(blocks, input_features)
             labels = train_g.ndata["labels"][seeds]
@@ -184,6 +178,7 @@ def main(args):
         dataset_config.num_classes,
         args.num_layers,
         gat_heads,
+        gcn_norm=args.gcn_norm,
         dropout=args.dropout).to(device)
 
     fanouts = [int(f) for f in args.fanouts.split(",")] if args.fanouts else [-1] * args.num_layers
@@ -235,6 +230,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_hiddens', type=int, required=True)
     parser.add_argument('--num_layers', type=int, required=True)
     parser.add_argument('--gat_heads', type=str)
+    parser.add_argument('--gcn_norm', type=str, default='right', choices=['right', 'both'])
     parser.add_argument('--fanouts', type=str)
 
     parser.add_argument('--local_rank', type=int, default=0)

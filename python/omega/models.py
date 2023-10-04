@@ -11,16 +11,16 @@ from omega.utils import get_dataset_config
 
 class GCN(nn.Module):
     def __init__(
-        self, in_feats, n_hidden, n_classes, n_layers, activation=F.relu, dropout=0.5):
+        self, in_feats, n_hidden, n_classes, n_layers, gcn_norm='right', activation=F.relu, dropout=0.5):
         super().__init__()
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_classes = n_classes
         self.layers = nn.ModuleList()
-        self.layers.append(dglnn.GraphConv(in_feats, n_hidden, allow_zero_in_degree=True))
+        self.layers.append(dglnn.GraphConv(in_feats, n_hidden, allow_zero_in_degree=True, norm=gcn_norm))
         for i in range(1, n_layers - 1):
-            self.layers.append(dglnn.GraphConv(n_hidden, n_hidden, allow_zero_in_degree=True))
-        self.layers.append(dglnn.GraphConv(n_hidden, n_classes, allow_zero_in_degree=True))
+            self.layers.append(dglnn.GraphConv(n_hidden, n_hidden, allow_zero_in_degree=True, norm=gcn_norm))
+        self.layers.append(dglnn.GraphConv(n_hidden, n_classes, allow_zero_in_degree=True, norm=gcn_norm))
         self.dropout = nn.Dropout(dropout)
         self.activation = activation
 
@@ -104,14 +104,31 @@ class GAT(nn.Module):
             h = self.dropout(h)
         return h
 
-def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, dropout=0.0):
+def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='right', dropout=0.0):
     if gnn == "gcn":
-        model = GCN(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout)
+        model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
     elif gnn == "sage":
         model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr='mean')
     elif gnn == "gat":
         model = GAT(num_inputs, num_hiddens, num_classes, num_layers, heads=gat_heads, dropout=dropout)
     return model
+
+def load_training_config(training_config_path):
+    training_config = json.loads(training_config_path.read_text())
+
+    if "id" not in training_config:
+        training_config["id"] = secrets.token_hex(10)
+        with open(training_config_path, "w") as f:
+            f.write(json.dumps(training_config, indent=4, sort_keys=True))
+            f.write("\n")
+    
+    if "gcn_norm" not in training_config:
+        training_config["gcn_norm"] = "both"
+        with open(training_config_path, "w") as f:
+            f.write(json.dumps(training_config, indent=4, sort_keys=True))
+            f.write("\n")
+    
+    return training_config
 
 def load_model_from(training_dir):
     training_dir = Path(training_dir)
@@ -120,14 +137,7 @@ def load_model_from(training_dir):
     assert model_path.exists()
     assert config_path.exists()
 
-    training_config = json.loads(config_path.read_text())
-
-    if "id" not in training_config:
-        training_config["id"] = secrets.token_hex(10)
-        with open(config_path, "w") as f:
-            f.write(json.dumps(training_config, indent=4, sort_keys=True))
-            f.write("\n")
-
+    training_config = load_training_config(config_path)
     dataset_config = get_dataset_config(training_config["graph_name"])
 
     gnn = training_config["gnn"]

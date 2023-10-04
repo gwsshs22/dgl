@@ -27,11 +27,6 @@ def main(args):
     num_layers = training_config["num_layers"]
     num_hiddens = training_config["num_hiddens"]
 
-    if dataset_config.multilabel:
-        loss_fn = torch.nn.BCEWithLogitsLoss()
-    else:
-        loss_fn = torch.nn.CrossEntropyLoss()
-
     g = dgl.load_graphs(str(part_config_dir / "part0" / "graph.dgl"))[0][0]
     g = g.to(device)
 
@@ -41,24 +36,20 @@ def main(args):
     infer_target_mask = node_feats["_N/infer_target_mask"].type(torch.bool)
     pes = []
 
-    for layer_idx in range(num_layers):
-        h = model.layer_foward(layer_idx, g, h)
-        h.retain_grad()
+    with torch.no_grad():
+        for layer_idx in range(num_layers):
+            h = model.layer_foward(layer_idx, g, h)
 
-        if layer_idx != num_layers - 1:
-            pes.append(h)
-
-    loss = loss_fn(h, labels)
-    loss.backward()
+            if layer_idx != num_layers - 1:
+                pes.append(h)
 
     remaining_test_mask = torch.logical_and(
         node_feats["_N/test_mask"].type(torch.bool),
         torch.logical_not(infer_target_mask)
     )
 
-
     labels = labels.cpu().clone()
-    logits = h.clone().detach().cpu()
+    logits = h.clone().cpu()
 
     # Sanity check
     print(cal_metrics(
@@ -71,15 +62,13 @@ def main(args):
         logits[infer_target_mask],
         dataset_config.multilabel))
 
-    pe_grads = [p.grad.cpu() for p in pes]
-    pes = [p.detach().cpu() for p in pes]
+    pes = [p.cpu() for p in pes]
 
     data_dir = part_config_dir / "part0" / "data" / training_id
     data_dir.mkdir(parents=True, exist_ok=True)
 
     torch.save({
-        "pes": pes,
-        "pe_grads": pe_grads
+        "pes": pes
     }, data_dir / "tensors.pth")
 
 if __name__ == "__main__":

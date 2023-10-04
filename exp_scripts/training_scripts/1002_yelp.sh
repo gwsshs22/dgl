@@ -23,7 +23,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --dropout $DROPOUT \
   --local_rank 0
 
-python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/10_25_lr_${LR}_do_${DROPOUT} --lr $LR \
+python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/5_10_15_lr_${LR}_do_${DROPOUT} --lr $LR \
   --graph_name $GRAPH_NAME --num_epochs 5000 \
   --saint_data_root $DGL_RAW_DATA_HOME/saint_datasets \
   --ogbn_data_root $DGL_RAW_DATA_HOME/ogbn_datasets \
@@ -35,7 +35,7 @@ python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/
   --dropout $DROPOUT \
   --local_rank 0
 
-python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/10_25_lr_${LR}_do_${DROPOUT} --lr $LR \
+python -m omega.training.train --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/5_10_15_20_lr_${LR}_do_${DROPOUT} --lr $LR \
   --graph_name $GRAPH_NAME --num_epochs 5000 \
   --saint_data_root $DGL_RAW_DATA_HOME/saint_datasets \
   --ogbn_data_root $DGL_RAW_DATA_HOME/ogbn_datasets \

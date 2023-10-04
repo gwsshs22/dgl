@@ -1,6 +1,6 @@
-RESULT_ROOT_DIR=/home/gwkim/omega_trained_models/1004
+RESULT_ROOT_DIR=/home/gwkim/omega_trained_models/1004_3
 
-for GRAPH_NAME in "flickr" "yelp" "amazon"
+for GRAPH_NAME in "flickr" "amazon"
 do
 
 for GNN in "gcn"

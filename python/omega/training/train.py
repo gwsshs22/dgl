@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import secrets
 
+import gc
 import torch
 import numpy as np
 from sklearn.metrics import f1_score
@@ -117,18 +118,22 @@ def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_
 
         model.train()
 
-        for input_nids, seeds, blocks in train_loader:
-            input_features = train_g.ndata["features"][input_nids]
-            logits = model(blocks, input_features)
-            labels = train_g.ndata["labels"][seeds]
-            loss = loss_fn(logits, labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
+        def run():
+            for input_nids, seeds, blocks in train_loader:
+                input_features = train_g.ndata["features"][input_nids]
+                logits = model(blocks, input_features)
+                labels = train_g.ndata["labels"][seeds]
+                loss = loss_fn(logits, labels)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            return loss.item()
+        loss = run()
+        gc.collect()
+        torch.cuda.empty_cache()
         if (epoch + 1) % val_every == 0:
             val_f1_mic, val_f1_mac = evaluate(model, g, val_mask, num_layers, multilabel)
-            print(f"Epoch {epoch:05d} | Loss {loss.item():.4f} | Val F1_mic {val_f1_mic:.4f} | Val F1_mac {val_f1_mac:.4f}")
+            print(f"Epoch {epoch:05d} | Loss {loss:.4f} | Val F1_mic {val_f1_mic:.4f} | Val F1_mac {val_f1_mac:.4f}")
             if val_f1_mic > best_val_f1:
                 best_val_f1 = val_f1_mic
                 patience = args.patience
@@ -138,7 +143,9 @@ def do_sampled_training(args, g, model, device, fanouts, dataset_config, result_
             else:
                 patience -= 1
         else:
-            print(f"Epoch {epoch:05d} | Loss {loss.item():.4f} |")
+            print(f"Epoch {epoch:05d} | Loss {loss:.4f} |")
+        gc.collect()
+        torch.cuda.empty_cache()
 
     model.load_state_dict(torch.load(model_path))
     f1_mic, f1_mac = evaluate(model, g, test_mask, num_layers, multilabel)

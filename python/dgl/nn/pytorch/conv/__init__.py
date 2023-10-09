@@ -18,6 +18,7 @@ from .egnnconv import EGNNConv
 from .gatconv import GATConv
 from .gatedgraphconv import GatedGraphConv
 from .gatv2conv import GATv2Conv
+from .gatv2conv_org import GATv2ConvOrg
 from .gcn2conv import GCN2Conv
 from .ginconv import GINConv
 from .gineconv import GINEConv
@@ -38,6 +39,7 @@ __all__ = [
     "EdgeWeightNorm",
     "GATConv",
     "GATv2Conv",
+    "GATv2ConvOrg",
     "EGATConv",
     "TAGConv",
     "RelGraphConv",

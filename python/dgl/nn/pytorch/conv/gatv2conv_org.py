@@ -11,7 +11,7 @@ from ..utils import Identity
 
 
 # pylint: enable=W0235
-class GATv2Conv(nn.Module):
+class GATv2ConvOrg(nn.Module):
     r"""GATv2 from `How Attentive are Graph Attention Networks?
     <https://arxiv.org/pdf/2105.14491.pdf>`__
 
@@ -150,7 +150,7 @@ class GATv2Conv(nn.Module):
         bias=True,
         share_weights=False,
     ):
-        super(GATv2Conv, self).__init__()
+        super(GATv2ConvOrg, self).__init__()
         self._num_heads = num_heads
         self._in_src_feats, self._in_dst_feats = expand_as_pair(in_feats)
         self._out_feats = out_feats
@@ -311,8 +311,12 @@ class GATv2Conv(nn.Module):
             e = (
                 (e * self.attn).sum(dim=-1).unsqueeze(dim=2)
             )  # (num_edge, num_heads, 1)
-
-            graph.softmax_aggregation(e, 'el', 'a', 'ft', self.attn_drop)
+            # compute softmax
+            graph.edata["a"] = self.attn_drop(
+                edge_softmax(graph, e)
+            )  # (num_edge, num_heads)
+            # message passing
+            graph.update_all(fn.u_mul_e("el", "a", "m"), fn.sum("m", "ft"))
             rst = graph.dstdata["ft"]
             # residual
             if self.res_fc is not None:

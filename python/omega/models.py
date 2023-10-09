@@ -73,15 +73,39 @@ class SAGE(nn.Module):
         return h
 
 class GAT(nn.Module):
-    def __init__(self, in_size, hid_size, out_size, num_layers, heads, dropout):
+    def __init__(self, in_size, hid_size, out_size, num_layers, heads, dropout, is_gatv2):
         super().__init__()
         assert(num_layers == len(heads))
+
+        def create_layer(
+            in_feats,
+            out_feats,
+            num_heads,
+            res,
+            act):
+            if is_gatv2:
+                return dglnn.GATv2ConvOrg(
+                    in_feats,
+                    out_feats,
+                    num_heads,
+                    residual=res,
+                    activation=act,
+                    allow_zero_in_degree=True)
+            else:
+                return dglnn.GATConv(
+                    in_feats,
+                    out_feats,
+                    num_heads,
+                    residual=res,
+                    activation=act,
+                    allow_zero_in_degree=True)
+
         self.num_layers = num_layers
         self.gat_layers = nn.ModuleList()
-        self.gat_layers.append(dglnn.GATConv(in_size, hid_size // heads[0], heads[0], activation=F.elu, allow_zero_in_degree=True))
+        self.gat_layers.append(create_layer(in_size, hid_size // heads[0], heads[0], res=False, act=F.elu))
         for i in range(num_layers - 2):
-            self.gat_layers.append(dglnn.GATConv(hid_size, hid_size // heads[i + 1], heads[i + 1], residual=True, activation=F.elu, allow_zero_in_degree=True))
-        self.gat_layers.append(dglnn.GATConv(hid_size, out_size, heads[-1], residual=True, activation=None, allow_zero_in_degree=True))
+            self.gat_layers.append(create_layer(hid_size, hid_size // heads[i + 1], heads[i + 1], res=True, act=F.elu))
+        self.gat_layers.append(create_layer(hid_size, out_size, heads[-1], res=True, act=None))
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, blocks, inputs):
@@ -109,8 +133,9 @@ def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_head
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
     elif gnn == "sage":
         model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr='mean')
-    elif gnn == "gat":
-        model = GAT(num_inputs, num_hiddens, num_classes, num_layers, heads=gat_heads, dropout=dropout)
+    elif gnn == "gat" or gnn == "gatv2":
+        is_gatv2 = gnn == "gatv2"
+        model = GAT(num_inputs, num_hiddens, num_classes, num_layers, heads=gat_heads, dropout=dropout, is_gatv2=is_gatv2)
     return model
 
 def load_training_config(training_config_path):
@@ -130,7 +155,7 @@ def load_training_config(training_config_path):
     
     return training_config
 
-def load_model_from(training_dir):
+def load_model_from(training_dir, for_omega=False):
     training_dir = Path(training_dir)
     model_path = training_dir / "model.pt"
     config_path = training_dir / "config.json"
@@ -143,7 +168,7 @@ def load_model_from(training_dir):
     gnn = training_config["gnn"]
     num_layers = training_config["num_layers"]
     gat_heads = [int(h) for h in training_config["gat_heads"].split(",")]
-    if gnn == "gat":
+    if gnn == "gat" or gnn == "gatv2":
         assert all([h > 0 for h in gat_heads])
         assert len(gat_heads) == num_layers
 

@@ -142,6 +142,28 @@ def orig_gat(block, input_features, device):
 
     return gat_layer(block, input_features)
 
+def orig_gatv2(block, input_features, device):
+    dim_inputs = input_features.shape[-1]
+    dim_hiddens = dim_inputs // 2
+
+    torch.manual_seed(5555)
+    gat_layer = dglnn.GATv2Conv(
+        dim_inputs, dim_hiddens, 4, activation=F.elu, allow_zero_in_degree=True, share_weights=True)
+    gat_layer = gat_layer.to(device)
+
+    return gat_layer(block, input_features)
+
+def orig_gatv2_org(block, input_features, device):
+    dim_inputs = input_features.shape[-1]
+    dim_hiddens = dim_inputs // 2
+
+    torch.manual_seed(5555)
+    gat_layer = dglnn.GATv2ConvOrg(
+        dim_inputs, dim_hiddens, 4, activation=F.elu, allow_zero_in_degree=True, share_weights=True)
+    gat_layer = gat_layer.to(device)
+
+    return gat_layer(block, input_features)
+
 def test(args):
     mp.set_start_method('spawn')
 
@@ -218,6 +240,8 @@ def test(args):
             test_function(orig_gcn)
             test_function(orig_sage)
             test_function(orig_gat)
+            test_function(orig_gatv2)
+            test_function(orig_gatv2_org, orig_gatv2)
     except AssertionError as e:
         print(f"Test failed: {e}")
         for p in child_processes:

@@ -20,6 +20,14 @@ def main(args):
     part_config = json.loads(part_config_path.read_text())
     part_config_dir = part_config_path.parent
 
+    data_dir = part_config_dir / "part0" / "data" / training_id
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    data_path = data_dir / "tensors.pth"
+    if data_path.exists():
+        print(f"{data_path} already exists.")
+        return
+
     assert training_config["graph_name"] == part_config["graph_name"]
     assert part_config["num_parts"] == 1
     model = model.to(device)
@@ -63,9 +71,6 @@ def main(args):
         dataset_config.multilabel))
 
     pes = [p.cpu() for p in pes]
-
-    data_dir = part_config_dir / "part0" / "data" / training_id
-    data_dir.mkdir(parents=True, exist_ok=True)
 
     torch.save({
         "pes": pes

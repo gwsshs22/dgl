@@ -41,6 +41,56 @@ class GCN(nn.Module):
         return h
 
 
+class GCN2(nn.Module):
+    def __init__(
+        self, in_feats, n_hidden, n_classes, n_layers, activation=F.relu, alpha=0.5, lamb=1.0):
+        super().__init__()
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.n_classes = n_classes
+        self.fc1 = nn.Linear(in_feats, n_hidden)
+        self.layers = nn.ModuleList()
+        self.layers.append(dglnn.GCN2Conv(n_hidden, 1, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True))
+        for i in range(1, n_layers - 1):
+            self.layers.append(dglnn.GCN2Conv(n_hidden, i + 1, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True))
+        self.layers.append(dglnn.GCN2Conv(n_hidden, n_layers, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True))
+        self.fc2 = nn.Linear(n_hidden, n_classes)
+        self.dropout = nn.Dropout(0.2)
+        self.activation = activation
+
+    def reset_parameters(self):
+        nn.init.normal_(self.fc1)
+        nn.init.normal_(self.fc2)
+        for l in self.layers:
+            l.reset_parameters()
+
+    def feature_preprocess(self, x):
+        x = self.dropout(x)
+        return self.activation(self.fc1(x))
+
+    def forward(self, blocks, x):
+        h0 = self.feature_preprocess(x)
+
+        h = h0
+        for i, (layer, block) in enumerate(zip(self.layers, blocks)):
+            identity = h
+            h = layer(block, h, h0)
+            h += identity
+            h = self.activation(h)
+            h = self.dropout(h)
+
+        return self.fc2(h)
+
+    def layer_foward(self, layer_idx, block, inputs, h0):
+        h = self.layers[layer_idx](block, inputs, h0)
+        h = self.activation(h)
+        h = self.dropout(h)
+
+        if layer_idx == self.n_layers - 1:
+            h = self.fc2(h)
+
+        return h
+
 class SAGE(nn.Module):
     def __init__(
         self, in_feats, n_hidden, n_classes, n_layers, activation=F.relu, dropout=0.5, aggr="mean"):
@@ -131,6 +181,8 @@ class GAT(nn.Module):
 def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='right', dropout=0.0):
     if gnn == "gcn":
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
+    elif gnn == "gcn2":
+        model = GCN2(num_inputs, num_hiddens, num_classes, num_layers)
     elif gnn == "sage":
         model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr='mean')
     elif gnn == "gat" or gnn == "gatv2":

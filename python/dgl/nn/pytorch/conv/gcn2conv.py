@@ -233,20 +233,18 @@ class GCN2Conv(nn.Module):
             # normalize  to get smoothed representation
             if edge_weight is None:
                 degs = graph.in_degrees().to(feat).clamp(min=1)
-                norm = th.pow(degs, -0.5)
+                norm = th.pow(degs, -1)
                 norm = norm.to(feat.device).unsqueeze(1)
             else:
                 edge_weight = EdgeWeightNorm("both")(graph, edge_weight)
 
-            if edge_weight is None:
-                feat = feat * norm
-            graph.ndata["h"] = feat
+            graph.srcdata["h"] = feat
             msg_func = fn.copy_u("h", "m")
             if edge_weight is not None:
                 graph.edata["_edge_weight"] = edge_weight
                 msg_func = fn.u_mul_e("h", "_edge_weight", "m")
-            graph.update_all(msg_func, fn.sum("m", "h"))
-            feat = graph.ndata.pop("h")
+            graph.update_all(msg_func, fn.sum("m", "rst"))
+            feat = graph.dstdata.pop("rst")
             if edge_weight is None:
                 feat = feat * norm
             # scale

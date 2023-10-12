@@ -85,6 +85,15 @@ def main(args):
                 logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, pes, saint_is_policy, threshold)
                 logits_dict["saint_is"][threshold].append(logits)
 
+                def input_error_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                    batch_size = last_block.num_dst_nodes()
+                    pe_nids = last_block.srcdata[dgl.NID][batch_size:]
+
+                    return torch.norm((full_pes[batch_size:] - pes[-1][pe_nids]), dim=-1)
+
+                logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, pes, input_error_policy, threshold)
+                logits_dict["input_error"][threshold].append(logits)
+
                 if compute_grad:
                     def gradient_policy(trace, last_block, new_in_degrees, org_in_degrees):
                         batch_size = last_block.num_dst_nodes()
@@ -94,8 +103,8 @@ def main(args):
 
                     logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, pes, gradient_policy, threshold)
                     logits_dict["gradient"][threshold].append(logits)
-    
-    policy_names = ["random", "new_edge_ratios", "saint_is"]
+
+    policy_names = ["random", "new_edge_ratios", "saint_is", "input_error"]
     if compute_grad:
         policy_names.append("gradient")
 
@@ -202,12 +211,14 @@ def compute_with_recomputation(g, features, device, model, num_layers, trace, pe
     recompute_block = recompute_block.to(device)
     block = block.to(device)
 
-    h = model.layer_foward(0, recompute_block, h)
+    h0 = model.feature_preprocess(h)
+    h = h0    
+    h = model.layer_foward(0, recompute_block, h, h0)
 
     for layer_idx in range(1, num_layers - 1):
         p = pes[layer_idx - 1][recompute_block.srcdata[dgl.NID][h.shape[0]:].to("cpu")].to(device)
         h = torch.concat((h, p))
-        h = model.layer_foward(layer_idx, recompute_block, h)
+        h = model.layer_foward(layer_idx, recompute_block, h, h0)
 
     pe = torch.zeros((block.num_src_nodes() - block.num_dst_nodes(),) + h.shape[1:], device=device)
     pe[recompute_mask] = h[batch_size:]
@@ -217,7 +228,7 @@ def compute_with_recomputation(g, features, device, model, num_layers, trace, pe
         pe
     ))
 
-    h = model.layer_foward(num_layers - 1, block, h)
+    h = model.layer_foward(num_layers - 1, block, h, h0)
 
     return h.cpu(), trace.target_labels
 
@@ -246,11 +257,13 @@ def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, 
 
     if compute_grad:
         with torch.no_grad():
+            h0 = model.feature_preprocess(h)
+            h = h0
             for layer_idx in range(num_layers - 1):
-                h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h)
+                h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
         h.requires_grad_(True)
         h.retain_grad()
-        logits = model.layer_foward(num_layers - 1, blocks[num_layers - 1].to(device), h)
+        logits = model.layer_foward(num_layers - 1, blocks[num_layers - 1].to(device), h, h0)
         
         loss = loss_fn(logits, trace.target_labels.to(device))
         loss.backward()
@@ -260,12 +273,15 @@ def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, 
         return logits.detach().to("cpu"), trace.target_labels, h.detach().to("cpu"), pe_grads.to("cpu"), 
     else:
         with torch.no_grad():
+            h0 = model.feature_preprocess(h)
+            h = h0
             for layer_idx in range(num_layers):
-                h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h)
+                if layer_idx == num_layers - 1:
+                    exact_pes = h
+                h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
 
             logits = h
-        return logits.to("cpu"), trace.target_labels, None, None, 
-
+        return logits.to("cpu"), trace.target_labels, exact_pes, None, 
 
 def save_figure(output_dir, training_config, thresholds, full_acc, policy_accs):
     title = f"{training_config['graph_name']}, {training_config['num_layers']}-Layer {training_config['gnn'].upper()}"

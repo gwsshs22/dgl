@@ -186,7 +186,8 @@ def main(args):
         args.num_layers,
         gat_heads,
         gcn_norm=args.gcn_norm,
-        dropout=args.dropout).to(device)
+        dropout=args.dropout,
+        gcn2_alpha=args.gcn2_alpha).to(device)
 
     fanouts = [int(f) for f in args.fanouts.split(",")] if args.fanouts else [-1] * args.num_layers
     fanouts = [-1 if f == 0 else f for f in fanouts]
@@ -234,6 +235,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--gnn', type=str, required=True)
     parser.add_argument('--dropout', type=float, default=0.5)
+    parser.add_argument('--gcn2_alpha', type=float, default=0.5)
     parser.add_argument('--num_hiddens', type=int, required=True)
     parser.add_argument('--num_layers', type=int, required=True)
     parser.add_argument('--gat_heads', type=str)

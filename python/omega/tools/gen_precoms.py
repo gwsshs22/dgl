@@ -45,8 +45,10 @@ def main(args):
     pes = []
 
     with torch.no_grad():
+        h0 = model.feature_preprocess(h)
+        h = h0
         for layer_idx in range(num_layers):
-            h = model.layer_foward(layer_idx, g, h)
+            h = model.layer_foward(layer_idx, g, h, h0)
 
             if layer_idx != num_layers - 1:
                 pes.append(h)

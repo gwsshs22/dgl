@@ -24,6 +24,9 @@ class GCN(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.activation = activation
 
+    def feature_preprocess(self, x):
+        return x
+
     def forward(self, blocks, x):
         h = x
         for i, (layer, block) in enumerate(zip(self.layers, blocks)):
@@ -33,7 +36,7 @@ class GCN(nn.Module):
                 h = self.dropout(h)
         return h
 
-    def layer_foward(self, layer_idx, block, inputs):
+    def layer_foward(self, layer_idx, block, inputs, h0=None):
         h = self.layers[layer_idx](block, inputs)
         if layer_idx != len(self.layers) - 1:
             h = self.activation(h)
@@ -106,6 +109,9 @@ class SAGE(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.activation = activation
 
+    def feature_preprocess(self, x):
+        return x
+
     def forward(self, blocks, x):
         h = x
         for i, (layer, block) in enumerate(zip(self.layers, blocks)):
@@ -115,7 +121,7 @@ class SAGE(nn.Module):
                 h = self.dropout(h)
         return h
 
-    def layer_foward(self, layer_idx, block, inputs):
+    def layer_foward(self, layer_idx, block, inputs, h0=None):
         h = self.layers[layer_idx](block, inputs)
         if layer_idx != len(self.layers) - 1:
             h = self.activation(h)
@@ -158,6 +164,9 @@ class GAT(nn.Module):
         self.gat_layers.append(create_layer(hid_size, out_size, heads[-1], res=True, act=None))
         self.dropout = nn.Dropout(dropout)
 
+    def feature_preprocess(self, x):
+        return x
+
     def forward(self, blocks, inputs):
         h = inputs
         for i, layer in enumerate(self.gat_layers):
@@ -169,7 +178,7 @@ class GAT(nn.Module):
                 h = self.dropout(h)
         return h
 
-    def layer_foward(self, layer_idx, block, inputs):
+    def layer_foward(self, layer_idx, block, inputs, h0=None):
         h = self.gat_layers[layer_idx](block, inputs)
         if layer_idx == self.num_layers - 1:  # last layer 
             h = h.mean(1)
@@ -178,11 +187,11 @@ class GAT(nn.Module):
             h = self.dropout(h)
         return h
 
-def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='right', dropout=0.0):
+def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='right', gcn2_alpha=0.5, dropout=0.0):
     if gnn == "gcn":
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
     elif gnn == "gcn2":
-        model = GCN2(num_inputs, num_hiddens, num_classes, num_layers)
+        model = GCN2(num_inputs, num_hiddens, num_classes, num_layers, alpha=gcn2_alpha)
     elif gnn == "sage":
         model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr='mean')
     elif gnn == "gat" or gnn == "gatv2":

@@ -167,25 +167,42 @@ class GAT(nn.Module):
     def feature_preprocess(self, x):
         return x
 
-    def forward(self, blocks, inputs):
+    def forward(self, blocks, inputs, get_attention=False):
+        attns = []
         h = inputs
         for i, layer in enumerate(self.gat_layers):
-            h = layer(blocks[i], h)
+            if get_attention:
+                h, attn = layer(blocks[i], h, get_attention=True)
+                attns.append(attn)
+            else:
+                h = layer(blocks[i], h)
+
             if i == self.num_layers - 1:  # last layer 
                 h = h.mean(1)
             else:       # other layer(s)
                 h = h.flatten(1)
                 h = self.dropout(h)
-        return h
 
-    def layer_foward(self, layer_idx, block, inputs, h0=None):
-        h = self.gat_layers[layer_idx](block, inputs)
+        if get_attention:
+            return h, attns
+        else:
+            return h
+
+    def layer_foward(self, layer_idx, block, inputs, h0=None, get_attention=False):
+        if get_attention:
+            h, attn = self.gat_layers[layer_idx](block, inputs, get_attention=True)
+        else:
+            h = self.gat_layers[layer_idx](block, inputs)
         if layer_idx == self.num_layers - 1:  # last layer 
             h = h.mean(1)
         else:       # other layer(s)
             h = h.flatten(1)
             h = self.dropout(h)
-        return h
+        
+        if get_attention:
+            return h, attn
+        else:
+            return h
 
 def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='right', gcn2_alpha=0.5, dropout=0.0):
     if gnn == "gcn":

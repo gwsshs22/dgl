@@ -81,6 +81,7 @@ def saint_preprocess(args, train_g, device, num_roots, walk_length, max_iter=500
     return N, loss_norm, aggr_norm, subg_node_ids
 
 def do_training(args, g, model, device, dataset_config, result_dir, val_every, fanouts):
+    use_gcn_both_norm = (args.gnn == "gcn" or args.gnn == "gcn2") and args.gcn_norm == "both"
     model_path = result_dir / "model.pt"
 
     best_val_f1 = -1
@@ -168,6 +169,7 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
         raise NotImplementedError()
     else:
         assert args.sampling_method == "ns"
+        assert args.gnn == "gat" or args.gnn == "sage"
         # Train with neighborhood sampling
         train_loader = dgl.dataloading.DataLoader(
             train_g,
@@ -205,7 +207,7 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
         torch.cuda.empty_cache()
 
         if (epoch + 1) % val_every == 0:
-            val_f1_mic, val_f1_mac, _ = evaluate(model, train_g, device, train_g.ndata["val_mask"], num_layers, multilabel, False)
+            val_f1_mic, val_f1_mac, _ = evaluate(model, train_g, device, train_g.ndata["val_mask"], num_layers, multilabel, False, use_gcn_both_norm)
             print(f"Epoch {epoch:05d} | Loss {loss:.4f} | Val F1_mic {val_f1_mic:.4f} | Val F1_mac {val_f1_mac:.4f}")
             if val_f1_mic > best_val_f1:
                 best_val_f1 = val_f1_mic
@@ -225,11 +227,11 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
     torch.cuda.empty_cache()
 
     model.load_state_dict(torch.load(model_path))
-    f1_mic, f1_mac, test_logits = evaluate(model, g, device, g.ndata["test_mask"], num_layers, multilabel, large_graph)
+    f1_mic, f1_mac, test_logits = evaluate(model, g, device, g.ndata["test_mask"], num_layers, multilabel, large_graph, use_gcn_both_norm)
     print(f"Test F1_mic {f1_mic:.4f} | Test F1_mac {f1_mac:.4f}")
     return f1_mic, epoch, test_logits
 
-def evaluate(model, g, device, mask, num_layers, multilabel, large_graph):
+def evaluate(model, g, device, mask, num_layers, multilabel, large_graph, use_gcn_both_norm):
     with torch.no_grad():
         mask = mask.type(torch.bool)
         model.eval()
@@ -241,8 +243,11 @@ def evaluate(model, g, device, mask, num_layers, multilabel, large_graph):
             for _ in range(num_layers):
                 f = dgl.sampling.sample_neighbors(g, seeds, -1)
                 block = dgl.to_block(f, seeds)
+
                 blocks.insert(0, block)
                 seeds = block.srcdata[dgl.NID]
+                if use_gcn_both_norm:
+                    block.set_out_degrees(g.out_degrees(seeds))
 
             h = model.feature_preprocess(
                 g.ndata["features"][blocks[0].srcdata[dgl.NID]].to(device))

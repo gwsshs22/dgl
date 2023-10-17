@@ -50,17 +50,17 @@ class GCN(nn.Module):
 
 class GCN2(nn.Module):
     def __init__(
-        self, in_feats, n_hidden, n_classes, n_layers, activation=F.relu, alpha=0.5, lamb=1.0):
+        self, in_feats, n_hidden, n_classes, n_layers, gcn_norm='right', activation=F.relu, alpha=0.5, lamb=1.0):
         super().__init__()
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_classes = n_classes
         self.fc1 = nn.Linear(in_feats, n_hidden)
         self.layers = nn.ModuleList()
-        self.layers.append(dglnn.GCN2Conv(n_hidden, 1, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True))
+        self.layers.append(dglnn.GCN2Conv(n_hidden, 1, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True, norm=gcn_norm))
         for i in range(1, n_layers - 1):
-            self.layers.append(dglnn.GCN2Conv(n_hidden, i + 1, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True))
-        self.layers.append(dglnn.GCN2Conv(n_hidden, n_layers, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True))
+            self.layers.append(dglnn.GCN2Conv(n_hidden, i + 1, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True, norm=gcn_norm))
+        self.layers.append(dglnn.GCN2Conv(n_hidden, n_layers, alpha=alpha, lambda_=lamb, allow_zero_in_degree=True, norm=gcn_norm))
         self.fc2 = nn.Linear(n_hidden, n_classes)
         self.dropout = nn.Dropout(0.2)
         self.activation = activation
@@ -212,7 +212,7 @@ def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_head
     if gnn == "gcn":
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
     elif gnn == "gcn2":
-        model = GCN2(num_inputs, num_hiddens, num_classes, num_layers, alpha=gcn2_alpha)
+        model = GCN2(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, alpha=gcn2_alpha)
     elif gnn == "sage":
         model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr='mean')
     elif gnn == "gat" or gnn == "gatv2":

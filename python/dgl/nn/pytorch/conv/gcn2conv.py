@@ -114,9 +114,11 @@ class GCN2Conv(nn.Module):
         allow_zero_in_degree=False,
         bias=True,
         activation=None,
+        norm='both' # right or both
     ):
         super().__init__()
 
+        self._norm = norm
         self._in_feats = in_feats
         self._project_initial_features = project_initial_features
 
@@ -215,6 +217,7 @@ class GCN2Conv(nn.Module):
           the same shape as the input.
         * Weight shape: :math:`(\text{in_feats}, \text{out_feats})`.
         """
+        assert edge_weight is None
         with graph.local_scope():
             if not self._allow_zero_in_degree:
                 if (graph.in_degrees() == 0).any():
@@ -231,22 +234,27 @@ class GCN2Conv(nn.Module):
                     )
 
             # normalize  to get smoothed representation
-            if edge_weight is None:
-                degs = graph.in_degrees().to(feat).clamp(min=1)
-                norm = th.pow(degs, -1)
+
+            if self._norm == "both":
+                degs = graph.out_degrees().to(feat).clamp(min=1)
+                norm = th.pow(degs, -0.5)
                 norm = norm.to(feat.device).unsqueeze(1)
-            else:
-                edge_weight = EdgeWeightNorm("both")(graph, edge_weight)
+
+                feat = feat * norm
 
             graph.srcdata["h"] = feat
             msg_func = fn.copy_u("h", "m")
-            if edge_weight is not None:
-                graph.edata["_edge_weight"] = edge_weight
-                msg_func = fn.u_mul_e("h", "_edge_weight", "m")
             graph.update_all(msg_func, fn.sum("m", "rst"))
             feat = graph.dstdata.pop("rst")
-            if edge_weight is None:
-                feat = feat * norm
+
+            degs = graph.in_degrees().to(feat).clamp(min=1)
+            if self._norm == "both":
+                norm = th.pow(degs, -0.5)
+            else:
+                norm = th.pow(degs, -1)
+            norm = norm.to(feat.device).unsqueeze(1)
+
+            feat = feat * norm
             # scale
             feat = feat * (1 - self.alpha)
 

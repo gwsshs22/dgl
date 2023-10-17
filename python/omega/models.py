@@ -90,6 +90,7 @@ class GCN2(nn.Module):
 
     def layer_foward(self, layer_idx, block, inputs, h0):
         h = self.layers[layer_idx](block, inputs, h0)
+        h += inputs[:h.shape[0]]
         h = self.activation(h)
         h = self.dropout(h)
 

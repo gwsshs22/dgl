@@ -164,7 +164,7 @@ def cal_labels(y_pred, multilabel):
     if multilabel:
         y_pred[y_pred > 0] = 1
         y_pred[y_pred <= 0] = 0
-        return y_pred.type(torch.bool)
+        return y_pred
     else:
         y_pred = np.argmax(y_pred, axis=1)
         return y_pred

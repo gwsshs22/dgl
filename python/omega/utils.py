@@ -27,20 +27,35 @@ class DatasetConfig:
     num_inputs: int
     multilabel: bool
     inductive: bool
+    large: bool
 
 dataset_configs = {
-    "reddit": DatasetConfig("reddit", 41, 602, False, True),
-    "ogbn-products": DatasetConfig("ogbn-products", 47, 100, False, False),
-    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128, False, False),
-    "flickr": DatasetConfig("flickr", 7, 500, False, True),
-    "yelp": DatasetConfig("yelp", 100, 300, True, True),
-    "amazon": DatasetConfig("amazon", 107, 200, True, True),
-    "fb5b": DatasetConfig("fb5b", 128, 16, False, False),
-    "fb10b": DatasetConfig("fb10b", 128, 16, False, False),
+    "reddit": DatasetConfig("reddit", 41, 602, False, True, False),
+    "ogbn-products": DatasetConfig("ogbn-products", 47, 100, False, False, False),
+    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128, False, False, True),
+    "flickr": DatasetConfig("flickr", 7, 500, False, True, False),
+    "yelp": DatasetConfig("yelp", 100, 300, True, True, False),
+    "amazon": DatasetConfig("amazon", 107, 200, True, True, False),
+    "fb5b": DatasetConfig("fb5b", 128, 16, False, False, True),
+    "fb10b": DatasetConfig("fb10b", 128, 16, False, False, True),
 }
 
 def get_dataset_config(graph_name):
     return dataset_configs[graph_name]
+
+def get_graph_data_root(graph_name, ogbn_data_root=None, saint_data_root=None):
+    if graph_name == "ogb-product" or graph_name == "ogbn-products":
+        p = Path(ogbn_data_root) / "ogbn_products"
+    elif graph_name == "ogb-papers100M" or graph_name == "ogbn-papers100M":
+        p = Path(ogbn_data_root) / "ogbn_papers100M"
+    elif graph_name == "amazon" or graph_name == "flickr" or graph_name == "yelp" or graph_name == "reddit":
+        p = Path(saint_data_root) / graph_name
+    else:
+        # TODO(gwkim): add other datasets
+        raise f"{graph_name} is not supported yet."
+
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None):
     if graph_name == "reddit":
@@ -53,8 +68,8 @@ def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None):
         return load_ogbs(ogbn_data_root, "ogbn-products")
     elif graph_name == "ogb-papers100M" or graph_name == "ogbn-papers100M":
         return load_ogbs(ogbn_data_root, "ogbn-papers100M")
-    elif graph_name == "amazon" or graph_name == "flickr" or graph_name == "yelp":
-        multilabel = graph_name != "flickr"
+    elif graph_name == "amazon" or graph_name == "flickr" or graph_name == "yelp" or graph_name == "reddit":
+        multilabel = graph_name != "flickr" and graph_name != "reddit"
         return load_saint(saint_data_root, graph_name, multilabel)
     else:
         # TODO(gwkim): add other datasets
@@ -142,16 +157,20 @@ def load_saint(saint_data_root, graph_name, multilabel):
     dgl.save_graphs(dgl_graph_path, [g])
     return g
 
-def cal_metrics(y_true, y_pred, multilabel):
+def cal_labels(y_pred, multilabel):
     if multilabel:
         y_pred[y_pred > 0] = 1
         y_pred[y_pred <= 0] = 0
-        return f1_score(y_true, y_pred, average="micro"), \
-            f1_score(y_true, y_pred, average="macro")
+        return y_pred.type(torch.bool)
     else:
         y_pred = np.argmax(y_pred, axis=1)
-        return f1_score(y_true, y_pred, average="micro"), \
-            f1_score(y_true, y_pred, average="macro")
+        return y_pred
+
+def cal_metrics(y_true, y_pred, multilabel):
+    y_pred = cal_labels(y_pred, multilabel)
+    return f1_score(y_true, y_pred, average="micro"), \
+        f1_score(y_true, y_pred, average="macro")
+
 
 
 @dataclass(frozen=True)

@@ -27,10 +27,14 @@ class GCN(nn.Module):
     def feature_preprocess(self, x):
         return x
 
-    def forward(self, blocks, x):
+    def forward(self, blocks, x, saint_normalize=False):
         h = x
         for i, (layer, block) in enumerate(zip(self.layers, blocks)):
-            h = layer(block, h)
+            if saint_normalize:
+                h = layer(block, h, edge_weight=block.edata["a_n"])
+            else:
+                h = layer(block, h)
+            
             if i != len(self.layers) - 1:
                 h = self.activation(h)
                 h = self.dropout(h)
@@ -71,7 +75,7 @@ class GCN2(nn.Module):
         x = self.dropout(x)
         return self.activation(self.fc1(x))
 
-    def forward(self, blocks, x):
+    def forward(self, blocks, x, saint_normalize=False):
         h0 = self.feature_preprocess(x)
 
         h = h0

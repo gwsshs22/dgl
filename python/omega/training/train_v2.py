@@ -93,16 +93,12 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     if large_graph:
-        train_nids = torch.logical_or(
-            g.ndata["train_mask"].type(torch.bool),
-            g.ndata["val_mask"].type(torch.bool)).nonzero().reshape(-1)
+        train_nids = g.ndata["train_mask"].type(torch.bool).nonzero().reshape(-1)
         train_g = g.subgraph(train_nids)
         train_g = train_g.to(device)
     else:
         g = g.to(device)
-        train_nids = torch.logical_or(
-            g.ndata["train_mask"].type(torch.bool),
-            g.ndata["val_mask"].type(torch.bool)).nonzero().reshape(-1)
+        train_nids = g.ndata["train_mask"].type(torch.bool).nonzero().reshape(-1)
         train_g = g.subgraph(train_nids)
 
     if args.sampling_method == "full":
@@ -110,15 +106,10 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
             loss_fn = torch.nn.BCEWithLogitsLoss()
         else:
             loss_fn = torch.nn.CrossEntropyLoss()
-        
-        train_mask = train_g.ndata["train_mask"].type(torch.bool)
 
         def run_epoch():
             logits = model([train_g] * args.num_layers, train_g.ndata["features"])
-            labels = train_g.ndata["labels"]
-
-            logits = logits[train_mask]
-            labels = labels[train_mask].type(torch.int64)
+            labels = train_g.ndata["labels"].type(torch.int64)
 
             loss = loss_fn(logits, labels)
 
@@ -196,6 +187,23 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
                 optimizer.step()
             return loss.item()
 
+
+    if large_graph:
+        val_nids = g.ndata["val_mask"].type(torch.bool).nonzero().reshape(-1)
+
+        val_blocks = []
+        seeds = val_nids
+        for _ in range(num_layers):
+            f = dgl.sampling.sample_neighbors(g, seeds, -1)
+            val_block = dgl.to_block(f, seeds)
+
+            val_blocks.insert(0, val_block)
+            seeds = val_block.srcdata[dgl.NID]
+            if use_gcn_both_norm:
+                val_block.set_out_degrees(g.out_degrees(seeds))
+    else:
+        val_blocks = None
+
     patience = args.patience
     for epoch in range(args.num_epochs):
         if patience < 0:
@@ -207,7 +215,7 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
         torch.cuda.empty_cache()
 
         if (epoch + 1) % val_every == 0:
-            val_f1_mic, val_f1_mac, _ = evaluate(model, train_g, device, train_g.ndata["val_mask"], num_layers, multilabel, False, use_gcn_both_norm)
+            val_f1_mic, val_f1_mac, _ = evaluate(model, g, device, g.ndata["val_mask"], num_layers, multilabel, large_graph, use_gcn_both_norm, blocks=val_blocks)
             print(f"Epoch {epoch:05d} | Loss {loss:.4f} | Val F1_mic {val_f1_mic:.4f} | Val F1_mac {val_f1_mac:.4f}")
             if val_f1_mic > best_val_f1:
                 best_val_f1 = val_f1_mic
@@ -231,23 +239,26 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
     print(f"Test F1_mic {f1_mic:.4f} | Test F1_mac {f1_mac:.4f}")
     return f1_mic, epoch, test_logits
 
-def evaluate(model, g, device, mask, num_layers, multilabel, large_graph, use_gcn_both_norm):
+def evaluate(model, g, device, mask, num_layers, multilabel, large_graph, use_gcn_both_norm, blocks=None):
     with torch.no_grad():
         mask = mask.type(torch.bool)
         model.eval()
         if large_graph:
-            evaluate_nids = mask.type(torch.bool).nonzero().reshape(-1)
+            if blocks is None:
+                evaluate_nids = mask.type(torch.bool).nonzero().reshape(-1)
 
-            blocks = []
-            seeds = evaluate_nids
-            for _ in range(num_layers):
-                f = dgl.sampling.sample_neighbors(g, seeds, -1)
-                block = dgl.to_block(f, seeds)
+                blocks = []
+                seeds = evaluate_nids
+                for _ in range(num_layers):
+                    f = dgl.sampling.sample_neighbors(g, seeds, -1)
+                    block = dgl.to_block(f, seeds)
 
-                blocks.insert(0, block)
-                seeds = block.srcdata[dgl.NID]
-                if use_gcn_both_norm:
-                    block.set_out_degrees(g.out_degrees(seeds))
+                    blocks.insert(0, block)
+                    seeds = block.srcdata[dgl.NID]
+                    if use_gcn_both_norm:
+                        block.set_out_degrees(g.out_degrees(seeds))
+
+            assert(len(blocks) == num_layers)
 
             h = model.feature_preprocess(
                 g.ndata["features"][blocks[0].srcdata[dgl.NID]].to(device))
@@ -264,7 +275,7 @@ def evaluate(model, g, device, mask, num_layers, multilabel, large_graph, use_gc
             labels = g.ndata["labels"]
 
             logits = logits[mask].to("cpu")
-            labels = labels[mask].to("cpu")
+            labels = labels[mask].to("cpu").type(torch.int64)
 
             predicted_labels = cal_labels(logits.cpu().numpy(), multilabel)
             return f1_score(labels.numpy(), predicted_labels, average="micro"), f1_score(labels.numpy(), predicted_labels, average="macro"), torch.tensor(predicted_labels)

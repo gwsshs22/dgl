@@ -109,7 +109,7 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
 
         def run_epoch():
             logits = model([train_g] * args.num_layers, train_g.ndata["features"])
-            labels = train_g.ndata["labels"].type(torch.int64)
+            labels = train_g.ndata["labels"]
 
             loss = loss_fn(logits, labels)
 
@@ -134,7 +134,7 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
             subg = train_g.subgraph(root_nids.to(device), relabel_nodes=True)
 
             logits = model([subg] * num_layers, subg.ndata["features"], saint_normalize=True)
-            labels = subg.ndata["labels"].type(torch.int64)
+            labels = subg.ndata["labels"]
 
             if dataset_config.multilabel:
                 loss = F.binary_cross_entropy_with_logits(
@@ -180,7 +180,7 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
             for input_nids, seeds, blocks in train_loader:
                 input_features = train_g.ndata["features"][input_nids]
                 logits = model(blocks, input_features)
-                labels = train_g.ndata["labels"][seeds].to(torch.int64)
+                labels = train_g.ndata["labels"][seeds]
                 loss = loss_fn(logits, labels)
                 optimizer.zero_grad()
                 loss.backward()
@@ -266,7 +266,7 @@ def evaluate(model, g, device, mask, num_layers, multilabel, large_graph, use_gc
             for layer_idx, block in enumerate(blocks):
                 h = model.layer_foward(layer_idx, block.to(device), h, h0)
             logits = h.to("cpu")
-            labels = g.ndata["labels"][mask].type(torch.int64).to("cpu")
+            labels = g.ndata["labels"][mask].to("cpu")
 
             predicted_labels = cal_labels(logits.cpu().numpy(), multilabel)
             return f1_score(labels.numpy(), predicted_labels, average="micro"), f1_score(labels.numpy(), predicted_labels, average="macro"), torch.tensor(predicted_labels)
@@ -275,7 +275,7 @@ def evaluate(model, g, device, mask, num_layers, multilabel, large_graph, use_gc
             labels = g.ndata["labels"]
 
             logits = logits[mask].to("cpu")
-            labels = labels[mask].to("cpu").type(torch.int64)
+            labels = labels[mask].to("cpu")
 
             predicted_labels = cal_labels(logits.cpu().numpy(), multilabel)
             return f1_score(labels.numpy(), predicted_labels, average="micro"), f1_score(labels.numpy(), predicted_labels, average="macro"), torch.tensor(predicted_labels)

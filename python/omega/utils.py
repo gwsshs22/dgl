@@ -84,7 +84,7 @@ def load_ogbs(ogbn_data_root, graph_name):
     g, labels = data[0]
     labels = labels[:, 0]
 
-    g.ndata["labels"] = labels
+    g.ndata["labels"] = labels.type(torch.int64)
     g.ndata["features"] = g.ndata.pop("feat")
     train_nid, val_nid, test_nid = (
         splitted_idx["train"],

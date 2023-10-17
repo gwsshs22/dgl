@@ -6182,6 +6182,17 @@ class DGLBlock(DGLGraph):
         else:
             return out_degs
 
+    def to(self, device, **kwargs):
+        if device is None or self.device == device:
+            return self
+
+        moved = super(DGLBlock, self).to(device, **kwargs)
+        out_degs = getattr(self, "__out_degrees", None)
+        if out_degs is not None:
+            moved.set_out_degrees(out_degs.to(device))
+
+        return moved
+
     def __repr__(self):
         if len(self.srctypes) == 1 and len(self.dsttypes) == 1 and len(self.etypes) == 1:
             ret = 'Block(num_src_nodes={srcnode}, num_dst_nodes={dstnode}, num_edges={edge})'

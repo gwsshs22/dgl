@@ -104,7 +104,7 @@ python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GN
   --local_rank $LOCAL_RANK
 
 GNN=gat
-PYTORCH_NO_CUDA_MEMORY_CACHING=1 python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_3_lr_${LR}_do_${DROPOUT} --lr $LR \
+python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_3_lr_${LR}_do_${DROPOUT} --lr $LR \
   --graph_name $GRAPH_NAME --num_epochs 10000 \
   --saint_data_root $DGL_RAW_DATA_HOME/saint_datasets \
   --ogbn_data_root $DGL_RAW_DATA_HOME/ogbn_datasets \
@@ -117,7 +117,7 @@ PYTORCH_NO_CUDA_MEMORY_CACHING=1 python -m omega.training.train_v2 --result_dir 
   --dropout $DROPOUT \
   --local_rank $LOCAL_RANK
 
-PYTORCH_NO_CUDA_MEMORY_CACHING=1 python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_2_lr_${LR}_do_${DROPOUT} --lr $LR \
+python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_2_lr_${LR}_do_${DROPOUT} --lr $LR \
   --graph_name $GRAPH_NAME --num_epochs 10000 \
   --saint_data_root $DGL_RAW_DATA_HOME/saint_datasets \
   --ogbn_data_root $DGL_RAW_DATA_HOME/ogbn_datasets \

@@ -25,7 +25,7 @@ fi
 echo $GRAPH_NAME $HIDDEN_DIMS $DROPOUT $LR
 
 GNN=gcn2
-python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_6_lr_${LR}_do_${DROPOUT}_norm_both --lr $LR \
+PYTORCH_NO_CUDA_MEMORY_CACHING=1 python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_6_lr_${LR}_do_${DROPOUT}_norm_both --lr $LR \
   --graph_name $GRAPH_NAME --num_epochs 10000 \
   --saint_data_root $DGL_RAW_DATA_HOME/saint_datasets \
   --ogbn_data_root $DGL_RAW_DATA_HOME/ogbn_datasets \
@@ -38,7 +38,7 @@ python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GN
   --dropout $DROPOUT \
   --local_rank $LOCAL_RANK
 
-python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_6_lr_${LR}_do_${DROPOUT}_norm_right --lr $LR \
+PYTORCH_NO_CUDA_MEMORY_CACHING=1 python -m omega.training.train_v2 --result_dir $RESULT_ROOT_DIR/$GRAPH_NAME/${GNN}/nl_6_lr_${LR}_do_${DROPOUT}_norm_right --lr $LR \
   --graph_name $GRAPH_NAME --num_epochs 10000 \
   --saint_data_root $DGL_RAW_DATA_HOME/saint_datasets \
   --ogbn_data_root $DGL_RAW_DATA_HOME/ogbn_datasets \

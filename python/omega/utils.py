@@ -57,23 +57,26 @@ def get_graph_data_root(graph_name, ogbn_data_root=None, saint_data_root=None):
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None):
+def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None, add_self_loop=True):
     if graph_name == "reddit":
-        g = RedditDataset(self_loop=True)[0]
+        g = RedditDataset()[0]
         g.ndata["labels"] = g.ndata.pop("label")
         g.ndata["features"] = g.ndata.pop("feat")
         g.edata.pop("__orig__")
-        return  g
     elif graph_name == "ogb-product" or graph_name == "ogbn-products":
-        return load_ogbs(ogbn_data_root, "ogbn-products")
+        g = load_ogbs(ogbn_data_root, "ogbn-products")
     elif graph_name == "ogb-papers100M" or graph_name == "ogbn-papers100M":
-        return load_ogbs(ogbn_data_root, "ogbn-papers100M")
+        g = load_ogbs(ogbn_data_root, "ogbn-papers100M")
     elif graph_name == "amazon" or graph_name == "flickr" or graph_name == "yelp" or graph_name == "reddit":
         multilabel = graph_name != "flickr" and graph_name != "reddit"
-        return load_saint(saint_data_root, graph_name, multilabel)
+        g = load_saint(saint_data_root, graph_name, multilabel)
     else:
         # TODO(gwkim): add other datasets
         raise f"{graph_name} is not supported yet."
+
+    if add_self_loop:
+        g = g.remove_self_loop().add_self_loop()
+    return g
 
 def load_ogbs(ogbn_data_root, graph_name):
     data = DglNodePropPredDataset(name=graph_name, root=ogbn_data_root)

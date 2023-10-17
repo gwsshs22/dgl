@@ -309,9 +309,7 @@ def main(args):
     result_dir.mkdir(parents=True, exist_ok=True)
 
     val_every = args.val_every if args.val_every else 1
-    if args.gnn == "gcn" or args.gnn == "gcn2":
-        g = g.remove_self_loop().add_self_loop()
-    
+
     fanouts = None
     if args.sampling_method == "full":
         val_every = args.val_every if args.val_every else 10

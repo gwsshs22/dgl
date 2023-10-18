@@ -173,7 +173,7 @@ class GCN2Conv(nn.Module):
         """
         self._allow_zero_in_degree = set_value
 
-    def forward(self, graph, feat, feat_0, edge_weight=None):
+    def forward(self, graph, feat, feat_0, edge_weight=None, saint_normalize=False):
         r"""
 
         Description
@@ -243,7 +243,11 @@ class GCN2Conv(nn.Module):
                 feat = feat * norm
 
             graph.srcdata["h"] = feat
-            msg_func = fn.copy_u("h", "m")
+
+            if saint_normalize:
+                msg_func = fn.u_mul_e('h', 'a_n', 'm')
+            else:
+                msg_func = fn.copy_u("h", "m")
             graph.update_all(msg_func, fn.sum("m", "rst"))
             feat = graph.dstdata.pop("rst")
 

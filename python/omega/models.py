@@ -81,7 +81,7 @@ class GCN2(nn.Module):
         h = h0
         for i, (layer, block) in enumerate(zip(self.layers, blocks)):
             identity = h
-            h = layer(block, h, h0)
+            h = layer(block, h, h0, saint_normalize=saint_normalize)
             h += identity
             h = self.activation(h)
             h = self.dropout(h)

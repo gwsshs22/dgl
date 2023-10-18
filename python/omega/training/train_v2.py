@@ -87,19 +87,27 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
     best_val_f1 = -1
 
     large_graph = dataset_config.large
+    inductive = args.force_inductive or dataset_config.inductive
     num_layers = args.num_layers
     multilabel = dataset_config.multilabel
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     if large_graph:
-        train_nids = g.ndata["train_mask"].type(torch.bool).nonzero().reshape(-1)
-        train_g = g.subgraph(train_nids)
-        train_g = train_g.to(device)
+        if inductive:
+            train_nids = g.ndata["train_mask"].type(torch.bool).nonzero().reshape(-1)
+            train_g = g.subgraph(train_nids)
+            train_g = train_g.to(device)
+        else:
+            train_g = g
     else:
         g = g.to(device)
-        train_nids = g.ndata["train_mask"].type(torch.bool).nonzero().reshape(-1)
-        train_g = g.subgraph(train_nids)
+        
+        if inductive:
+            train_nids = g.ndata["train_mask"].type(torch.bool).nonzero().reshape(-1)
+            train_g = g.subgraph(train_nids)
+        else:
+            train_g = g
 
     if args.sampling_method == "full":
         if dataset_config.multilabel:
@@ -107,9 +115,14 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
         else:
             loss_fn = torch.nn.CrossEntropyLoss()
 
+        train_mask = train_g.ndata["train_mask"].to(device)
         def run_epoch():
             logits = model([train_g] * args.num_layers, train_g.ndata["features"])
             labels = train_g.ndata["labels"]
+
+            if not inductive:
+                logits = logits[train_mask]
+                labels = labels[train_mask]
 
             loss = loss_fn(logits, labels)
 
@@ -118,18 +131,115 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
             optimizer.step()
             return loss.item()
 
+    elif args.sampling_method == "ns":
+        # Train with neighborhood sampling
+
+        # train_mask = train_g.ndata["train_mask"]
+        # train_g_device = train_mask.device
+        # train_loader = torch.utils.data.DataLoader(
+        #     torch.masked_select(torch.arange(train_mask.shape[0]), train_mask),
+        #     batch_size=args.batch_size,
+        #     shuffle=True,
+        #     drop_last=False)
+
+        train_loader = dgl.dataloading.DataLoader(
+            train_g,
+            train_g.ndata["train_mask"].nonzero().reshape(-1),
+            dgl.dataloading.MultiLayerNeighborSampler(fanouts),
+            batch_size=args.batch_size,
+            shuffle=True,
+            drop_last=False
+        )
+
+        if dataset_config.multilabel:
+            loss_fn = torch.nn.BCEWithLogitsLoss()
+        else:
+            loss_fn = torch.nn.CrossEntropyLoss()
+
+        # def run_epoch():
+
+        #     for batch_id, seeds in enumerate(train_loader):
+        #         s = seeds
+        #         blocks = []
+
+        #         if large_graph:
+        #             gc.collect()
+        #             torch.cuda.empty_cache()
+
+        #         for fanout in fanouts:
+        #             f = dgl.sampling.sample_neighbors(train_g, s, fanout)
+        #             f = f.to(device)
+        #             block = dgl.to_block(f, s)
+        #             s = block.srcdata[dgl.NID]
+        #             s = s.to(train_g_device)
+
+        #             if use_gcn_both_norm:
+        #                 block.set_out_degrees(train_g.out_degrees(s).to(device))
+                    
+        #             blocks.insert(0, block)
+
+        #         input_features = train_g.ndata["features"][blocks[0].srcdata[dgl.NID].to(train_g_device)]
+
+        #         print(f"({batch_id}/{len(train_loader)}){blocks}", file=sys.stderr)
+        #         input_features = input_features.to(device)
+
+        #         h = model.feature_preprocess(input_features)
+        #         h0 = h
+        #         for layer_idx, block in enumerate(blocks):
+        #             h = model.layer_foward(layer_idx, block.to(device), h, h0)
+        #         logits = h
+
+        #         labels = train_g.ndata["labels"][seeds].to(device)
+
+        #         loss = loss_fn(logits, labels)
+        #         optimizer.zero_grad()
+        #         loss.backward()
+        #         optimizer.step()
+
+        #     return loss.item()
+
+        def run_epoch():
+            for input_nids, seeds, blocks in train_loader:
+                input_features = train_g.ndata["features"][input_nids]
+
+                if use_gcn_both_norm:
+                    for b in blocks:
+                        b.set_out_degrees(train_g.out_degrees(b.srcdata[dgl.NID]))
+
+                input_features = input_features.to(device)
+
+                h = model.feature_preprocess(input_features)
+                h0 = h
+                for layer_idx, block in enumerate(blocks):
+                    h = model.layer_foward(layer_idx, block.to(device), h, h0)
+                logits = h
+
+                labels = train_g.ndata["labels"][seeds].to(device)
+
+                loss = loss_fn(logits, labels)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+            return loss.item()
     elif args.sampling_method == "saint" and args.use_saint_norm:
         # Train with GraphSAINT-based subgraph sampling with normalization
         assert args.num_roots is not None
         num_roots = args.num_roots
-        walk_length = args.walk_length if args.walk_length is None else num_layers
+        walk_length = args.walk_length if args.walk_length is not None else num_layers
         N, loss_norm, aggr_norm, subg_node_ids = saint_preprocess(args, train_g, device, num_roots, walk_length)
         train_g.ndata["l_n"] = loss_norm.to(device)
         train_g.edata["a_n"] = aggr_norm.to(device)
 
+
+        subg_idx = 0
+        holder = [subg_idx]
         def run_epoch():
-            random.shuffle(subg_node_ids)
-            root_nids = subg_node_ids[0].to(device)
+            root_nids = subg_node_ids[holder[0]].to(device)
+            holder[0] += 1
+            if holder[0] == len(subg_node_ids):
+                random.shuffle(subg_node_ids)
+                holder[0] = 0
 
             subg = train_g.subgraph(root_nids.to(device), relabel_nodes=True)
 
@@ -154,22 +264,15 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
             return loss.item()
     elif args.sampling_method == "saint" and not args.use_saint_norm:
         # Train with GraphSAINT-based subgraph sampling without normalization
-        assert args.num_roots is not None
-        num_roots = args.num_roots
-        walk_length = args.walk_length if args.walk_length is None else num_layers
-        raise NotImplementedError()
-    else:
-        assert args.sampling_method == "ns"
-        assert args.gnn == "gat" or args.gnn == "sage"
-        # Train with neighborhood sampling
-        train_loader = dgl.dataloading.DataLoader(
-            train_g,
-            train_g.ndata["train_mask"].nonzero().reshape(-1),
-            dgl.dataloading.MultiLayerNeighborSampler(fanouts),
+        walk_length = args.walk_length if args.walk_length is not None else num_layers
+
+        train_g = train_g.to("cpu")
+        train_mask = train_g.ndata["train_mask"]
+        train_loader = torch.utils.data.DataLoader(
+            torch.masked_select(torch.arange(train_mask.shape[0]), train_mask),
             batch_size=args.batch_size,
             shuffle=True,
-            drop_last=False
-        )
+            drop_last=False)
 
         if dataset_config.multilabel:
             loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -177,16 +280,24 @@ def do_training(args, g, model, device, dataset_config, result_dir, val_every, f
             loss_fn = torch.nn.CrossEntropyLoss()
 
         def run_epoch():
-            for input_nids, seeds, blocks in train_loader:
-                input_features = train_g.ndata["features"][input_nids]
-                logits = model(blocks, input_features)
-                labels = train_g.ndata["labels"][seeds]
+            for root_nids in train_loader:
+                traces, types = dgl.sampling.random_walk(train_g, nodes=root_nids, length=walk_length)
+                sampled_nodes, _, _, _ = dgl.sampling.pack_traces(traces, types)
+
+                subg = train_g.subgraph(sampled_nodes).to(device)
+
+                logits = model([subg] * num_layers, subg.ndata["features"])
+                labels = subg.ndata["labels"]
+
+                logits = logits[subg.ndata["train_mask"]]
+                labels = labels[subg.ndata["train_mask"]]
                 loss = loss_fn(logits, labels)
+
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-            return loss.item()
 
+            return loss
 
     if large_graph:
         val_nids = g.ndata["val_mask"].type(torch.bool).nonzero().reshape(-1)
@@ -316,7 +427,12 @@ def main(args):
     elif args.sampling_method == "ns":
         assert args.fanouts is not None
         fanouts = [int(f) for f in args.fanouts.split(",")] if args.fanouts else [-1] * args.num_layers
-        assert(all([f > 0 for f in fanouts]))
+        fanouts = [f if f != 0 else -1 for f in fanouts]
+        if fanouts[0] == -1:
+            assert(all([f == -1 for f in fanouts]))
+        else:
+            assert(all([f > 0 for f in fanouts]))
+
         assert len(fanouts) == args.num_layers
     elif args.sampling_method == "saint":
         if args.use_saint_norm:
@@ -361,6 +477,7 @@ if __name__ == "__main__":
     parser.add_argument('--gat_heads', type=str)
     parser.add_argument('--gcn_norm', type=str, default='right', choices=['right', 'both'])
     parser.add_argument('--sampling_method', type=str, choices=['full', 'ns', 'saint'])
+    parser.add_argument('--force_inductive', action='store_true')
 
     parser.add_argument('--fanouts', type=str)
 

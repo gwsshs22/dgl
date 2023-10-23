@@ -250,10 +250,13 @@ def load_model_from(training_dir, for_omega=False):
 
     gnn = training_config["gnn"]
     num_layers = training_config["num_layers"]
-    gat_heads = [int(h) for h in training_config["gat_heads"].split(",")]
+    
     if gnn == "gat" or gnn == "gatv2":
+        gat_heads = [int(h) for h in training_config["gat_heads"].split(",")]
         assert all([h > 0 for h in gat_heads])
         assert len(gat_heads) == num_layers
+    else:
+        gat_heads = [8] * num_layers
 
     model = create_model(
         training_config["gnn"],

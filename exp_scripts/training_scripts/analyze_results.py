@@ -82,8 +82,7 @@ def main(args):
         f.write("\n")
 
         for training_config, relative_path, training_result in results:
-            if training_config["gnn"] == "gcn" and training_config["gcn_norm"] == "both":
-                continue
+
             row = ",".join([str(c) for c in [
                 training_result.graph_name,
                 training_result.gnn,

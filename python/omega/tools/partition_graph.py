@@ -68,6 +68,8 @@ def partition_org_graph(args, org_g):
     orig_nids, _ = dgl.distributed.partition_graph(
         org_g, args.dataset, args.num_parts, args.output,
         part_method=args.part_method,
+        include_out_edges=args.include_out_edges,
+        num_hops=1,
         return_mapping=True)
     id_mappings_path = str(Path(args.output) / "id_mappings.dgl")
     id_mappings = dgl.data.load_tensors(id_mappings_path)
@@ -126,6 +128,7 @@ if __name__ == "__main__":
                            help='number of partitions')
     argparser.add_argument('--part_method', type=str, default='random', choices=["random", "metis"],
                            help='the partition method')
+    argparser.add_argument('--include_out_edges', action='store_true')
     argparser.add_argument('--random_seed', type=int, default=412523)
     argparser.add_argument('--output', type=str, default='data',
                            help='Output path of partitioned graph.', required=True)

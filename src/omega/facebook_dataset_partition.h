@@ -17,6 +17,7 @@ void PartitionFacebookDataset(
   const int num_parts,
   const std::string& input_dir,
   const std::vector<std::string>& edge_file_paths,
+  const bool include_out_edges,
   const double infer_prob,
   const int num_omp_threads
 );

@@ -28,6 +28,7 @@ def main(args):
         num_parts,
         str(input_dir),
         [str(p) for p in input_dir.glob("part-m-*")],
+        args.include_out_edges,
         infer_prob,
         args.num_threads
     )
@@ -145,6 +146,7 @@ if __name__ == "__main__":
     argparser.add_argument('--infer_prob', type=float, default=0.01)
     argparser.add_argument('--num_threads', type=int, default=64)
     argparser.add_argument('--feature_dim', type=int, default=16)
+    argparser.add_argument('--include_out_edges', action='store_true')
     argparser.add_argument('--output', type=str, default='data',
                            help='Output path of partitioned graph.', required=True)
 

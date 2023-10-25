@@ -137,7 +137,7 @@ def reshuffle_graph(g, node_part=None):
     return g, node_part.tousertensor()
 
 
-def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
+def partition_graph_with_halo(g, node_part, extra_cached_hops, include_out_edges=False, reshuffle=False):
     """Partition a graph.
 
     Based on the given node assignments for each partition, the function splits
@@ -184,7 +184,7 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
     node_part = utils.toindex(node_part)
     start = time.time()
     subgs = _CAPI_DGLPartitionWithHalo_Hetero(
-        g._graph, node_part.todgltensor(), extra_cached_hops
+        g._graph, node_part.todgltensor(), extra_cached_hops, include_out_edges
     )
     # g is no longer needed. Free memory.
     g = None
@@ -201,7 +201,10 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
         inner_nids = F.nonzero_1d(inner_node)
         # TODO(zhengda) we need to fix utils.toindex() to avoid the dtype cast below.
         inner_nids = F.astype(inner_nids, F.int64)
-        inner_eids = subg.in_edges(inner_nids, form="eid")
+        if include_out_edges:
+            inner_eids = subg.out_edges(inner_nids, form="eid")
+        else:
+            inner_eids = subg.in_edges(inner_nids, form="eid")
         inner_edge = F.scatter_row(
             inner_edge,
             inner_eids,
@@ -237,6 +240,7 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
     for i, subg in enumerate(subgs):
         inner_node = _get_halo_heterosubgraph_inner_node(subg)
         inner_node = F.zerocopy_from_dlpack(inner_node.to_dlpack())
+
         subg = create_subgraph(
             subg, subg.induced_nodes, subg.induced_edges, inner_node
         )
@@ -251,6 +255,7 @@ def partition_graph_with_halo(g, node_part, extra_cached_hops, reshuffle=False):
         else:
             inner_edge = F.ones((subg.number_of_edges(),), F.int8, F.cpu())
         subg.edata["inner_edge"] = inner_edge
+
         subg_dict[i] = subg
     print("Construct subgraphs: {:.3f} seconds".format(time.time() - start))
     if reshuffle:

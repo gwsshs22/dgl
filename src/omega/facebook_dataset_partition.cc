@@ -119,7 +119,8 @@ void SplitEdges(
   const std::string& edge_file_path,
   const int edge_file_idx,
   const int64_t num_edges,
-  const int infer_target_interval) {
+  const int infer_target_interval,
+  const bool include_out_edges) {
 
   auto srcs = aten::NewIdArray(num_edges);
   auto dsts = aten::NewIdArray(num_edges);
@@ -193,7 +194,12 @@ void SplitEdges(
       if (isInferTarget(src_id, infer_target_interval) || isInferTarget(dst_id, infer_target_interval)) {
         p_sum[thread_id + 1][num_parts]++;
       } else {
-        int part_id = hash(dst_id) % num_parts;
+        int part_id;
+        if (include_out_edges) {
+          part_id = hash(src_id) % num_parts;
+        } else {
+          part_id = hash(dst_id) % num_parts;
+        }
         p_sum[thread_id + 1][part_id]++;
       }
     }
@@ -235,7 +241,13 @@ void SplitEdges(
         src_ptrs_in_parts[num_parts][idx] = src_id;
         dst_ptrs_in_parts[num_parts][idx] = dst_id;
       } else {
-        int part_id = hash(dst_id) % num_parts;
+        int part_id;
+        if (include_out_edges) {
+          part_id = hash(src_id) % num_parts;
+        } else {
+          part_id = hash(dst_id) % num_parts;
+        }
+
         int64_t idx = idx_arr[part_id]++;
 
         src_ptrs_in_parts[part_id][idx] = src_id;
@@ -262,7 +274,8 @@ void BuildPartData(
   const int dst_part_id,
   const int num_edge_files,
   const std::string& input_dir,
-  std::vector<std::vector<int64_t>>& new_to_origs
+  std::vector<std::vector<int64_t>>& new_to_origs,
+  const bool include_out_edges
 ) {
 
   const int num_parts = new_to_origs.size();
@@ -329,7 +342,11 @@ void BuildPartData(
       const int64_t src_id = src_ids_ptr[i];
       const int64_t dst_id = dst_ids_ptr[i];
 
-      CHECK_EQ(hash(dst_id) % num_parts, dst_part_id);
+      if (include_out_edges) {
+        CHECK_EQ(hash(src_id) % num_parts, dst_part_id);
+      } else {
+        CHECK_EQ(hash(dst_id) % num_parts, dst_part_id);
+      }
 
       new_src_ids_ptr[i] = orig_to_local_mapping_ptr[src_id];
       new_dst_ids_ptr[i] = orig_to_local_mapping_ptr[dst_id];
@@ -427,6 +444,7 @@ void PartitionFacebookDataset(
   const int num_parts,
   const std::string& input_dir,
   const std::vector<std::string>& edge_file_paths,
+  const bool include_out_edges,
   const double infer_prob,
   const int num_omp_threads
 ) {
@@ -449,14 +467,13 @@ void PartitionFacebookDataset(
 
   int i = 0;
   for (const auto& edge_file_path : edge_file_paths) {
-    SplitEdges(num_parts, input_dir, edge_file_path, i, num_edges_per_file[i], infer_target_interval);
+    SplitEdges(num_parts, input_dir, edge_file_path, i, num_edges_per_file[i], infer_target_interval, include_out_edges);
     i++;
   }
 
   for (int p = 0; p < num_parts; p++) {
-    BuildPartData(max_node_id, num_total_nodes, p, edge_file_paths.size(), input_dir, new_to_origs);
+    BuildPartData(max_node_id, num_total_nodes, p, edge_file_paths.size(), input_dir, new_to_origs, include_out_edges);
   }
-
 
   IdArray pid_to_orig_ids;
   IdArray infer_target_mask;

@@ -53,7 +53,7 @@ HeteroGraphPtr ReorderUnitGraph(UnitGraphPtr ug, IdArray new_order) {
 }
 
 HaloHeteroSubgraph GetSubgraphWithHalo(
-    std::shared_ptr<HeteroGraph> hg, IdArray nodes, int num_hops) {
+    std::shared_ptr<HeteroGraph> hg, IdArray nodes, int num_hops, bool include_out_edges) {
   CHECK_EQ(hg->NumBits(), 64) << "halo subgraph only supports 64bits graph";
   CHECK_EQ(hg->relation_graphs().size(), 1)
       << "halo subgraph only supports homogeneous graph";
@@ -73,40 +73,13 @@ HaloHeteroSubgraph GetSubgraphWithHalo(
   auto orig_nodes = all_nodes;
 
   std::vector<dgl_id_t> edge_src, edge_dst, edge_eid;
+  dgl_id_t num_edges;
 
-  // When we deal with in-edges, we need to do two things:
-  // * find the edges inside the partition and the edges between partitions.
-  // * find the nodes outside the partition that connect the partition.
-  EdgeArray in_edges = hg->InEdges(0, nodes);
-  auto src = in_edges.src;
-  auto dst = in_edges.dst;
-  auto eid = in_edges.id;
-  auto num_edges = eid->shape[0];
-  const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
-  const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
-  const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
-  for (int64_t i = 0; i < num_edges; i++) {
-    // We check if the source node is in the original node.
-    auto it1 = orig_nodes.find(src_data[i]);
-    if (it1 != orig_nodes.end() || num_hops > 0) {
-      edge_src.push_back(src_data[i]);
-      edge_dst.push_back(dst_data[i]);
-      edge_eid.push_back(eid_data[i]);
-    }
-    // We need to expand only if the node hasn't been seen before.
-    auto it = all_nodes.find(src_data[i]);
-    if (it == all_nodes.end() && num_hops > 0) {
-      all_nodes[src_data[i]] = false;
-      old_node_ids.push_back(src_data[i]);
-      outer_nodes[0].push_back(src_data[i]);
-    }
-  }
-
-  // Now we need to traverse the graph with the in-edges to access nodes
-  // and edges more hops away.
-  for (int k = 1; k < num_hops; k++) {
-    const std::vector<dgl_id_t> &nodes = outer_nodes[k - 1];
-    EdgeArray in_edges = hg->InEdges(0, aten::VecToIdArray(nodes));
+  if (!include_out_edges) {
+    // When we deal with in-edges, we need to do two things:
+    // * find the edges inside the partition and the edges between partitions.
+    // * find the nodes outside the partition that connect the partition.
+    EdgeArray in_edges = hg->InEdges(0, nodes);
     auto src = in_edges.src;
     auto dst = in_edges.dst;
     auto eid = in_edges.id;
@@ -115,25 +88,56 @@ HaloHeteroSubgraph GetSubgraphWithHalo(
     const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
     const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
     for (int64_t i = 0; i < num_edges; i++) {
+      // We check if the source node is in the original node.
       auto it1 = orig_nodes.find(src_data[i]);
-      // If the source node is in the partition, we have got this edge when we
-      // iterate over the out-edges above.
-      if (it1 == orig_nodes.end()) {
+      if (it1 != orig_nodes.end() || num_hops > 0) {
         edge_src.push_back(src_data[i]);
         edge_dst.push_back(dst_data[i]);
         edge_eid.push_back(eid_data[i]);
       }
-      // If we haven't seen this node.
+      // We need to expand only if the node hasn't been seen before.
       auto it = all_nodes.find(src_data[i]);
-      if (it == all_nodes.end()) {
+      if (it == all_nodes.end() && num_hops > 0) {
         all_nodes[src_data[i]] = false;
         old_node_ids.push_back(src_data[i]);
-        outer_nodes[k].push_back(src_data[i]);
+        outer_nodes[0].push_back(src_data[i]);
       }
     }
+
+    // Now we need to traverse the graph with the in-edges to access nodes
+    // and edges more hops away.
+    for (int k = 1; k < num_hops; k++) {
+      const std::vector<dgl_id_t> &nodes = outer_nodes[k - 1];
+      EdgeArray in_edges = hg->InEdges(0, aten::VecToIdArray(nodes));
+      auto src = in_edges.src;
+      auto dst = in_edges.dst;
+      auto eid = in_edges.id;
+      auto num_edges = eid->shape[0];
+      const dgl_id_t *src_data = static_cast<dgl_id_t *>(src->data);
+      const dgl_id_t *dst_data = static_cast<dgl_id_t *>(dst->data);
+      const dgl_id_t *eid_data = static_cast<dgl_id_t *>(eid->data);
+      for (int64_t i = 0; i < num_edges; i++) {
+        auto it1 = orig_nodes.find(src_data[i]);
+        // If the source node is in the partition, we have got this edge when we
+        // iterate over the out-edges above.
+        if (it1 == orig_nodes.end()) {
+          edge_src.push_back(src_data[i]);
+          edge_dst.push_back(dst_data[i]);
+          edge_eid.push_back(eid_data[i]);
+        }
+        // If we haven't seen this node.
+        auto it = all_nodes.find(src_data[i]);
+        if (it == all_nodes.end()) {
+          all_nodes[src_data[i]] = false;
+          old_node_ids.push_back(src_data[i]);
+          outer_nodes[k].push_back(src_data[i]);
+        }
+      }
+    }
+
   }
 
-  if (num_hops > 0) {
+  if (include_out_edges) {
     EdgeArray out_edges = hg->OutEdges(0, nodes);
     auto src = out_edges.src;
     auto dst = out_edges.dst;
@@ -145,14 +149,14 @@ HaloHeteroSubgraph GetSubgraphWithHalo(
     for (int64_t i = 0; i < num_edges; i++) {
       // If the outer edge isn't in the partition.
       auto it1 = orig_nodes.find(dst_data[i]);
-      if (it1 == orig_nodes.end()) {
+      if (it1 != orig_nodes.end() || num_hops > 0) {
         edge_src.push_back(src_data[i]);
         edge_dst.push_back(dst_data[i]);
         edge_eid.push_back(eid_data[i]);
       }
       // We don't expand along the out-edges.
       auto it = all_nodes.find(dst_data[i]);
-      if (it == all_nodes.end()) {
+      if (it == all_nodes.end() && num_hops > 0) {
         all_nodes[dst_data[i]] = false;
         old_node_ids.push_back(dst_data[i]);
       }
@@ -222,6 +226,7 @@ DGL_REGISTER_GLOBAL("partition._CAPI_DGLPartitionWithHalo_Hetero")
 
       IdArray node_parts = args[1];
       int num_hops = args[2];
+      bool include_out_edges = args[3];
 
       CHECK_EQ(node_parts->dtype.bits, 64)
           << "Only supports 64bits tensor for now";
@@ -259,7 +264,7 @@ DGL_REGISTER_GLOBAL("partition._CAPI_DGLPartitionWithHalo_Hetero")
       runtime::parallel_for(0, num_partitions, [&](int b, int e) {
         for (auto i = b; i < e; i++) {
           auto nodes = aten::VecToIdArray(part_nodes[i]);
-          HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops);
+          HaloHeteroSubgraph subg = GetSubgraphWithHalo(hgptr, nodes, num_hops, include_out_edges);
           std::shared_ptr<HaloHeteroSubgraph> subg_ptr(
               new HaloHeteroSubgraph(subg));
           int part_id = part_ids[i];

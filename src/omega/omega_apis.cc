@@ -222,15 +222,16 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaPartitionFacebookDataset")
     const int num_parts = args[0];
     const std::string input_dir = args[1];
     const List<Value> edge_file_paths_values = args[2];
-    const double infer_prob = args[3];
-    const int num_omp_threads = args[4];
+    const bool include_out_edges = args[3];
+    const double infer_prob = args[4];
+    const int num_omp_threads = args[5];
 
     std::vector<std::string> edge_file_paths;
     for (int i = 0; i < edge_file_paths_values.size(); i++) {
       edge_file_paths.push_back(edge_file_paths_values[i]->data);
     }
 
-    omega::PartitionFacebookDataset(num_parts, input_dir, edge_file_paths, infer_prob, num_omp_threads);
+    omega::PartitionFacebookDataset(num_parts, input_dir, edge_file_paths, include_out_edges, infer_prob, num_omp_threads);
   });
 
 }

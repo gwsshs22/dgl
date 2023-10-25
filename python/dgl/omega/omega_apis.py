@@ -204,6 +204,7 @@ def partition_facebook_dataset(
     num_parts,
     input_dir,
     edge_file_paths,
+    include_out_edges,
     infer_prob,
     num_omp_threads
 ):
@@ -211,6 +212,7 @@ def partition_facebook_dataset(
         num_parts,
         input_dir,
         edge_file_paths,
+        include_out_edges,
         infer_prob,
         num_omp_threads
     )

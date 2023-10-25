@@ -445,7 +445,7 @@ def _set_trainer_ids(g, sim_g, node_parts):
                 g.edges(etype=c_etype)[1])
             g.edges[c_etype].data['trainer_id'] = trainer_id
 
-def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, part_method="metis",
+def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, include_out_edges=False, part_method="metis",
                     balance_ntypes=None, balance_edges=False, return_mapping=False,
                     num_trainers_per_machine=1, objtype='cut', graph_formats=None):
     ''' Partition a graph for distributed training and store the partitions on files.
@@ -757,7 +757,7 @@ def partition_graph(g, graph_name, num_parts, out_path, num_hops=1, part_method=
         else:
             node_parts = random_choice(num_parts, sim_g.number_of_nodes())
         start = time.time()
-        parts, orig_nids, orig_eids = partition_graph_with_halo(sim_g, node_parts, num_hops,
+        parts, orig_nids, orig_eids = partition_graph_with_halo(sim_g, node_parts, num_hops, include_out_edges=include_out_edges,
                                                                 reshuffle=True)
         print('Splitting the graph into partitions takes {:.3f}s, peak mem: {:.3f} GB'.format(
             time.time() - start, get_peak_mem()))

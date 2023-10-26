@@ -62,6 +62,8 @@ class WorkerAsyncExecContext:
         local_rank,
         exec_mode,
         use_precoms,
+        recom_threshold,
+        recom_policy,
         model_config,
         random_seed,
         profiling,
@@ -201,7 +203,7 @@ class DataProvider:
             net_type,
             omega_group_id)
 
-        load_dgl_graph = exec_mode == "dp" and not use_precoms
+        load_dgl_graph = (not use_precoms) or recom_threshold < 100
         self._dist_g = dgl.distributed.DistGraph(graph_name, part_config=part_config, load_dgl_graph=load_dgl_graph)
         self._dist_g.barrier()
 

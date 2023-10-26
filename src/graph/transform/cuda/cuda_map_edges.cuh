@@ -233,6 +233,38 @@ std::tuple<std::vector<IdArray>, std::vector<IdArray>> MapEdges(
       std::move(new_lhs), std::move(new_rhs));
 }
 
+template <typename IdType>
+std::tuple<IdArray, IdArray> MapEdges(
+    const OrderedHashTable<IdType>& lhs_hash_table,
+    const OrderedHashTable<IdType>& rhs_hash_table,
+    const IdArray& u,
+    const IdArray& v,
+    cudaStream_t stream) {
+
+  constexpr const int BLOCK_SIZE = 128;
+  constexpr const size_t TILE_SIZE = 1024;
+
+  const auto& ctx = u->ctx;
+  const int64_t num_edges = u->shape[0];
+
+  IdArray new_lhs = NewIdArray(num_edges, ctx, sizeof(IdType) * 8);
+  IdArray new_rhs = NewIdArray(num_edges, ctx, sizeof(IdType) * 8);
+
+  const dim3 grid(RoundUpDiv(num_edges, TILE_SIZE), 2);
+  const dim3 block(BLOCK_SIZE);
+
+  CUDA_KERNEL_CALL(
+      (map_edge_ids<IdType, BLOCK_SIZE, TILE_SIZE>), grid, block, 0, stream,
+      u.Ptr<IdType>(), new_lhs.Ptr<IdType>(),
+      v.Ptr<IdType>(), new_rhs.Ptr<IdType>(),
+      num_edges,
+      lhs_hash_table.DeviceHandle(),
+      rhs_hash_table.DeviceHandle());
+
+  return std::make_tuple(std::move(new_lhs), std::move(new_rhs));
+}
+
+
 }  // namespace cuda
 }  // namespace transform
 }  // namespace dgl

@@ -228,8 +228,9 @@ def initialize_omega_worker(
         net_type,
         group_id=0,
     )
-
+    
     role = "default" if omega_group_id == 0 else "sampler"
+
     init_role(role)
     init_kvstore(ip_config, num_servers, role)
 

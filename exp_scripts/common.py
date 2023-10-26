@@ -24,6 +24,7 @@ def run_exp(
     fanouts,
     exec_type, # dp, dp-precoms, cgp-multi, cgp,
     exp_type, # latency, throughput
+    recom_threshold=100,
     latency_exp_params=None,
     throughput_exp_params=None,
     exp_result_dir=None,
@@ -67,19 +68,22 @@ def run_exp(
     else:
         gat_heads_str = ",".join(["4"] * num_layers)
 
+    partitioned_graph_name = f"{graph_name}-{graph_partitioning}-{num_machines}"
+    if exec_type == "cgp" or exec_type == "cgp-multi":
+        partitioned_graph_name += "-outedges"
 
-    input_trace_dir = f"$DGL_DATA_HOME/omega_traces/{graph_name}-{graph_partitioning}-{num_machines}-bs-{batch_size}"
+    input_trace_dir = f"$DGL_DATA_HOME/omega_traces/{partitioned_graph_name}-bs-{batch_size}"
     if sampling:
         input_trace_dir += "-sampled"
 
     if exec_type == "dp":
         exec_args = f" --exec_mode dp "
     elif exec_type == "dp-precoms":
-        exec_args = f" --exec_mode dp --use_precoms "
+        exec_args = f" --exec_mode dp --use_precoms --recom_threshold {recom_threshold}"
     elif exec_type == "cgp-multi":
-        exec_args = f" --exec_mode cgp-multi --use_precoms "
+        exec_args = f" --exec_mode cgp-multi --use_precoms --recom_threshold {recom_threshold}"
     elif exec_type == "cgp":
-        exec_args = f" --exec_mode cgp --use_precoms "
+        exec_args = f" --exec_mode cgp --use_precoms --recom_threshold {recom_threshold}"
     else:
         raise f"Unkown exec_type {exec_type}"
     
@@ -108,13 +112,14 @@ def run_exp(
     --python_bin `which python` \
     --workspace $DGL_DATA_HOME \
     --num_gpus_per_machine {num_gpus_per_machine} \
-    --part_config omega_datasets-{num_machines}/{graph_name}-{graph_partitioning}-{num_machines}/{graph_name}.json \
+    --part_config omega_datasets-{num_machines}/{partitioned_graph_name}/{graph_name}.json \
     --extra_envs \
         TP_SOCKET_IFNAME=$DGL_IFNAME \
         GLOO_SOCKET_IFNAME=$DGL_IFNAME \
         NCCL_SOCKET_IFNAME=$DGL_IFNAME \
         DGL_HOME=$DGL_HOME \
         DGL_LIBRARY_PATH=$DGL_HOME/build \
+        DGLBACKEND=$DGLBACKEND \
         PYTHONPATH=$DGL_HOME/python {extra_envs} \
     --ip_config ip_configs/ip_config-{num_machines}.txt \
     --worker_num_sampler_threads {worker_num_sampler_threads} \
@@ -150,6 +155,5 @@ def exp_has_been_done(exp_result_dir):
     exp_result_dir = Path(exp_result_dir)
     return (exp_result_dir / "config.json").exists() and (exp_result_dir / "traces.txt").exists()
 
-
 if __name__ == "__main__":
-    run_exp(4, "ogbn-products", "sage", 3, [], "cgp-multi", "latency", feature_dim=2048, latency_exp_params=LatencyExpParams(num_reqs=1), extra_env_names=["NCCL_IB_DISABLE"])
+    run_exp(4, "yelp", "gat", 3, [], "dp-precoms", "latency", latency_exp_params=LatencyExpParams(num_reqs=10), extra_env_names=["NCCL_IB_DISABLE"], force_run_dp=True, recom_threshold=95, num_hiddens=512)

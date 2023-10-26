@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 
 #include <dgl/runtime/container.h>
 #include <dgl/runtime/object.h>
@@ -16,6 +17,16 @@
 using namespace dgl::runtime;
 
 namespace dgl {
+
+namespace omega {
+
+std::pair<HeteroGraphPtr, IdArray> ToBlockGPU(const IdArray& u,
+                                              const IdArray& v,
+                                              const IdArray& dst_ids,
+                                              const IdArray& src_ids,
+                                              const IdArray& new_lhs_ids_prefix);
+
+};
 
 DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToDistributedBlocks")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
@@ -78,17 +89,42 @@ DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToDistributedBlock")
 
 DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaToBlock")
   .set_body([](DGLArgs args, DGLRetValue* rv) {
+    // auto start_time = std::chrono::high_resolution_clock::now();
+
     const HeteroGraphRef empty_graph_ref = args[0];
     IdArray u = args[1];
     IdArray v = args[2];
     IdArray dst_ids = args[3];
     IdArray src_ids = args[4];
+    IdArray new_lhs_ids_prefix = args[5];
 
     runtime::List<runtime::ObjectRef> ret_list;
-    auto ret = omega::ToBlock(empty_graph_ref, u, v, dst_ids, src_ids);
-    ret_list.push_back(HeteroGraphRef(ret.first));
-    ret_list.push_back(runtime::Value(MakeValue(ret.second)));
-    *rv = ret_list;
+
+    auto device_type = u->ctx.device_type;
+    CHECK_EQ(v->ctx.device_type, device_type);
+    CHECK_EQ(dst_ids->ctx.device_type, device_type);
+    CHECK_EQ(new_lhs_ids_prefix->ctx.device_type, device_type);
+
+    if (src_ids->shape[0] > 0) {
+      CHECK_EQ(src_ids->ctx.device_type, device_type);
+    }
+
+    if (device_type == DGLDeviceType::kDGLCPU) {
+      auto ret = omega::ToBlock(empty_graph_ref, u, v, dst_ids, src_ids, new_lhs_ids_prefix);
+      ret_list.push_back(HeteroGraphRef(ret.first));
+      ret_list.push_back(runtime::Value(MakeValue(ret.second)));
+      *rv = ret_list;
+    } else {
+      CHECK_EQ(device_type, DGLDeviceType::kDGLCUDA);
+      auto ret = omega::ToBlockGPU(u, v, dst_ids, src_ids, new_lhs_ids_prefix);
+      ret_list.push_back(HeteroGraphRef(ret.first));
+      ret_list.push_back(runtime::Value(MakeValue(ret.second)));
+      *rv = ret_list;
+    }
+
+    // std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
+    // std::cerr << "_CAPI_DGLOmegaToBlock " << elapsed_time.count() << " seconds" << std::endl;
+
   });
 
 DGL_REGISTER_GLOBAL("omega.omega_apis._CAPI_DGLOmegaPartitionRequest")

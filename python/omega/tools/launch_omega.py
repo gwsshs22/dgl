@@ -477,6 +477,7 @@ def submit_jobs(args, dry_run=False):
             (f"--feature_dim {args.feature_dim} " if args.feature_dim else "") +
             (f"--use_precoms  " if args.use_precoms else "") +
             (f"--precom_path {args.precom_path} " if args.precom_path else "") +
+            f"--recom_threshold {args.recom_threshold} " +
             f"--random_seed {args.random_seed} "
             f"--master_ip {master_addr} " +
             f"--master_rpc_port {master_rpc_port} " +
@@ -533,6 +534,8 @@ def submit_jobs(args, dry_run=False):
         (f"--feature_dim {args.feature_dim} " if args.feature_dim else "") +
         (f"--use_precoms " if args.use_precoms else "") +
         f"--trace_dir {args.trace_dir} " +
+        f"--recom_threshold {args.recom_threshold} " +
+        f"--recom_policy {args.recom_policy} " +
         (f"--profiling " if args.profiling else "") +
         f"--exp_type {args.exp_type} " +
         (f"--num_reqs {args.num_reqs} " if args.num_reqs else "") +
@@ -669,6 +672,8 @@ def main():
     parser.add_argument('--exp_secs', type=float)
     parser.add_argument('--arrival_type', choices=['poisson', 'uniform'], default='poisson')
     parser.add_argument("--use_precoms", action="store_true")
+    parser.add_argument("--recom_threshold", type=int, default=100) # 99 means recompute top 1% of nodes
+    parser.add_argument("--recom_policy", type=str, default="in_dgr", choices=["in_dgr", "ns"])
 
     # Model configuration
     parser.add_argument('--gnn', type=str, required=True)
@@ -735,6 +740,7 @@ def main():
         help="Used to check whether there exist alive servers",
     )
     parser.add_argument("--precom_path", type=str, default="")
+    parser.add_argument("--dry_run", action="store_true")
     args = parser.parse_args()
     if args.keep_alive:
         assert (
@@ -763,7 +769,11 @@ def main():
     if args.tracing:
         assert args.result_dir is not None
 
-    submit_jobs(args)
+    if args.dry_run:
+        ret = submit_jobs(args, dry_run=True)
+        print(ret)
+    else:
+        submit_jobs(args)
 
 
 if __name__ == "__main__":

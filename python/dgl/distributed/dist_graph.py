@@ -54,7 +54,7 @@ class InitGraphRequest(rpc.Request):
         self._graph_name = state
 
     def process_request(self, server_state):
-        if server_state.graph is None:
+        if server_state.graph is None and server_state.load_dgl_graph:
             server_state.graph = _get_graph_from_shared_mem(self._graph_name)
         return InitGraphResponse(self._graph_name)
 
@@ -303,6 +303,7 @@ class DistGraphServer(KVServer):
         self.num_servers = num_servers
         self.keep_alive = keep_alive
         self.net_type = net_type
+        self._load_dgl_graph = load_dgl_graph
         # Load graph partition data.
         if self.is_backup_server():
             # The backup server doesn't load the graph partition. It'll initialized afterwards.
@@ -397,6 +398,7 @@ class DistGraphServer(KVServer):
         # start server
         server_state = ServerState(kv_store=self, local_g=self.client_g,
                                    partition_book=self.gpb, keep_alive=self.keep_alive)
+        server_state.load_dgl_graph = self._load_dgl_graph
         print('start graph service on server {} for part {}'.format(
             self.server_id, self.part_id))
         start_server(server_id=self.server_id,

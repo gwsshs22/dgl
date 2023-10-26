@@ -379,7 +379,8 @@ std::pair<HeteroGraphPtr, IdArray> SamplingExecutor::ToBlock_(
     src_gnids,
     dst_gnids,
     target_gnids,
-    null_array_);
+    null_array_,
+    target_gnids);
 }
 
 IdArray SamplingExecutor::GetPartIds(const IdArray& src_gnids) const {

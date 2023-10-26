@@ -15,7 +15,7 @@ import dgl
 from dgl.omega.trace import trace_me, get_traces, put_trace, enable_tracing
 
 from omega.serving.infer_requests import create_req_generator
-from omega.serving.worker import WorkerAsyncExecContext, ModelConfig
+from omega.serving.worker_v2 import WorkerAsyncExecContext, ModelConfig
 from omega.serving.worker_comm import create_worker_communicators
 
 class RequestDoneContext:
@@ -119,6 +119,8 @@ def main(args):
                     worker_idx % num_gpus_per_machine,
                     exec_mode,
                     args.use_precoms,
+                    args.recom_threshold,
+                    args.recom_policy,
                     model_config,
                     args.random_seed,
                     args.profiling,
@@ -241,7 +243,12 @@ def run_latency_exp(worker_comms, num_warmups, req_generator):
     for batch_req in req_generator:
         fut = worker_comms[-1].request(batch_id, batch_req)
         ret = fut.wait()
-        print(f"Warmup request {batch_id} done.", file=sys.stderr)
+        if isinstance(ret, list):
+            ret_batch_id, result_tensor = ret[0].value()
+        else:
+            ret_batch_id, result_tensor = ret
+        assert batch_id == ret_batch_id
+        print(f"Warmup request {batch_id} done. (result_tensor.shape={result_tensor.shape})", file=sys.stderr)
         batch_id += 1
 
     print("Warmup done.", flush=True)
@@ -310,6 +317,9 @@ if __name__ == "__main__":
     parser.add_argument('--tracing', action="store_true")
     parser.add_argument('--result_dir', type=str)
     parser.add_argument('--feature_dim', type=int)
+
+    parser.add_argument("--recom_threshold", type=int, default=100) # 99 means recompute top 1% of nodes
+    parser.add_argument("--recom_policy", type=str, default="in_dgr", choices=["in_dgr", "ns"])
 
     parser.add_argument('--exp_type', type=str, choices=["latency", "throughput"], required=True)
     # For latency exp

@@ -28,16 +28,17 @@ class DatasetConfig:
     multilabel: bool
     inductive: bool
     large: bool
+    undirected: bool
 
 dataset_configs = {
-    "reddit": DatasetConfig("reddit", 41, 602, False, True, False),
-    "ogbn-products": DatasetConfig("ogbn-products", 47, 100, False, False, False),
-    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128, False, False, True),
-    "flickr": DatasetConfig("flickr", 7, 500, False, True, False),
-    "yelp": DatasetConfig("yelp", 100, 300, True, True, False),
-    "amazon": DatasetConfig("amazon", 107, 200, True, True, False),
-    "fb5b": DatasetConfig("fb5b", 128, 16, False, False, True),
-    "fb10b": DatasetConfig("fb10b", 128, 16, False, False, True),
+    "reddit": DatasetConfig("reddit", 41, 602, False, True, False, True),
+    "ogbn-products": DatasetConfig("ogbn-products", 47, 100, False, False, False, True),
+    "ogbn-papers100M": DatasetConfig("ogbn-papers100M", 172, 128, False, False, True, False),
+    "flickr": DatasetConfig("flickr", 7, 500, False, True, False, True),
+    "yelp": DatasetConfig("yelp", 100, 300, True, True, False, True),
+    "amazon": DatasetConfig("amazon", 107, 200, True, True, False, True),
+    "fb5b": DatasetConfig("fb5b", 128, 16, False, False, True, True),
+    "fb10b": DatasetConfig("fb10b", 128, 16, False, False, True, True),
 }
 
 def get_dataset_config(graph_name):

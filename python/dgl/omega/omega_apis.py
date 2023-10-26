@@ -1,4 +1,6 @@
+import sys
 import torch
+import time
 
 import dgl
 
@@ -108,18 +110,70 @@ def to_distributed_block(
 
     return dist_block
 
-def to_block(u, v, dst_ids, src_ids=None):
+def to_block(u, v, dst_ids, src_ids=None, new_lhs_ids_prefix=None):
     if src_ids == None:
         src_ids = empty_tensor
+    
+    if new_lhs_ids_prefix == None:
+        new_lhs_ids_prefix = dst_ids
 
     graph_idx, src_orig_ids = _CAPI_DGLOmegaToBlock(empty_graph._graph,
                                                     F.zerocopy_to_dgl_ndarray(u),
                                                     F.zerocopy_to_dgl_ndarray(v),
                                                     F.zerocopy_to_dgl_ndarray(dst_ids),
-                                                    F.zerocopy_to_dgl_ndarray(src_ids))
+                                                    F.zerocopy_to_dgl_ndarray(src_ids),
+                                                    F.zerocopy_to_dgl_ndarray(new_lhs_ids_prefix))
     block = DGLBlock(graph_idx, (["_N"], ["_N"]), ["_E"])
     block.srcdata[dgl.NID] = F.zerocopy_from_dgl_ndarray(src_orig_ids)
     return block
+
+def to_distributed_block_v2(
+    gpu_rank_in_group, gpu_ranks, num_assigned_target_nodes,
+    u, v, dst_ids):
+    # ss = time.time()
+    assert len(num_assigned_target_nodes) == len(gpu_ranks)
+    assert sum(num_assigned_target_nodes) == dst_ids.shape[0]
+
+    local_target_nodes_start_idx = 0
+    for i in range(gpu_rank_in_group):
+        local_target_nodes_start_idx += num_assigned_target_nodes[i]
+    num_local_target_nodes = num_assigned_target_nodes[gpu_rank_in_group]
+    new_lhs_ids_prefix = dst_ids[local_target_nodes_start_idx:local_target_nodes_start_idx + num_local_target_nodes]
+
+    u = F.zerocopy_to_dgl_ndarray(u)
+    v = F.zerocopy_to_dgl_ndarray(v)
+    dst_ids = F.zerocopy_to_dgl_ndarray(dst_ids)
+    empty_tensor_ = F.zerocopy_to_dgl_ndarray(empty_tensor)
+    new_lhs_ids_prefix = F.zerocopy_to_dgl_ndarray(new_lhs_ids_prefix)
+
+    # s = time.time()
+    graph_idx, src_orig_ids = _CAPI_DGLOmegaToBlock(empty_graph._graph,
+                                                    u,
+                                                    v,
+                                                    dst_ids,
+                                                    empty_tensor_,
+                                                    new_lhs_ids_prefix)
+    # torch.cuda.synchronize()
+    # if gpu_rank_in_group == 0:
+    #     print(f"OmegaToBlock took {time.time() - s}s", file=sys.stderr)
+
+    # sss = time.time()
+    dist_block = DGLDistributedBlock(
+        gpu_rank_in_group,
+        gpu_ranks,
+        num_assigned_target_nodes,
+        gidx=graph_idx,
+        ntypes=(['_N'], ['_N']),
+        etypes=['_E'])
+
+    assert dist_block.is_unibipartite
+    dist_block.srcdata[dgl.NID] = F.zerocopy_from_dgl_ndarray(src_orig_ids)
+    # if gpu_rank_in_group == 0:
+    #     print(f"DGLDistributedBlock(..) took {time.time() - sss}s", file=sys.stderr)
+
+    # if gpu_rank_in_group == 0:
+    #     print(f"to_distributed_block_v2 took {time.time() - ss}s", file=sys.stderr)
+    return dist_block
 
 def partition_request(
     num_machines,

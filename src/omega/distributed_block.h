@@ -30,7 +30,8 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
                                            const IdArray& u,
                                            const IdArray& v,
                                            const IdArray& dst_ids,
-                                           const IdArray& src_ids);
+                                           const IdArray& src_ids,
+                                           const IdArray& new_lhs_ids_prefix);
 
 }
 }

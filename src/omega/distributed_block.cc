@@ -252,12 +252,12 @@ std::pair<HeteroGraphPtr, IdArray> ToDistributedBlock(
   return std::make_pair(graph, src_gnids_in_block);
 }
 
-
 std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref,
                                            const IdArray& u,
                                            const IdArray& v,
                                            const IdArray& dst_ids,
-                                           const IdArray& src_ids) {
+                                           const IdArray& src_ids,
+                                           const IdArray& new_lhs_ids_prefix) {
   bool src_ids_given = src_ids->shape[0] > 0;
   const auto meta_graph = empty_graph_ref->meta_graph();
   const EdgeArray etypes = meta_graph->Edges("eid");
@@ -274,8 +274,9 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
   auto src_mapping = phmap::flat_hash_map<int64_t, int64_t>();
   mapping.reserve(dst_ids->shape[0]);
 
-  int num_dst = dst_ids->shape[0];
+  const int num_dst = dst_ids->shape[0];
   auto dst_ids_ptr = (int64_t*) dst_ids->data;
+
   for (int i = 0; i < num_dst; i++) {
     mapping.insert({ *dst_ids_ptr++, i });
   }
@@ -292,8 +293,14 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
       src_mapping.insert({ *given_src_ids_ptr++, i });
     }
   } else {
+    int num_new_lhs_ids_prefix = new_lhs_ids_prefix->shape[0];
+    auto new_lhs_ids_prefix_ptr = (int64_t*) new_lhs_ids_prefix->data;
+    for (int i = 0; i < num_new_lhs_ids_prefix; i++) {
+      src_mapping.insert({ *new_lhs_ids_prefix_ptr++, i });
+    }
+
     for (int i = 0; i < num_edges; i++) {
-      mapping.insert({ *u_ptr++, mapping.size() });
+      src_mapping.insert({ *u_ptr++, src_mapping.size() });
     }
   }
 
@@ -304,16 +311,9 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
   auto new_dst = aten::NewIdArray(num_edges);
   auto new_dst_ptr = (int64_t*) new_dst->data;
 
-  if (src_ids_given) {
-    for (int i = 0; i < num_edges; i++) {
-      *(new_src_ptr + i) = src_mapping[*(u_ptr + i)];
-      *(new_dst_ptr + i) = mapping[*(v_ptr + i)];
-    }
-  } else {
-    for (int i = 0; i < num_edges; i++) {
-      *(new_src_ptr + i) = mapping[*(u_ptr + i)];
-      *(new_dst_ptr + i) = mapping[*(v_ptr + i)];
-    }
+  for (int i = 0; i < num_edges; i++) {
+    *(new_src_ptr + i) = src_mapping[*(u_ptr + i)];
+    *(new_dst_ptr + i) = mapping[*(v_ptr + i)];
   }
 
   if (src_ids_given) {
@@ -328,7 +328,7 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
 
     return std::make_pair(block_graph, src_ids);
   } else {
-    num_nodes_per_type[0] = mapping.size();
+    num_nodes_per_type[0] = src_mapping.size();
     num_nodes_per_type[1] = num_dst;
     rel_graphs.push_back(CreateFromCOO(
         2, num_nodes_per_type[0], num_nodes_per_type[1],
@@ -337,9 +337,9 @@ std::pair<HeteroGraphPtr, IdArray> ToBlock(const HeteroGraphRef& empty_graph_ref
     auto block_graph = CreateHeteroGraph(
       new_meta_graph, rel_graphs, num_nodes_per_type);
 
-    auto src_orig_ids = aten::NewIdArray(mapping.size());
+    auto src_orig_ids = aten::NewIdArray(src_mapping.size());
     auto src_orig_ids_ptr = (int64_t*) src_orig_ids->data;
-    for (const auto& pair : mapping) {
+    for (const auto& pair : src_mapping) {
       *(src_orig_ids_ptr + pair.second) = pair.first;
     }
 

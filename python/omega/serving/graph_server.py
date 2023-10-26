@@ -63,7 +63,8 @@ class OmegaGraphServer:
         return sample_edges(self._local_g, seeds, fanout)
 
 def main(args):
-    load_dgl_graph = load_dgl_graph = args.exec_mode == "dp" and not args.use_precoms
+    load_dgl_graph = (not args.use_precoms) or args.recom_threshold < 100
+
     dgl_server_thread = threading.Thread(
         target=dgl_server_main,
         args=(
@@ -115,6 +116,7 @@ if __name__ == "__main__":
     parser.add_argument('--feature_dim', type=int)
     parser.add_argument('--exec_mode', type=str, choices=["dp", "cgp", "cgp-multi"])
     parser.add_argument("--use_precoms", action="store_true")
+    parser.add_argument("--recom_threshold", type=int, default=100) # 99 means recompute top 1% of nodes
     parser.add_argument("--num_layers", type=int)
     parser.add_argument("--num_hiddens", type=int)
     parser.add_argument("--precom_path", type=str, default="")

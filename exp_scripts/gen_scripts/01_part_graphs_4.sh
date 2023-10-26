@@ -11,7 +11,7 @@ python -m omega.tools.partition_graph \
   --infer_prob 0.25 \
   --rel_to_tests \
   --ogbn_data_root $DGL_DATA_HOME/omega_raw_datasets/ogbn_datasets \
-  --saint_data_root $DGL_DATA_HOME/omega_raw_datasets/ogbn_datasets \
+  --saint_data_root $DGL_DATA_HOME/omega_raw_datasets/saint_datasets \
   --output $DGL_DATA_HOME/omega_datasets-$NUM_PARTS/$GRAPH_NAME-random-$NUM_PARTS
 
 python -m omega.tools.gen_request_trace \
@@ -34,7 +34,7 @@ python -m omega.tools.partition_graph \
   --infer_prob 0.25 \
   --rel_to_tests \
   --ogbn_data_root $DGL_DATA_HOME/omega_raw_datasets/ogbn_datasets \
-  --saint_data_root $DGL_DATA_HOME/omega_raw_datasets/ogbn_datasets \
+  --saint_data_root $DGL_DATA_HOME/omega_raw_datasets/saint_datasets \
   --include_out_edges \
   --output $DGL_DATA_HOME/omega_datasets-$NUM_PARTS/$GRAPH_NAME-random-$NUM_PARTS-outedges
 

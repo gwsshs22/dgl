@@ -126,8 +126,22 @@ SamplingExecutorV2::sampling_ret SamplingExecutorV2::SampleBlocksDp(
   for (int layer_idx = 1; layer_idx < num_layers_; layer_idx++) {
     auto src_ids = blocks[0].second;
     auto seeds = src_ids.CreateView({ src_ids->shape[0] - num_targets }, src_ids->dtype, num_targets * sizeof(int64_t));
-    
-    auto dist_sampling_ret = DistSampling(seeds, fanouts_[layer_idx]);
+    std::pair<std::vector<IdArray>, std::vector<IdArray>> dist_sampling_ret;
+    {
+      auto start_time = std::chrono::high_resolution_clock::now();
+      dist_sampling_ret = DistSampling(seeds, fanouts_[layer_idx]);
+      auto end_time = std::chrono::high_resolution_clock::now();
+      PutTrace(batch_id, "fetch_edges", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+      int64_t fetch_size = 0;
+      for (const auto& a : dist_sampling_ret.first) {
+        fetch_size += a.GetSize();
+      }
+      for (const auto& a : dist_sampling_ret.second) {
+        fetch_size += a.GetSize();
+      }
+      PutTrace(batch_id, "fetch_size_edges", fetch_size);
+    }
+
     auto src_list = dist_sampling_ret.first;
     auto dst_list = dist_sampling_ret.second;
 
@@ -161,7 +175,8 @@ SamplingExecutorV2::sampling_ret SamplingExecutorV2::SampleBlocksDp(
     input_features = Pull("features", fetch_nids);
     auto end_time = std::chrono::high_resolution_clock::now();
 
-    PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_features", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_size_features", input_features.GetSize());
   }
 
   src_inputs_list.push_back(input_features);
@@ -228,7 +243,8 @@ SamplingExecutorV2::sampling_ret SamplingExecutorV2::SampleBlocksPrecoms(
       auto start_time = std::chrono::high_resolution_clock::now();
       src_inputs = Pull(row_name, src_node_ids);
       auto end_time = std::chrono::high_resolution_clock::now();
-      PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+      PutTrace(batch_id, "fetch_" + row_name, std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+      PutTrace(batch_id, "fetch_size_" + row_name, src_inputs.GetSize());
     }
     src_inputs_list.push_back(src_inputs);
   }
@@ -265,17 +281,42 @@ std::pair<SamplingExecutorV2::sampling_ret, IdArray> SamplingExecutorV2::SampleB
 
   CHECK_EQ(direct_neighbor_ids_cpu->shape[0], new_degrees->shape[0]);
 
-  List<Value> policy_fn_inputs;
-  policy_fn_inputs.push_back(Value(MakeValue(direct_neighbor_ids_cpu)));
-  policy_fn_inputs.push_back(Value(MakeValue(new_degrees)));
-  List<Value> recom_policy_ret = pe_recom_policy_fn_(policy_fn_inputs);
 
-  IdArray recompute_ids = recom_policy_ret[0]->data;
-  IdArray reuse_ids = recom_policy_ret[1]->data;
-  IdArray recompute_mask = recom_policy_ret[2]->data;
-  IdArray recompute_pos = recom_policy_ret[3]->data;
+  IdArray recompute_ids;
+  IdArray reuse_ids;
+  IdArray recompute_mask;
+  IdArray recompute_pos;
 
-  auto dist_sampling_ret = DistSampling(recompute_ids, -1);
+  {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    List<Value> policy_fn_inputs;
+    policy_fn_inputs.push_back(Value(MakeValue(direct_neighbor_ids_cpu)));
+    policy_fn_inputs.push_back(Value(MakeValue(new_degrees)));
+    List<Value> recom_policy_ret = pe_recom_policy_fn_(policy_fn_inputs);
+
+    recompute_ids = recom_policy_ret[0]->data;
+    reuse_ids = recom_policy_ret[1]->data;
+    recompute_mask = recom_policy_ret[2]->data;
+    recompute_pos = recom_policy_ret[3]->data;
+    auto end_time = std::chrono::high_resolution_clock::now();
+    PutTrace(batch_id, "recom_policy", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  }
+
+  std::pair<std::vector<IdArray>, std::vector<IdArray>> dist_sampling_ret;
+  {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    dist_sampling_ret = DistSampling(recompute_ids, -1);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    PutTrace(batch_id, "fetch_edges", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    int64_t fetch_size = 0;
+    for (const auto& a : dist_sampling_ret.first) {
+      fetch_size += a.GetSize();
+    }
+    for (const auto& a : dist_sampling_ret.second) {
+      fetch_size += a.GetSize();
+    }
+    PutTrace(batch_id, "fetch_size_edges", fetch_size);
+  }
 
   auto recom_block_src_list = dist_sampling_ret.first;
   auto recom_block_dst_list = dist_sampling_ret.second;
@@ -300,23 +341,28 @@ std::pair<SamplingExecutorV2::sampling_ret, IdArray> SamplingExecutorV2::SampleB
     auto start_time = std::chrono::high_resolution_clock::now();
     NDArray src_inputs = Pull("features", View(recom_block.second, batch_size));
     auto end_time = std::chrono::high_resolution_clock::now();
-    PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_features", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_size_features", src_inputs.GetSize());
     src_inputs_list.push_back(src_inputs);
   }
   
   for (int layer_idx = 1; layer_idx < num_layers_ - 1; layer_idx++) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    NDArray src_inputs = Pull("layer_" + std::to_string(layer_idx - 1), View(recom_block.second, batch_size + recompute_ids->shape[0]));
+    auto name = "layer_" + std::to_string(layer_idx - 1);
+    NDArray src_inputs = Pull(name, View(recom_block.second, batch_size + recompute_ids->shape[0]));
     auto end_time = std::chrono::high_resolution_clock::now();
-    PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_" + name, std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_size_" + name, src_inputs.GetSize());
     src_inputs_list.push_back(src_inputs);
   }
 
   {
     auto start_time = std::chrono::high_resolution_clock::now();
-    NDArray src_inputs = Pull("layer_" + std::to_string(num_layers_ - 2), reuse_ids);
+    auto name = "layer_" + std::to_string(num_layers_ - 2);
+    NDArray src_inputs = Pull(name, reuse_ids);
     auto end_time = std::chrono::high_resolution_clock::now();
-    PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_" + name, std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_size_" + name, src_inputs.GetSize());
     src_inputs_list.push_back(src_inputs);
   }
 
@@ -355,15 +401,24 @@ std::tuple<SamplingExecutorV2::sampling_ret, IdArray, IdArray> SamplingExecutorV
 
   CHECK_EQ(direct_neighbor_ids_cpu->shape[0], new_degrees->shape[0]);
 
-  List<Value> policy_fn_inputs;
-  policy_fn_inputs.push_back(Value(MakeValue(direct_neighbor_ids_cpu)));
-  policy_fn_inputs.push_back(Value(MakeValue(new_degrees)));
-  List<Value> recom_policy_ret = pe_recom_policy_fn_(policy_fn_inputs);
+  IdArray recompute_ids;
+  IdArray reuse_ids;
+  IdArray recompute_mask;
+  IdArray recompute_pos;
+  {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    List<Value> policy_fn_inputs;
+    policy_fn_inputs.push_back(Value(MakeValue(direct_neighbor_ids_cpu)));
+    policy_fn_inputs.push_back(Value(MakeValue(new_degrees)));
+    List<Value> recom_policy_ret = pe_recom_policy_fn_(policy_fn_inputs);
 
-  IdArray recompute_ids = recom_policy_ret[0]->data;
-  IdArray reuse_ids = recom_policy_ret[1]->data;
-  IdArray recompute_mask = recom_policy_ret[2]->data;
-  IdArray recompute_pos = recom_policy_ret[3]->data;
+    recompute_ids = recom_policy_ret[0]->data;
+    reuse_ids = recom_policy_ret[1]->data;
+    recompute_mask = recom_policy_ret[2]->data;
+    recompute_pos = recom_policy_ret[3]->data;
+    auto end_time = std::chrono::high_resolution_clock::now();
+    PutTrace(batch_id, "recom_policy", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  }
 
   auto recom_block_local_target_ids = Concat({ new_lhs_ids_prefix.CopyTo(cpu_ctx_), recompute_ids });
 
@@ -374,12 +429,23 @@ std::tuple<SamplingExecutorV2::sampling_ret, IdArray, IdArray> SamplingExecutorV
   IdArray recom_block_num_assigned_target_nodes = all_gather_ret[1]->data;
 
   auto edge_arr = reversed_block.first->InEdges(0, Add(recompute_pos, num_local_target_nodes).CopyTo(gpu_ctx_));
-  auto dist_edges_ret = DistributeEdges(
-    target_gnids,
-    num_assigned_targets,
-    IndexSelect(reversed_block.second, edge_arr.src),
-    IndexSelect(reversed_block.second, edge_arr.dst)
-  );
+
+  std::pair<IdArray, IdArray> dist_edges_ret;
+  {
+    auto global_src_ids = IndexSelect(reversed_block.second, edge_arr.src);
+    auto global_dst_ids = IndexSelect(reversed_block.second, edge_arr.dst);
+    auto start_time = std::chrono::high_resolution_clock::now();
+    dist_edges_ret = DistributeEdges(
+      target_gnids,
+      num_assigned_targets,
+      global_src_ids,
+      global_dst_ids
+    );
+    auto end_time = std::chrono::high_resolution_clock::now();
+    PutTrace(batch_id, "fetch_edges", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    int64_t fetch_size = dist_edges_ret.first.GetSize() + dist_edges_ret.second.GetSize();
+    PutTrace(batch_id, "fetch_size_edges", fetch_size);
+  }
 
   std::vector<IdArray> recom_src_ids_list, recom_dst_ids_list;
   recom_src_ids_list.push_back(dist_edges_ret.first);
@@ -408,23 +474,28 @@ std::tuple<SamplingExecutorV2::sampling_ret, IdArray, IdArray> SamplingExecutorV
     auto start_time = std::chrono::high_resolution_clock::now();
     NDArray src_inputs = Pull("features", View(recom_block.second, num_local_target_nodes));
     auto end_time = std::chrono::high_resolution_clock::now();
-    PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_features", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_size_features", src_inputs.GetSize());
     src_inputs_list.push_back(src_inputs);
   }
   
   for (int layer_idx = 1; layer_idx < num_layers_ - 1; layer_idx++) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    NDArray src_inputs = Pull("layer_" + std::to_string(layer_idx - 1), View(recom_block.second, num_local_target_nodes + recompute_ids->shape[0]));
+    auto name = "layer_" + std::to_string(layer_idx - 1);
+    NDArray src_inputs = Pull(name, View(recom_block.second, num_local_target_nodes + recompute_ids->shape[0]));
     auto end_time = std::chrono::high_resolution_clock::now();
-    PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_" + name, std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_size_" + name, src_inputs.GetSize());
     src_inputs_list.push_back(src_inputs);
   }
 
   {
     auto start_time = std::chrono::high_resolution_clock::now();
-    NDArray src_inputs = Pull("layer_" + std::to_string(num_layers_ - 2), reuse_ids);
+    auto name = "layer_" + std::to_string(num_layers_ - 2);
+    NDArray src_inputs = Pull(name, reuse_ids);
     auto end_time = std::chrono::high_resolution_clock::now();
-    PutTrace(batch_id, "fetch", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_" + name, std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    PutTrace(batch_id, "fetch_size_" + name, src_inputs.GetSize());
     src_inputs_list.push_back(src_inputs);
   }
   

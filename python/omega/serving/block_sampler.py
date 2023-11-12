@@ -47,6 +47,7 @@ class BlockSampler:
         out_degrees,
         gnid_to_local_id_mapping,
         fanouts,
+        tracing,
         device):
 
         self._dist_g = dist_g
@@ -64,6 +65,7 @@ class BlockSampler:
         self._gnid_to_local_id_mapping = gnid_to_local_id_mapping
         self._device = device
         self._callback_holder = set()
+        self._tracing = tracing
 
         kv_store = get_kvstore()
         key_names = ["features"]
@@ -201,7 +203,8 @@ class BlockSampler:
                 num_assigned_target_nodes,
                 gidx=graph_idx,
                 ntypes=(['_N'], ['_N']),
-                etypes=['_E'])
+                etypes=['_E'],
+                tracing=self._tracing)
 
             dist_block.srcdata[dgl.NID] = src_ids
             blocks.append(dist_block)
@@ -235,7 +238,8 @@ class BlockSampler:
                 recom_block_num_assigned_target_nodes,
                 gidx=graph_idx_list[0],
                 ntypes=(['_N'], ['_N']),
-                etypes=['_E'])
+                etypes=['_E'],
+                tracing=self._tracing)
         recompute_block.srcdata[dgl.NID] = src_ids_list[0]
 
         block = DGLDistributedBlock(
@@ -244,7 +248,8 @@ class BlockSampler:
                 num_assigned_target_nodes,
                 gidx=graph_idx_list[1],
                 ntypes=(['_N'], ['_N']),
-                etypes=['_E'])
+                etypes=['_E'],
+                tracing=self._tracing)
         block.srcdata[dgl.NID] = src_ids_list[1]
 
         return recompute_block, recompute_mask.type(torch.bool), block, fetched_inputs_list, num_local_target_nodes

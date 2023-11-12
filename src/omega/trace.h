@@ -14,9 +14,9 @@
 namespace dgl {
 namespace omega {
 
-void PutTrace(int batch_id, const std::string& name, int elapsed_micro);
+void PutTrace(int batch_id, const std::string& name, int64_t elapsed_micro);
 
-std::vector<std::tuple<int, std::string, int>> GetCppTraces();
+std::vector<std::tuple<int, std::string, int64_t>> GetCppTraces();
 
 }
 }

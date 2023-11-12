@@ -27,6 +27,7 @@ class DGLDistributedBlock(DGLBlock):
                  etypes=['_E'],
                  node_frames=None,
                  edge_frames=None,
+                 tracing=False,
                  **deprecate_kwargs):
         super(DGLDistributedBlock, self).__init__(
             gidx=gidx,
@@ -46,7 +47,9 @@ class DGLDistributedBlock(DGLBlock):
         self._dtid = self.get_ntype_id_from_dst(dsttype)
 
         self._node_frames[self._dtid] = frame.Frame(num_rows=self._num_local_target_nodes)
-
+        self._tracing = tracing
+        self._all_gather_tracing = []
+        self._all_to_all_tracing = []
 
     def _set_dist_values(self, gpu_rank_in_group, gpu_ranks, num_assigned_target_nodes):
         self._gpu_rank_in_group = gpu_rank_in_group
@@ -62,6 +65,14 @@ class DGLDistributedBlock(DGLBlock):
         self._target_end_idx = self._num_assigned_target_nodes_cumsum[self._gpu_rank_in_group + 1]
         self._num_target_nodes = self._num_assigned_target_nodes_cumsum[-1]
         self._num_local_target_nodes = num_assigned_target_nodes[gpu_rank_in_group]
+
+    @property
+    def all_gather_tracing(self):
+        return self._all_gather_tracing
+
+    @property
+    def all_to_all_tracing(self):
+        return self._all_to_all_tracing
 
     @property
     def gpu_rank_in_group(self):
@@ -86,7 +97,17 @@ class DGLDistributedBlock(DGLBlock):
     def in_degrees(self):
         if self._in_degrees is None:
             local_in_degrees = torch.clone(super(DGLDistributedBlock, self).in_degrees())
+            if self._tracing:
+                start_event = torch.cuda.Event(enable_timing=True)
+                start_event.record()
             dist.all_reduce(local_in_degrees, group=NCCL_GROUP)
+
+            if self._tracing:
+                end_event = torch.cuda.Event(enable_timing=True)
+                end_event.record()
+                all_gather_size = local_in_degrees.numel() * local_in_degrees.element_size()
+                self._all_gather_tracing.append((start_event, end_event, all_gather_size))
+
             self._in_degrees = local_in_degrees[self._target_start_idx:self._target_end_idx]
 
         return self._in_degrees
@@ -239,15 +260,28 @@ class DGLDistributedBlock(DGLBlock):
         with local_g.local_scope():
             local_aggrs = local_aggr_fn(local_g)
 
+        if self._tracing:
+            start_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            all_to_all_size = 0
+
         req_handles = []
         aggrs = {}
         for k, input_tensor in local_aggrs.items():
             output_tensor, req_handle = self.all_to_all_aggrs(input_tensor)
             aggrs[k] = output_tensor
+            if self._tracing:
+                all_to_all_size += output_tensor.numel() * output_tensor.element_size()
+                print(f"key={k}, output_tensor.shape={output_tensor.shape}", file=sys.stderr)
             req_handles.append(req_handle)
 
         for r in req_handles:
             r.wait()
+
+        if self._tracing:
+            end_event = torch.cuda.Event(enable_timing=True)
+            end_event.record()
+            self._all_to_all_tracing.append((start_event, end_event, all_to_all_size))
 
         self._set_n_repr(self._dtid, ALL, merge_fn(aggrs))
 
@@ -272,6 +306,10 @@ class DGLDistributedBlock(DGLBlock):
         output_tensor = torch.zeros(output_tensor_dim, dtype=input_tensor.dtype, device=self.device)
         outputs = list(output_tensor.split(self._num_assigned_target_nodes))
 
+        if self._tracing:
+            start_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+
         for i in range(self._num_gpus):
             if i == self._gpu_rank_in_group:
                 req_handles.append(dist.broadcast(input_tensor, self._gpu_ranks[i], async_op=True, group=NCCL_GROUP))
@@ -282,6 +320,12 @@ class DGLDistributedBlock(DGLBlock):
 
         for r in req_handles:
             r.wait()
+
+        if self._tracing:
+            end_event = torch.cuda.Event(enable_timing=True)
+            end_event.record()
+            all_gather_size = output_tensor.numel() * output_tensor.element_size()
+            self._all_gather_tracing.append((start_event, end_event, all_gather_size))
 
         return output_tensor
 

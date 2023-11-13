@@ -63,14 +63,18 @@ def main(args):
             sampled_ret = sample_edges(target_gnids, src_gnids, dst_gnids, [args.fanout])
             src_gnids, dst_gnids = sampled_ret[0][0], sampled_ret[0][1]
 
-        dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), {
+        trace_data = {
             "org_gnids": infer_g.ndata[dgl.NID][batch_local_ids],
             "target_gnids": target_gnids,
             "src_gnids": src_gnids,
             "dst_gnids": dst_gnids,
-            "target_features": target_features.type(torch.float32),
-            "target_labels": infer_g.ndata["labels"][batch_local_ids]
-        })
+            "target_features": target_features.type(torch.float32)
+        }
+
+        if "labels" in infer_g.ndata:
+            trace_data["target_labels"] = infer_g.ndata["labels"][batch_local_ids]
+
+        dgl.data.save_tensors(str(trace_output_dir / f"{trace_idx}.dgl"), trace_data)
 
         if trace_idx % 100 == 0:
             print(f"{trace_idx}-th input trace generated")

@@ -27,6 +27,8 @@ class CUDADeviceAPI final : public DeviceAPI {
         cudaGetLastError();
     }
     is_available_ = count > 0;
+    force_uncached_ =
+      getenv("PYTORCH_NO_CUDA_MEMORY_CACHING") != nullptr;
   }
 
   bool IsAvailable() final { return is_available_; }
@@ -263,6 +265,13 @@ class CUDADeviceAPI final : public DeviceAPI {
   void* AllocWorkspace(
       DGLContext ctx, size_t size, DGLDataType type_hint) final {
     SetDevice(ctx);
+
+    if (force_uncached_) {
+      void* ret;
+      CUDA_CALL(cudaMalloc(&ret, size));
+      return ret;
+    }
+
     // Redirect to PyTorch's allocator when available.
     TensorDispatcher* td = TensorDispatcher::Global();
     if (td->IsAvailable())
@@ -273,6 +282,12 @@ class CUDADeviceAPI final : public DeviceAPI {
 
   void FreeWorkspace(DGLContext ctx, void* data) final {
     SetDevice(ctx);
+
+    if (force_uncached_) {
+      CUDA_CALL(cudaFree(data));
+      return;
+    }
+
     TensorDispatcher* td = TensorDispatcher::Global();
     if (td->IsAvailable()) return td->CUDAFreeWorkspace(data);
 
@@ -298,6 +313,7 @@ class CUDADeviceAPI final : public DeviceAPI {
   }
 
   bool is_available_ = true;
+  bool force_uncached_ = false;
 };
 
 typedef dmlc::ThreadLocalStore<CUDAThreadEntry> CUDAThreadStore;

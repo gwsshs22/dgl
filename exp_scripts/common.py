@@ -6,6 +6,17 @@ from dataclasses import dataclass
 
 from omega.utils import get_dataset_config
 
+
+HIDDEN_DIMS = {
+    "reddit": 128,
+    "yelp": 512,
+    "amazon": 512,
+    "ogbn-products": 128,
+    "ogbn-papers100M": 512,
+    "fb5b": 128,
+    "fb10b": 128
+}
+
 @dataclass
 class LatencyExpParams:
     num_reqs: int
@@ -16,6 +27,19 @@ class ThroughputExpParams:
     exp_secs: float
     arrival_type: str = "poisson"
 
+def get_recom_threshold(graph_name, gnn, num_layers):
+    if graph_name == "amazon":
+        if gnn == "gcn" and num_layers == 2:
+            return 98
+        if gnn == "gat" and num_layers == 3:
+            return 99
+    if graph_name == "yelp":
+        if gnn == "gcn" and num_layers == 2:
+            return 75
+        if gnn == "gat" and num_layers == 3:
+            return 93
+    return 100
+
 def run_exp(
     num_machines,
     graph_name,
@@ -24,27 +48,38 @@ def run_exp(
     fanouts,
     exec_type, # dp, dp-precoms, cgp-multi, cgp,
     exp_type, # latency, throughput
-    recom_threshold=100,
+    recom_threshold=100, # Use 'auto' for recomputation with < 1% acc drop
     latency_exp_params=None,
     throughput_exp_params=None,
     exp_result_dir=None,
     gat_heads=None,
     feature_dim=None,
-    num_hiddens=128,
+    num_hiddens=None,
     batch_size=1024,
     num_gpus_per_machine=2,
     graph_partitioning="random",
     worker_num_sampler_threads=1,
     extra_env_names=[],
-    force_run_dp=False
+    profiling=False,
+    force_cuda_mem_uncached=False
 ):
     extra_envs = " ".join([f"{key}={os.environ[key]}" for key in extra_env_names])
+    if force_cuda_mem_uncached:
+        extra_envs += " PYTORCH_NO_CUDA_MEMORY_CACHING=1"
     dataset_config = get_dataset_config(graph_name)
     num_classes = dataset_config.num_classes
     num_inputs = dataset_config.num_inputs
 
     if (graph_name == "fb5b" or graph_name == "fb10b") and feature_dim is None:
-        feature_dim = 2048
+        feature_dim = 1024
+
+    if num_hiddens is None:
+        num_hiddens = HIDDEN_DIMS[graph_name]
+    
+    if recom_threshold == 'auto':
+        recom_threshold = get_recom_threshold(graph_name, gnn, num_layers)
+    
+    assert 0 <= recom_threshold and recom_threshold <= 100 and type(recom_threshold) == int
 
     if feature_dim is not None:
         num_inputs = feature_dim
@@ -66,7 +101,7 @@ def run_exp(
         assert all([h > 0 for h in gat_heads])
         gat_heads_str = ",".join([str(h) for h in gat_heads])
     else:
-        gat_heads_str = ",".join(["4"] * num_layers)
+        gat_heads_str = ",".join(["8"] * num_layers)
 
     partitioned_graph_name = f"{graph_name}-{graph_partitioning}-{num_machines}"
     if exec_type == "cgp" or exec_type == "cgp-multi":
@@ -105,6 +140,11 @@ def run_exp(
         exp_result_args = f" --tracing --result_dir {exp_result_dir} "
     else:
         exp_result_args = ""
+    
+    if profiling:
+        profiling_args = f" --profiling "
+    else:
+        profiling_args = ""
 
     command = f"""
     python $DGL_HOME/python/omega/tools/launch_omega.py \
@@ -128,26 +168,23 @@ def run_exp(
     --gat_heads {gat_heads_str} --fanouts {fanouts_str} \
     {exec_args} \
     {exp_args} \
-    {exp_result_args}
+    {exp_result_args} \
+    {profiling_args}
     """
-
-    if not force_run_dp and (exec_type == "dp" and not sampling) and graph_name != "ogbn-products":
-        print(f"Do not run experiment with full dp execution except for ogbn-products. command={command}")
-        return
 
     OMEGA_DEBUG = os.environ.get("OMEGA_DEBUG", "0")
     if OMEGA_DEBUG == "1":
-        print(f"[DEBUG] command={command}")
+        print(f"[DEBUG] command={command}", file=sys.stderr)
     elif exp_has_been_done(exp_result_dir):
-        print(f"SKip running as it has been done. command={command}")
+        print(f"SKip running as it has been done. command={command}", file=sys.stderr)
     else:
         exit_code = os.system(command)
         if exit_code != 0:
-            print(f"Run experiment failed. command={command}")
+            print(f"Run experiment failed. command={command}", file=sys.stderr)
         if exec_type == "dp":
-            time.sleep(20) # Wait for socket release
+            time.sleep(30) # Wait for socket release
         else:
-            time.sleep(10) # Wait for socket release
+            time.sleep(15) # Wait for socket release
 
 def exp_has_been_done(exp_result_dir):
     if not exp_result_dir:
@@ -156,4 +193,14 @@ def exp_has_been_done(exp_result_dir):
     return (exp_result_dir / "config.json").exists() and (exp_result_dir / "traces.txt").exists()
 
 if __name__ == "__main__":
-    run_exp(4, "yelp", "gat", 3, [], "dp-precoms", "latency", latency_exp_params=LatencyExpParams(num_reqs=10), extra_env_names=["NCCL_IB_DISABLE"], force_run_dp=True, recom_threshold=95, num_hiddens=512)
+    run_exp(
+        4,
+        "ogbn-papers100M",
+        "gat",
+        3,
+        [],
+        "cgp-multi",
+        "latency", latency_exp_params=LatencyExpParams(num_reqs=30),
+        extra_env_names=[],
+        recom_threshold=100,
+        )

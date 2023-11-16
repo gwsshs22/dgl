@@ -272,7 +272,7 @@ class DGLDistributedBlock(DGLBlock):
             aggrs[k] = output_tensor
             if self._tracing:
                 all_to_all_size += output_tensor.numel() * output_tensor.element_size()
-                print(f"key={k}, output_tensor.shape={output_tensor.shape}", file=sys.stderr)
+
             req_handles.append(req_handle)
 
         for r in req_handles:

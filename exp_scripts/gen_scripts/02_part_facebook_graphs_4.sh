@@ -54,6 +54,6 @@ python $DGL_HOME/exp_scripts/distribute_data.py \
 
 rsync -avP --mkpath $DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-bs-1024/ gwkim@node0:$DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-bs-1024/
 rsync -avP --mkpath $DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-bs-1024-sampled/ gwkim@node0:$DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-bs-1024-sampled/
-rsync -avP --mkpath $DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-outedges-bs-1024/ gwkim@node0: $DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-outedges-bs-1024/
+rsync -avP --mkpath $DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-outedges-bs-1024/ gwkim@node0:$DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-outedges-bs-1024/
 rsync -avP --mkpath $DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-outedges-bs-1024-sampled/ gwkim@node0:$DGL_DATA_HOME/omega_traces/$GRAPH_NAME-random-$NUM_PARTS-outedges-bs-1024-sampled/
 done

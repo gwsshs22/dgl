@@ -24,7 +24,7 @@ std::pair<HeteroGraphPtr, IdArray> ToBlockGPU(const IdArray& u,
                                               const IdArray& dst_ids,
                                               const IdArray& src_ids,
                                               const IdArray& new_lhs_ids_prefix) {
-
+  bool force_uncached = getenv("PYTORCH_NO_CUDA_MEMORY_CACHING") != nullptr;
   const bool generate_src_ids = src_ids->shape[0] == 0;
   const auto& ctx = u->ctx;
   auto device = DeviceAPI::Get(ctx);
@@ -38,8 +38,13 @@ std::pair<HeteroGraphPtr, IdArray> ToBlockGPU(const IdArray& u,
     max_lhs_nodes = src_ids->shape[0];
   }
 
-  auto lhs_hash_table = std::make_unique<OrderedHashTable<int64_t>>(max_lhs_nodes, ctx, stream);
-  auto rhs_hash_table = std::make_unique<OrderedHashTable<int64_t>>(max_rhs_nodes, ctx, stream);
+  int scale = 3;
+  if (force_uncached) {
+    scale = 2;
+  }
+
+  auto lhs_hash_table = std::make_unique<OrderedHashTable<int64_t>>(max_lhs_nodes, ctx, stream, scale);
+  auto rhs_hash_table = std::make_unique<OrderedHashTable<int64_t>>(max_rhs_nodes, ctx, stream, scale);
 
   rhs_hash_table->FillWithUnique(dst_ids.Ptr<int64_t>(), max_rhs_nodes, stream);
 

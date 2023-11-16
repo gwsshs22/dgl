@@ -192,6 +192,7 @@ def process_main(
         gloo_group,
         nccl_group,
         global_nccl_group,
+        graph_name,
         load_dgl_graph,
         part_config,
         num_machines,
@@ -254,6 +255,7 @@ class LocalExecutionContext:
         gloo_group,
         nccl_group,
         global_nccl_group,
+        graph_name,
         load_dgl_graph,
         part_config,
         num_machines,
@@ -303,6 +305,7 @@ class LocalExecutionContext:
         self._load_degrees()
         self._set_cgp_conf(load_dgl_graph)
         self._create_block_sampler()
+        self._large_full_dp = "PYTORCH_NO_CUDA_MEMORY_CACHING" in os.environ
 
     def _load_model(self):
         gat_heads = [int(h) for h in self._model_config.gat_heads.split(",")]
@@ -405,7 +408,10 @@ class LocalExecutionContext:
                     ret_tensor = self.execute_cgp_with_precoms(batch_id, target_gnids, target_features, src_gnids, dst_gnids)
             else:
                 if self._exec_mode == "dp":
-                    ret_tensor = self.execute_dp(batch_id, target_gnids, target_features, src_gnids, dst_gnids)
+                    if self._large_full_dp:
+                        ret_tensor = self.execute_large_full_dp(batch_id, target_gnids, target_features, src_gnids, dst_gnids)
+                    else:    
+                        ret_tensor = self.execute_dp(batch_id, target_gnids, target_features, src_gnids, dst_gnids)
                 elif self._exec_mode == "cgp" or self._exec_mode == "cgp-multi":
                     raise NotImplementedError()
         except Exception as ex:
@@ -415,33 +421,88 @@ class LocalExecutionContext:
 
         fut.set_result((batch_id, ret_tensor))
 
-    def execute_dp(self, batch_id, target_gnids, target_features, src_gnids, dst_gnids):
-            with trace_me(batch_id, "copy", self._device):
-                src_gnids = src_gnids.to(self._device)
-                dst_gnids = dst_gnids.to(self._device)
-                target_gnids = target_gnids.to(self._device)
+    def execute_large_full_dp(self, batch_id, target_gnids, target_features, src_gnids, dst_gnids):
+        with trace_me(batch_id, "copy", self._device):
+            src_gnids = src_gnids.to(self._device)
+            dst_gnids = dst_gnids.to(self._device)
+            target_gnids = target_gnids.to(self._device)
 
-            with trace_me(batch_id, "mfg", self._device):
-                blocks, fetched_inputs_list = self._block_sampler.sample_blocks_dp(batch_id, target_gnids, src_gnids, dst_gnids)
-                trace_blocks(batch_id, blocks)
+        with trace_me(batch_id, "mfg", self._device):
+            blocks, fetched_inputs_list = self._block_sampler.sample_blocks_dp(batch_id, target_gnids, src_gnids, dst_gnids)
+            trace_blocks(batch_id, blocks)
 
-            with trace_me(batch_id, "copy", self._device):
-                input_features = fetched_inputs_list[0]
-                input_features = input_features.to(self._device)
-                target_features = target_features.to(self._device)
-                features = torch.concat((
-                    target_features,
-                    input_features
-                ))
+        with trace_me(batch_id, "copy", self._device):
+            input_features = fetched_inputs_list[0]
+            input_features = input_features.to(self._device)
+            target_features = target_features.to(self._device)
+            features = torch.concat((
+                target_features,
+                input_features
+            ))
 
+        with trace_me(batch_id, "delete", self._device):
+            del fetched_inputs_list
+            del input_features
+            gc.collect()
+
+        with trace_me(batch_id, "compute", self._device):
+            h0 = self._model.feature_preprocess(features)
+
+            h = h0
+            h = self._model.layer_foward(0, blocks[0], h, h0)
+
+        with trace_me(batch_id, "delete", self._device):
+            blocks.pop(0)
+            del features
+            gc.collect()
+    
+        for layer_idx in range(1, self._num_layers):
             with trace_me(batch_id, "compute", self._device):
-                h = self._model(blocks, features)
-                h = h.cpu()
+                h = self._model.layer_foward(layer_idx, blocks[0], h, h0)
 
             with trace_me(batch_id, "delete", self._device):
-                del fetched_inputs_list
+                blocks.pop(0)
+                gc.collect()
 
-            return h
+        with trace_me(batch_id, "compute", self._device):
+            h = h.cpu()
+    
+        with trace_me(batch_id, "delete", self._device):
+            del blocks
+
+        return h
+
+    def execute_dp(self, batch_id, target_gnids, target_features, src_gnids, dst_gnids):
+        with trace_me(batch_id, "copy", self._device):
+            src_gnids = src_gnids.to(self._device)
+            dst_gnids = dst_gnids.to(self._device)
+            target_gnids = target_gnids.to(self._device)
+
+        with trace_me(batch_id, "mfg", self._device):
+            blocks, fetched_inputs_list = self._block_sampler.sample_blocks_dp(batch_id, target_gnids, src_gnids, dst_gnids)
+            trace_blocks(batch_id, blocks)
+
+        with trace_me(batch_id, "copy", self._device):
+            input_features = fetched_inputs_list[0]
+            input_features = input_features.to(self._device)
+            target_features = target_features.to(self._device)
+            features = torch.concat((
+                target_features,
+                input_features
+            ))
+
+        with trace_me(batch_id, "compute", self._device):
+            h = self._model(blocks, features)
+            h = h.cpu()
+
+        with trace_me(batch_id, "delete", self._device):
+            del fetched_inputs_list
+            del blocks
+            del input_features
+            del features
+            del target_features
+
+        return h
 
     def execute_dp_with_precoms(self, batch_id, target_gnids, target_features, src_gnids, dst_gnids):
         if self._recom_threshold == 100:
@@ -480,6 +541,7 @@ class LocalExecutionContext:
     
         with trace_me(batch_id, "delete", self._device):
             del fetched_inputs_list
+            del blocks
 
         return h
 
@@ -531,6 +593,8 @@ class LocalExecutionContext:
 
         with trace_me(batch_id, "delete", self._device):
             del fetched_inputs_list
+            del recompute_block
+            del block
 
         return h
 
@@ -569,8 +633,9 @@ class LocalExecutionContext:
             h = h.cpu()
 
         with trace_me(batch_id, "delete", self._device):
-            del fetched_inputs_list
             collect_dist_block_stats(batch_id, blocks)
+            del fetched_inputs_list
+            del blocks
 
         return h
 
@@ -621,8 +686,12 @@ class LocalExecutionContext:
             h = h.cpu()
 
         with trace_me(batch_id, "delete", self._device):
-            del fetched_inputs_list
             collect_dist_block_stats(batch_id, blocks)
+            del fetched_inputs_list
+            del blocks
+            del recompute_block
+            del block
+
         return h
 
     def _all_gather_recompute_block_target_ids(self, local_recompute_block_target_ids):

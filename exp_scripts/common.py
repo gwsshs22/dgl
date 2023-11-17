@@ -195,12 +195,13 @@ def exp_has_been_done(exp_result_dir):
 if __name__ == "__main__":
     run_exp(
         4,
-        "ogbn-papers100M",
-        "gat",
+        "ogbn-products",
+        "sage",
         3,
         [],
         "cgp-multi",
         "latency", latency_exp_params=LatencyExpParams(num_reqs=30),
         extra_env_names=[],
         recom_threshold=100,
+        batch_size=1024
         )

@@ -12,13 +12,13 @@ def main(args):
         extra_env_names = args.extra_env_names.split(",")
 
     graph_names = ["ogbn-products", "fb10b"]
-    exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
+    exec_types = ["cgp-multi", "cgp", "dp-precoms"]
     gnn = "sage"
     num_layers = 3
     exp_result_dir = f"{args.exp_root_dir}/feature_dims"
 
     for graph_name in graph_names:
-        for feature_dim in [128, 256, 512, 1024, 2048]:
+        for feature_dim in [64, 128, 256, 512, 1024, 2048]:
             for exec_type in exec_types:
                 num_reqs = args.num_reqs if exec_type != "dp" else args.full_dp_num_reqs
 

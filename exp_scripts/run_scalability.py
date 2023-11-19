@@ -3,7 +3,10 @@ import time
 
 from common import run_exp, LatencyExpParams
 
-def turn_off_memory_cache(exec_type, graph_name, gnn, num_layers):
+def turn_off_memory_cache(num_machines, exec_type, graph_name, gnn, num_layers):
+    if num_machines == 2 and graph_name == "fb10b" and gnn == "gat" and num_layers >= 3:
+        return True
+
     if exec_type != "dp":
         return False
 
@@ -21,7 +24,8 @@ def main(args):
 
     gnn_names = ["gcn", "sage", "gat"]
     graph_names = ["fb10b", "ogbn-products"]
-    exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
+    # exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
+    exec_types = ["cgp-multi", "cgp", "dp-precoms"]
 
     extra_env_names = []
     if args.extra_env_names:
@@ -31,7 +35,7 @@ def main(args):
     exp_result_dir = f"{args.exp_root_dir}/scalability"
 
     for graph_name in graph_names:
-        for num_machines in [3, 2]:
+        for num_machines in [2, 3]:
             for gnn in gnn_names:
                 for exec_type in exec_types:
                     num_reqs = args.num_reqs
@@ -50,7 +54,7 @@ def main(args):
                         exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_nm_{num_machines}",
                         extra_env_names=extra_env_names,
                         recom_threshold='auto',
-                        force_cuda_mem_uncached=turn_off_memory_cache(exec_type, graph_name, gnn, num_layers)
+                        force_cuda_mem_uncached=turn_off_memory_cache(num_machines, exec_type, graph_name, gnn, num_layers)
                     )
 
     print(f"Total experiments time={time.time() - start_t}s", flush=True)

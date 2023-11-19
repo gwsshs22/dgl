@@ -5,7 +5,7 @@ NUM_PARTS=4
 
 for GRAPH_NAME in "ogbn-products" "yelp" "amazon" "reddit" "ogbn-papers100M"
 do
-for BATCH_SIZE in "128" "256" "512" "2048"
+for BATCH_SIZE in "64" "128" "256" "512" "2048"
 do
 
 python -m omega.tools.gen_request_trace \

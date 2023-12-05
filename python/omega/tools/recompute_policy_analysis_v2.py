@@ -32,7 +32,7 @@ def main(args):
     part_config_dir = part_config_path.parent
 
     gcn_both_norm = (training_config["gnn"] == "gcn" or training_config["gnn"] == "gcn2") and training_config["gcn_norm"] == "both"
-    print(f"gcn_both_norm={gcn_both_norm}", file=sys.stderr)
+
     traces = load_traces(args.trace_dir)
 
     if dataset_config.multilabel:
@@ -66,11 +66,18 @@ def main(args):
 
     num_eval_traces = args.num_eval_traces if args.num_eval_traces > 0 else len(traces)
 
-    thresholds = [100, 99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 60, 40, 20, 0]
+    thresholds = [100, 99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0]
+    # thresholds = [100, 95, 90, 80, 20, 0]
 
     full_logits_arr = []
     full_labels_arr = []
     logits_dict = defaultdict(lambda: defaultdict(list))
+
+    with g.local_scope():
+        g.ndata["dgr"] = 1 / g.in_degrees().clamp(min=1).type(torch.float32)
+        g.update_all(fn.copy_u("dgr", "m"), fn.mean("m", "importance_score"))
+        importance_score = g.ndata["importance_score"]
+
 
     if args.sampled:
         if training_config["gnn"] == "gcn":
@@ -102,11 +109,11 @@ def main(args):
             with torch.no_grad():
                 logits, labels = compute_sampled_blocks_with_pe_no_recom(g, features, device, model, num_layers, fanouts, trace, batch_pe_provider)
                 pe_logits_arr.append(logits)
-        
+
         correct_labels = torch.concat(full_labels_arr)
         full_acc = get_acc_fn(correct_labels, torch.concat(full_logits_arr))
         pe_acc = get_acc_fn(correct_labels, torch.concat(pe_logits_arr))
-        print(f"Full acc={full_acc}, pe acc={pe_acc}")
+        print(f"Full acc={full_acc}, pe acc={pe_acc}", file=sys.stderr)
 
         results = vars(args)
         results["full_acc"] = full_acc
@@ -119,10 +126,11 @@ def main(args):
             f.write(json.dumps(results, indent=4, sort_keys=True))
             f.write("\n")
     else:
-        policy_names = ["random", "new_edge_ratios", "saint_is", "low_indegrees"]
+        policy_names = ["random", "low_indegrees", "node_importance"]
         if compute_grad:
             policy_names.append("first_order_approx")
         for trace_idx in range(num_eval_traces):
+            print(f"trace_idx={trace_idx} / {num_eval_traces}", file=sys.stderr)
             trace = traces[trace_idx]
 
             if compute_grad:
@@ -145,14 +153,16 @@ def main(args):
                     logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, random_policy, threshold)
                     logits_dict["random"][threshold].append(logits)
 
-                    logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, new_edge_ratios_policy, threshold)
-                    logits_dict["new_edge_ratios"][threshold].append(logits)
+                    def node_importance_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                        batch_size = last_block.num_dst_nodes()
+                        pe_nids = last_block.srcdata[dgl.NID][batch_size:]
+                        return importance_score[pe_nids]
+
+                    logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, node_importance_policy, threshold)
+                    logits_dict["node_importance"][threshold].append(logits)
 
                     logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, low_indegrees_policy, threshold)
                     logits_dict["low_indegrees"][threshold].append(logits)
-
-                    logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, saint_is_policy, threshold)
-                    logits_dict["saint_is"][threshold].append(logits)
 
                     if compute_grad:
                         def first_order_approx_policy(trace, last_block, new_in_degrees, org_in_degrees):
@@ -165,21 +175,32 @@ def main(args):
                         logits_dict["first_order_approx"][threshold].append(logits)
 
         policy_accs = defaultdict(list)
+        per_batch_policy_accs = defaultdict(list)
 
         labels = torch.concat(full_labels_arr)
 
+        per_batch_full_accs = []
+        for y, x in zip(full_labels_arr, full_logits_arr):
+            per_batch_full_accs.append(get_acc_fn(y, x))
         full_acc = get_acc_fn(labels, torch.concat(full_logits_arr))
 
-        print(f"Full acc={full_acc}")
+        print(f"Full acc={full_acc}", file=sys.stderr)
 
         for policy_name in policy_names: 
             for threshold in thresholds:
                 acc = get_acc_fn(labels, torch.concat(logits_dict[policy_name][threshold]))
                 policy_accs[policy_name].append(acc)
+
+                per_batch_accs = []
+                for y, x in zip(full_labels_arr, logits_dict[policy_name][threshold]):
+                    per_batch_accs.append(get_acc_fn(y, x))
+                per_batch_policy_accs[policy_name].append(per_batch_accs)
         results = vars(args)
         results["thresholds"] = thresholds
         results["policy_accs"] = policy_accs
+        results["per_batch_policy_accs"] = per_batch_policy_accs
         results["full_acc"] = full_acc
+        results["per_batch_full_accs"] = per_batch_full_accs
 
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -218,28 +239,8 @@ class OnlinePEProvider:
 
         return self._pes[layer_idx][local_pe_nids]
 
-def new_edge_ratios_policy(trace, last_block, new_in_degrees, org_in_degrees):
-    return (new_in_degrees) / (new_in_degrees + org_in_degrees)
-
 def low_indegrees_policy(trace, last_block, new_in_degrees, org_in_degrees):
     return 1 / org_in_degrees
-
-def saint_is_policy(trace, last_block, new_in_degrees, org_in_degrees):
-    batch_size = last_block.num_dst_nodes()
-    pe_nids = last_block.srcdata[dgl.NID][batch_size:]
-    min_target_id = trace.target_gnids.min()
-
-    edge_mask = torch.logical_and(
-        trace.dst_gnids >= min_target_id,
-        trace.src_gnids < min_target_id)
-
-    block = to_block(trace.dst_gnids[edge_mask], trace.src_gnids[edge_mask], pe_nids, trace.target_gnids)
-
-    block.srcdata["s"] = 1/block.out_degrees()
-    block.dstdata["d"] = 1/(new_in_degrees + org_in_degrees)
-    block.apply_edges(fn.u_add_v("s", "d", "h"))
-    block.update_all(fn.copy_e("h","m"), fn.sum("m", "r"))
-    return block.dstdata["r"]
 
 def random_policy(trace, last_block, new_in_degrees, org_in_degrees):
     return torch.rand(last_block.num_src_nodes() - last_block.num_dst_nodes())
@@ -544,5 +545,5 @@ if __name__ == "__main__":
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.random.manual_seed(args.random_seed)
-    print(args)
+    print(args, file=sys.stderr)
     main(args)

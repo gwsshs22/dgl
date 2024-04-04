@@ -54,6 +54,11 @@ def main(args):
     g = dgl.load_graphs(str(part_config_dir / "part0" / "graph.dgl"))[0][0]
     pe_data_path = part_config_dir / "part0" / "data" / training_id / "tensors.pth"
 
+    with g.local_scope():
+        g.ndata["dgr"] = 1 / g.in_degrees().clamp(min=1).type(torch.float32)
+        g.update_all(fn.copy_u("dgr", "m"), fn.mean("m", "importance_score"))
+        importance_score = g.ndata["importance_score"]
+
     if pe_data_path.exists():
         pe_data = torch.load(pe_data_path)
         pe_provider = PrecomputedPEProvider(pe_data["pes"])
@@ -66,7 +71,10 @@ def main(args):
 
     num_eval_traces = args.num_eval_traces if args.num_eval_traces > 0 else len(traces)
 
-    thresholds = [100, 99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 60, 40, 20, 0]
+    if args.thresholds is None:
+        thresholds = [100, 99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 60, 40, 20, 0]
+    else:
+        thresholds = [int(t) for t in args.thresholds.split(",")]
 
     full_logits_arr = []
     full_labels_arr = []
@@ -119,9 +127,11 @@ def main(args):
             f.write(json.dumps(results, indent=4, sort_keys=True))
             f.write("\n")
     else:
-        policy_names = ["random", "new_edge_ratios", "saint_is", "low_indegrees"]
+        # policy_names = ["random", "new_edge_ratios", "saint_is", "low_indegrees"]
+        policy_names = ["random", "new_edge_ratios", "node_importance"]
         if compute_grad:
             policy_names.append("first_order_approx")
+            policy_names.append("approx_error")
         for trace_idx in range(num_eval_traces):
             trace = traces[trace_idx]
 
@@ -148,21 +158,51 @@ def main(args):
                     logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, new_edge_ratios_policy, threshold)
                     logits_dict["new_edge_ratios"][threshold].append(logits)
 
-                    logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, low_indegrees_policy, threshold)
-                    logits_dict["low_indegrees"][threshold].append(logits)
+                    def node_importance_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                        batch_size = last_block.num_dst_nodes()
+                        pe_nids = last_block.srcdata[dgl.NID][batch_size:]
+                        return importance_score[pe_nids]
 
-                    logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, saint_is_policy, threshold)
-                    logits_dict["saint_is"][threshold].append(logits)
+                    if "node_importance" in policy_names:
+                        logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, node_importance_policy, threshold)
+                        logits_dict["node_importance"][threshold].append(logits)
+
+                    if "low_indegrees" in policy_names:
+                        logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, low_indegrees_policy, threshold)
+                        logits_dict["low_indegrees"][threshold].append(logits)
+
+                    if "saint_is" in policy_names:
+                        logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, saint_is_policy, threshold)
+                        logits_dict["saint_is"][threshold].append(logits)
 
                     if compute_grad:
                         def first_order_approx_policy(trace, last_block, new_in_degrees, org_in_degrees):
                             batch_size = last_block.num_dst_nodes()
                             pe_nids = last_block.srcdata[dgl.NID][batch_size:]
 
-                            return torch.norm((full_pes[batch_size:] - batch_pe_provider.get(num_layers - 2, pe_nids)) * full_pe_grads[batch_size:], dim=-1)
+                            return torch.norm((full_pes[-1] - batch_pe_provider.get(num_layers - 2, pe_nids)) * full_pe_grads[batch_size:], dim=-1)
+
+                        def approx_error_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                            batch_size = last_block.num_dst_nodes()
+                            pe_nids = last_block.srcdata[dgl.NID][batch_size:]
+                            n_recomputation_targets = pe_nids.shape[0]
+
+                            scores = None
+                            for l in range(num_layers - 1):
+                                if scores is None:
+                                    scores = torch.norm((full_pes[l][:n_recomputation_targets] - batch_pe_provider.get(l, pe_nids)), dim=-1)
+                                else:
+                                    scores += torch.norm((full_pes[l][:n_recomputation_targets] - batch_pe_provider.get(num_layers - 2, pe_nids)), dim=-1)
+
+
+                            return scores
+
 
                         logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, first_order_approx_policy, threshold)
                         logits_dict["first_order_approx"][threshold].append(logits)
+                        
+                        logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, approx_error_policy, threshold)
+                        logits_dict["approx_error"][threshold].append(logits)
 
         policy_accs = defaultdict(list)
 
@@ -333,6 +373,7 @@ def compute_with_recomputation(g, features, device, model, num_layers, trace, pe
 def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, compute_grad):
     batch_size = trace.target_gnids.shape[0]
     last_block = to_block(trace.src_gnids, trace.dst_gnids, trace.target_gnids)
+    n_recomputation_targets = last_block.srcdata[dgl.NID].shape[0] - batch_size
     blocks = [last_block]
 
     for _ in range(num_layers - 1):
@@ -360,12 +401,14 @@ def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, 
     h = features[blocks[0].srcdata[dgl.NID][batch_size:]]
     h = torch.concat((trace.target_features, h)).to(device)
 
+    full_pes = []
     if compute_grad:
         with torch.no_grad():
             h0 = model.feature_preprocess(h)
             h = h0
             for layer_idx in range(num_layers - 1):
                 h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
+                full_pes.append(h[batch_size:batch_size + n_recomputation_targets].to("cpu"))
         h.requires_grad_(True)
         h.retain_grad()
         logits = model.layer_foward(num_layers - 1, blocks[num_layers - 1].to(device), h, h0)
@@ -375,18 +418,18 @@ def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, 
 
         pe_grads = h.grad
 
-        return logits.detach().to("cpu"), trace.target_labels, h.detach().to("cpu"), pe_grads.to("cpu"), last_block
+        return logits.detach().to("cpu"), trace.target_labels, full_pes, pe_grads.to("cpu"), last_block
     else:
         with torch.no_grad():
             h0 = model.feature_preprocess(h)
             h = h0
             for layer_idx in range(num_layers):
-                if layer_idx == num_layers - 1:
-                    exact_pes = h
                 h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
+                if layer_idx < num_layers - 1:
+                    full_pes.append(h[batch_size:batch_size + n_recomputation_targets].to("cpu"))
 
             logits = h
-        return logits.to("cpu"), trace.target_labels, exact_pes, None, last_block
+        return logits.to("cpu"), trace.target_labels, full_pes, None, last_block
 
 def compute_full_sampled_blocks(g, features, device, model, num_layers, fanouts, trace):
     sample_ret = sample_edges(trace.target_gnids, trace.src_gnids, trace.dst_gnids, fanouts)
@@ -534,6 +577,7 @@ if __name__ == "__main__":
     parser.add_argument('--training_dir', type=str, required=True)
     parser.add_argument('--trace_dir', type=str, required=True)
     parser.add_argument('--output_dir', type=str, required=True)
+    parser.add_argument('--thresholds', type=str)
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--sampled', action='store_true')
     parser.add_argument('--num_eval_traces', type=int, default=-1)

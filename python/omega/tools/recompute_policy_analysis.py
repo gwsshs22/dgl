@@ -22,7 +22,6 @@ from omega.models import load_model_from
 gcn_both_norm = False
 def main(args):
     global gcn_both_norm
-    compute_grad = True
 
     device = f"cuda:{args.local_rank}"
     model, training_config, dataset_config = load_model_from(args.training_dir)
@@ -53,11 +52,6 @@ def main(args):
 
     g = dgl.load_graphs(str(part_config_dir / "part0" / "graph.dgl"))[0][0]
     pe_data_path = part_config_dir / "part0" / "data" / training_id / "tensors.pth"
-
-    with g.local_scope():
-        g.ndata["dgr"] = 1 / g.in_degrees().clamp(min=1).type(torch.float32)
-        g.update_all(fn.copy_u("dgr", "m"), fn.mean("m", "importance_score"))
-        importance_score = g.ndata["importance_score"]
 
     if pe_data_path.exists():
         pe_data = torch.load(pe_data_path)
@@ -127,82 +121,53 @@ def main(args):
             f.write(json.dumps(results, indent=4, sort_keys=True))
             f.write("\n")
     else:
-        # policy_names = ["random", "new_edge_ratios", "saint_is", "low_indegrees"]
-        policy_names = ["random", "new_edge_ratios", "node_importance"]
-        if compute_grad:
-            policy_names.append("first_order_approx")
-            policy_names.append("approx_error")
+        policy_names = ["random", "new_edge_ratios", "grad", "approx_error"]
         for trace_idx in range(num_eval_traces):
             trace = traces[trace_idx]
 
-            if compute_grad:
-                full_logits, full_labels, full_pes, full_pe_grads, last_block = compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, compute_grad)
-            else:
-                with torch.no_grad():
-                    full_logits, full_labels, full_pes, full_pe_grads, last_block = compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, compute_grad)
+            with torch.no_grad():
+                full_logits, full_labels, full_pes, last_block = compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn)
 
             full_logits_arr.append(full_logits)
             full_labels_arr.append(full_labels)
 
-            with torch.no_grad():
+            if pe_provider is None:
+                batch_pe_provider = create_pe_provider(g, features, device, model, num_layers, trace)
+            else:
+                batch_pe_provider = pe_provider
 
-                if pe_provider is None:
-                    batch_pe_provider = create_pe_provider(g, features, device, model, num_layers, trace)
-                else:
-                    batch_pe_provider = pe_provider
-
-                for threshold in thresholds:
+            for threshold in thresholds:
+                with torch.no_grad():
                     logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, random_policy, threshold)
                     logits_dict["random"][threshold].append(logits)
 
                     logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, new_edge_ratios_policy, threshold)
                     logits_dict["new_edge_ratios"][threshold].append(logits)
 
-                    def node_importance_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                    def approx_error_policy(trace, last_block, new_in_degrees, org_in_degrees):
                         batch_size = last_block.num_dst_nodes()
                         pe_nids = last_block.srcdata[dgl.NID][batch_size:]
-                        return importance_score[pe_nids]
+                        n_recomputation_targets = pe_nids.shape[0]
 
-                    if "node_importance" in policy_names:
-                        logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, node_importance_policy, threshold)
-                        logits_dict["node_importance"][threshold].append(logits)
+                        scores = None
+                        for l in range(num_layers - 1):
+                            if scores is None:
+                                scores = torch.norm((full_pes[l][:n_recomputation_targets] - batch_pe_provider.get(l, pe_nids)), dim=-1)
+                            else:
+                                scores += torch.norm((full_pes[l][:n_recomputation_targets] - batch_pe_provider.get(num_layers - 2, pe_nids)), dim=-1)
+                        return scores
+ 
+                    logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, approx_error_policy, threshold)
+                    logits_dict["approx_error"][threshold].append(logits)
 
-                    if "low_indegrees" in policy_names:
-                        logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, low_indegrees_policy, threshold)
-                        logits_dict["low_indegrees"][threshold].append(logits)
+                pe_grads = compute_pe_grads(g, features, device, model, num_layers, trace, batch_pe_provider, loss_fn)
+                with torch.no_grad():
+                    def grad_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                        return pe_grads
+    
+                    logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, grad_policy, threshold)
+                    logits_dict["grad"][threshold].append(logits)
 
-                    if "saint_is" in policy_names:
-                        logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, saint_is_policy, threshold)
-                        logits_dict["saint_is"][threshold].append(logits)
-
-                    if compute_grad:
-                        def first_order_approx_policy(trace, last_block, new_in_degrees, org_in_degrees):
-                            batch_size = last_block.num_dst_nodes()
-                            pe_nids = last_block.srcdata[dgl.NID][batch_size:]
-
-                            return torch.norm((full_pes[-1] - batch_pe_provider.get(num_layers - 2, pe_nids)) * full_pe_grads[batch_size:], dim=-1)
-
-                        def approx_error_policy(trace, last_block, new_in_degrees, org_in_degrees):
-                            batch_size = last_block.num_dst_nodes()
-                            pe_nids = last_block.srcdata[dgl.NID][batch_size:]
-                            n_recomputation_targets = pe_nids.shape[0]
-
-                            scores = None
-                            for l in range(num_layers - 1):
-                                if scores is None:
-                                    scores = torch.norm((full_pes[l][:n_recomputation_targets] - batch_pe_provider.get(l, pe_nids)), dim=-1)
-                                else:
-                                    scores += torch.norm((full_pes[l][:n_recomputation_targets] - batch_pe_provider.get(num_layers - 2, pe_nids)), dim=-1)
-
-
-                            return scores
-
-
-                        logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, first_order_approx_policy, threshold)
-                        logits_dict["first_order_approx"][threshold].append(logits)
-                        
-                        logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, approx_error_policy, threshold)
-                        logits_dict["approx_error"][threshold].append(logits)
 
         policy_accs = defaultdict(list)
 
@@ -261,28 +226,40 @@ class OnlinePEProvider:
 def new_edge_ratios_policy(trace, last_block, new_in_degrees, org_in_degrees):
     return (new_in_degrees) / (new_in_degrees + org_in_degrees)
 
-def low_indegrees_policy(trace, last_block, new_in_degrees, org_in_degrees):
-    return 1 / org_in_degrees
-
-def saint_is_policy(trace, last_block, new_in_degrees, org_in_degrees):
-    batch_size = last_block.num_dst_nodes()
-    pe_nids = last_block.srcdata[dgl.NID][batch_size:]
-    min_target_id = trace.target_gnids.min()
-
-    edge_mask = torch.logical_and(
-        trace.dst_gnids >= min_target_id,
-        trace.src_gnids < min_target_id)
-
-    block = to_block(trace.dst_gnids[edge_mask], trace.src_gnids[edge_mask], pe_nids, trace.target_gnids)
-
-    block.srcdata["s"] = 1/block.out_degrees()
-    block.dstdata["d"] = 1/(new_in_degrees + org_in_degrees)
-    block.apply_edges(fn.u_add_v("s", "d", "h"))
-    block.update_all(fn.copy_e("h","m"), fn.sum("m", "r"))
-    return block.dstdata["r"]
-
 def random_policy(trace, last_block, new_in_degrees, org_in_degrees):
     return torch.rand(last_block.num_src_nodes() - last_block.num_dst_nodes())
+
+def compute_pe_grads(g, features, device, model, num_layers, trace, pe_provider, loss_fn):
+    batch_size = trace.target_gnids.shape[0]
+    block = to_block(trace.src_gnids, trace.dst_gnids, trace.target_gnids)
+
+    pe_nids = block.srcdata[dgl.NID][batch_size:]
+    h = features[pe_nids]
+    h = torch.concat((trace.target_features, h)).to(device)
+    block = block.to(device)
+    h.requires_grad_(False)
+
+    h0 = model.feature_preprocess(h)
+    h = h0    
+    h = model.layer_foward(0, block, h, h0)
+
+    pes = []
+    for layer_idx in range(1, num_layers):
+        p = pe_provider.get(layer_idx - 1, pe_nids).to(device)
+        p.requires_grad_(True)
+        p.retain_grad()
+        pes.append(p)
+        h = torch.concat((h, p))
+        h = model.layer_foward(layer_idx, block, h, h0)
+
+    loss = loss_fn(h, trace.target_labels.to(device))
+    loss.backward()
+
+    pe_grads = torch.stack([p.grad for p in pes]).sum(0)
+    pe_grads = torch.norm(pe_grads, dim=-1)
+
+    return pe_grads.to("cpu")
+
 
 def compute_with_recomputation(g, features, device, model, num_layers, trace, pe_provider, policy, threshold):
     batch_size = trace.target_gnids.shape[0]
@@ -370,7 +347,7 @@ def compute_with_recomputation(g, features, device, model, num_layers, trace, pe
 
     return h.cpu(), trace.target_labels
 
-def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, compute_grad):
+def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn):
     batch_size = trace.target_gnids.shape[0]
     last_block = to_block(trace.src_gnids, trace.dst_gnids, trace.target_gnids)
     n_recomputation_targets = last_block.srcdata[dgl.NID].shape[0] - batch_size
@@ -402,34 +379,17 @@ def compute_full_blocks(g, features, device, model, num_layers, trace, loss_fn, 
     h = torch.concat((trace.target_features, h)).to(device)
 
     full_pes = []
-    if compute_grad:
-        with torch.no_grad():
-            h0 = model.feature_preprocess(h)
-            h = h0
-            for layer_idx in range(num_layers - 1):
-                h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
+
+    with torch.no_grad():
+        h0 = model.feature_preprocess(h)
+        h = h0
+        for layer_idx in range(num_layers):
+            h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
+            if layer_idx < num_layers - 1:
                 full_pes.append(h[batch_size:batch_size + n_recomputation_targets].to("cpu"))
-        h.requires_grad_(True)
-        h.retain_grad()
-        logits = model.layer_foward(num_layers - 1, blocks[num_layers - 1].to(device), h, h0)
-        
-        loss = loss_fn(logits, trace.target_labels.to(device))
-        loss.backward()
 
-        pe_grads = h.grad
-
-        return logits.detach().to("cpu"), trace.target_labels, full_pes, pe_grads.to("cpu"), last_block
-    else:
-        with torch.no_grad():
-            h0 = model.feature_preprocess(h)
-            h = h0
-            for layer_idx in range(num_layers):
-                h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
-                if layer_idx < num_layers - 1:
-                    full_pes.append(h[batch_size:batch_size + n_recomputation_targets].to("cpu"))
-
-            logits = h
-        return logits.to("cpu"), trace.target_labels, full_pes, None, last_block
+        logits = h
+    return logits.to("cpu"), trace.target_labels, full_pes, last_block
 
 def compute_full_sampled_blocks(g, features, device, model, num_layers, fanouts, trace):
     sample_ret = sample_edges(trace.target_gnids, trace.src_gnids, trace.dst_gnids, fanouts)

@@ -111,7 +111,7 @@ def delete_infer_edges(args):
         json.dump(config, outfile, sort_keys=True, indent=4)
 
 def main(args):
-    org_g = load_graph(args.dataset, ogbn_data_root=args.ogbn_data_root, saint_data_root=args.saint_data_root)
+    org_g = load_graph(args.dataset, ogbn_data_root=args.ogbn_data_root, saint_data_root=args.saint_data_root, igb_data_root=args.igb_data_root)
     save_infer_graph(args, org_g)
     partition_org_graph(args, org_g)
     del org_g
@@ -121,9 +121,10 @@ def main(args):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("Partition graphs")
     argparser.add_argument('--dataset', type=str, default='reddit',
-                           help='datasets: reddit, ogbn-products, ogbn-papers100M, amazon, yelp, flickr')
+                           help='datasets: reddit, ogbn-products, ogbn-papers100M, amazon, yelp, flickr, igb-tiny')
     argparser.add_argument('--ogbn_data_root', type=str)
     argparser.add_argument('--saint_data_root', type=str)
+    argparser.add_argument('--igb_data_root', type=str)
     argparser.add_argument('--num_parts', type=int, default=4,
                            help='number of partitions')
     argparser.add_argument('--part_method', type=str, default='random', choices=["random", "metis"],

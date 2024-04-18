@@ -20,6 +20,8 @@ import scipy.sparse
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
 
+from igb.dataloader import IGB260MDGLDataset
+
 @dataclass
 class DatasetConfig:
     name: str
@@ -39,6 +41,9 @@ dataset_configs = {
     "amazon": DatasetConfig("amazon", 107, 200, True, True, False, True),
     "fb5b": DatasetConfig("fb5b", 128, 16, False, False, True, True),
     "fb10b": DatasetConfig("fb10b", 128, 16, False, False, True, True),
+    "igb-tiny": DatasetConfig("igb-tiny", 19, 1024, False, False, False, False),
+    "igb-small": DatasetConfig("igb-small", 19, 1024, False, False, False, False),
+    "igb-medium": DatasetConfig("igb-medium", 19, 1024, False, False, False, False),
 }
 
 def get_dataset_config(graph_name):
@@ -58,7 +63,7 @@ def get_graph_data_root(graph_name, ogbn_data_root=None, saint_data_root=None):
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None, add_self_loop=True):
+def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None, igb_data_root=None, add_self_loop=True):
     if graph_name == "reddit":
         g = RedditDataset()[0]
         g.ndata["labels"] = g.ndata.pop("label")
@@ -71,12 +76,29 @@ def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None, add_self_l
     elif graph_name == "amazon" or graph_name == "flickr" or graph_name == "yelp" or graph_name == "reddit":
         multilabel = graph_name != "flickr" and graph_name != "reddit"
         g = load_saint(saint_data_root, graph_name, multilabel)
+    elif graph_name.startswith("igb"):
+        g = load_igb(graph_name, igb_data_root)
     else:
         # TODO(gwkim): add other datasets
         raise f"{graph_name} is not supported yet."
 
-    if add_self_loop:
+    if add_self_loop and not graph_name.startswith("igb"):
         g = g.remove_self_loop().add_self_loop()
+    return g
+
+@dataclass
+class IgbConfig:
+    path: Any
+    dataset_size: Any
+    in_memory: Any = 0
+    num_classes: Any = 19
+    synthetic: Any = 0
+
+def load_igb(graph_name, igb_data_root):
+    dataset_size = graph_name.split("-")[-1]
+    g = IGB260MDGLDataset(IgbConfig(igb_data_root, dataset_size))[0]
+    g.ndata["features"] = g.ndata.pop("feat")
+    g.ndata["labels"] = g.ndata.pop("label")
     return g
 
 def load_ogbs(ogbn_data_root, graph_name):

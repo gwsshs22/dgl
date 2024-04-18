@@ -59,6 +59,11 @@ def main(args):
     else:
         pe_provider = None
 
+    with g.local_scope():
+        g.ndata["dgr"] = 1 / g.in_degrees().clamp(min=1).type(torch.float32)
+        g.update_all(fn.copy_u("dgr", "m"), fn.mean("m", "importance_score"))
+        importance_score = g.ndata["importance_score"]
+
     node_feats = dgl.data.load_tensors(str(part_config_dir / "part0" / "node_feat.dgl"))
     features = node_feats["_N/features"]
     labels = node_feats["_N/labels"]
@@ -121,7 +126,7 @@ def main(args):
             f.write(json.dumps(results, indent=4, sort_keys=True))
             f.write("\n")
     else:
-        policy_names = ["random", "new_edge_ratios", "grad", "approx_error"]
+        policy_names = ["random", "new_edge_ratios", "importance_score", "approx_error"]
         for trace_idx in range(num_eval_traces):
             trace = traces[trace_idx]
 
@@ -144,6 +149,14 @@ def main(args):
                     logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, new_edge_ratios_policy, threshold)
                     logits_dict["new_edge_ratios"][threshold].append(logits)
 
+                    def node_importance_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                        batch_size = last_block.num_dst_nodes()
+                        pe_nids = last_block.srcdata[dgl.NID][batch_size:]
+                        return importance_score[pe_nids]
+
+                    logits, _ = compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, node_importance_policy, threshold)
+                    logits_dict["importance_score"][threshold].append(logits)
+
                     def approx_error_policy(trace, last_block, new_in_degrees, org_in_degrees):
                         batch_size = last_block.num_dst_nodes()
                         pe_nids = last_block.srcdata[dgl.NID][batch_size:]
@@ -160,13 +173,13 @@ def main(args):
                     logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, approx_error_policy, threshold)
                     logits_dict["approx_error"][threshold].append(logits)
 
-                pe_grads = compute_pe_grads(g, features, device, model, num_layers, trace, batch_pe_provider, loss_fn)
-                with torch.no_grad():
-                    def grad_policy(trace, last_block, new_in_degrees, org_in_degrees):
-                        return pe_grads
+                # pe_grads = compute_pe_grads(g, features, device, model, num_layers, trace, batch_pe_provider, loss_fn)
+                # with torch.no_grad():
+                #     def grad_policy(trace, last_block, new_in_degrees, org_in_degrees):
+                #         return pe_grads
     
-                    logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, grad_policy, threshold)
-                    logits_dict["grad"][threshold].append(logits)
+                #     logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, grad_policy, threshold)
+                #     logits_dict["grad"][threshold].append(logits)
 
 
         policy_accs = defaultdict(list)
@@ -194,7 +207,6 @@ def main(args):
             f.write("\n")
 
         save_figure(output_dir, training_config, thresholds, full_acc, policy_accs)
-
 
 class PrecomputedPEProvider:
     def __init__(self, pes):
@@ -255,8 +267,8 @@ def compute_pe_grads(g, features, device, model, num_layers, trace, pe_provider,
     loss = loss_fn(h, trace.target_labels.to(device))
     loss.backward()
 
-    pe_grads = torch.stack([p.grad for p in pes]).sum(0)
-    pe_grads = torch.norm(pe_grads, dim=-1)
+    pe_grads = torch.norm(torch.stack([p.grad for p in pes]), dim=-1)
+    pe_grads = pe_grads.sum(dim=0)
 
     return pe_grads.to("cpu")
 

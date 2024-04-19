@@ -20,7 +20,10 @@ import scipy.sparse
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
 
-from igb.dataloader import IGB260MDGLDataset
+try:
+    from igb.dataloader import IGB260MDGLDataset
+except:
+    pass
 
 @dataclass
 class DatasetConfig:

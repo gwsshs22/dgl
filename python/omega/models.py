@@ -11,7 +11,7 @@ from omega.utils import get_dataset_config
 
 class GCN(nn.Module):
     def __init__(
-        self, in_feats, n_hidden, n_classes, n_layers, gcn_norm='right', activation=F.relu, dropout=0.5):
+        self, in_feats, n_hidden, n_classes, n_layers, gcn_norm='both', activation=F.relu, dropout=0.5):
         super().__init__()
         self.n_layers = n_layers
         self.n_hidden = n_hidden
@@ -50,7 +50,7 @@ class GCN(nn.Module):
 
 class GCN2(nn.Module):
     def __init__(
-        self, in_feats, n_hidden, n_classes, n_layers, gcn_norm='right', activation=F.relu, alpha=0.5, lamb=1.0):
+        self, in_feats, n_hidden, n_classes, n_layers, gcn_norm='both', activation=F.relu, alpha=0.5, lamb=1.0):
         super().__init__()
         self.n_layers = n_layers
         self.n_hidden = n_hidden
@@ -209,7 +209,7 @@ class GAT(nn.Module):
         else:
             return h
 
-def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='right', gcn2_alpha=0.5, dropout=0.0):
+def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='both', gcn2_alpha=0.5, dropout=0.0):
     if gnn == "gcn":
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
     elif gnn == "gcn2":

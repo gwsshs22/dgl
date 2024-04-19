@@ -475,7 +475,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_hiddens', type=int, required=True)
     parser.add_argument('--num_layers', type=int, required=True)
     parser.add_argument('--gat_heads', type=str)
-    parser.add_argument('--gcn_norm', type=str, default='right', choices=['right', 'both'])
+    parser.add_argument('--gcn_norm', type=str, default='both', choices=['right', 'both'])
     parser.add_argument('--sampling_method', type=str, choices=['full', 'ns', 'saint'])
     parser.add_argument('--force_inductive', action='store_true')
 

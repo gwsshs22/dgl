@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from .... import function as fn
 
 def aggregate_mean(h):
     """mean aggregation"""
@@ -76,6 +77,16 @@ def scale_attenuation(h, D, delta):
     return h * (delta / np.log(D + 1))
 
 
+def torch_scale_amplification(h, D, delta):
+    """amplification scaling"""
+    return h * (torch.log(D + 1) / delta)
+
+
+def torch_scale_attenuation(h, D, delta):
+    """attenuation scaling"""
+    return h * (delta / torch.log(D + 1))
+
+
 AGGREGATORS = {
     "mean": aggregate_mean,
     "sum": aggregate_sum,
@@ -92,7 +103,11 @@ SCALERS = {
     "amplification": scale_amplification,
     "attenuation": scale_attenuation,
 }
-
+TORCH_SCALERS = {
+    "identity": scale_identity,
+    "amplification": torch_scale_amplification,
+    "attenuation": torch_scale_attenuation,
+}
 
 class PNAConvTower(nn.Module):
     """A single PNA tower in PNA layers"""
@@ -104,6 +119,7 @@ class PNAConvTower(nn.Module):
         aggregators,
         scalers,
         delta,
+        mem_optimized,
         dropout=0.0,
         edge_feat_size=0,
     ):
@@ -113,9 +129,14 @@ class PNAConvTower(nn.Module):
         self.aggregators = aggregators
         self.scalers = scalers
         self.delta = delta
+        self.mem_optimized = mem_optimized
         self.edge_feat_size = edge_feat_size
 
-        self.M = nn.Linear(2 * in_size + edge_feat_size, in_size)
+        if self.mem_optimized:
+            self.M_src = nn.Linear(in_size, in_size)
+            self.M_dst = nn.Linear(in_size, in_size)
+        else:
+            self.M = nn.Linear(2 * in_size + edge_feat_size, in_size)
         self.U = nn.Linear(
             (len(aggregators) * len(scalers) + 1) * in_size, out_size
         )
@@ -154,23 +175,68 @@ class PNAConvTower(nn.Module):
     def forward(self, graph, node_feat, edge_feat=None):
         """compute the forward pass of a single tower in PNA convolution layer"""
         # calculate graph normalization factors
-        snorm_n = torch.cat(
-            [
-                torch.ones(N, 1).to(node_feat) / N
-                for N in graph.batch_num_nodes()
-            ],
-            dim=0,
-        ).sqrt()
-        with graph.local_scope():
-            graph.ndata["h"] = node_feat
-            if self.edge_feat_size > 0:
-                assert edge_feat is not None, "Edge features must be provided."
-                graph.edata["a"] = edge_feat
+        # N = graph.num_dst_nodes()
+        # snorm_n = torch.cat(
+        #     [
+        #         torch.ones(N, 1).to(node_feat) / N
+        #     ],
+        #     dim=0,
+        # ).sqrt()
 
-            graph.update_all(self.message, self.reduce_func)
-            h = self.U(torch.cat([node_feat, graph.ndata["h_neigh"]], dim=-1))
-            h = h * snorm_n
+        with graph.local_scope():
+            if self.mem_optimized:
+                graph.srcdata["h_src"] = self.M_src(node_feat)
+                dst_feat = node_feat[:graph.num_dst_nodes()]
+                graph.dstdata['h_dst'] = self.M_dst(dst_feat)
+                for aggr in self.aggregators:
+                    if aggr == "min":
+                        graph.update_all(fn.u_add_v("h_src", "h_dst", "min_msg"), fn.min("min_msg", "min"))
+                    elif aggr == "max":
+                        graph.update_all(fn.u_add_v("h_src", "h_dst", "max_msg"), fn.max("max_msg", "max"))
+                    elif aggr == "mean":
+                        graph.update_all(fn.u_add_v("h_src", "h_dst", "mean_msg"), fn.mean("mean_msg", "mean"))
+                    else:
+                        raise "Other types not yet supported for memory mem_optimized version."
+                degree = graph.in_degrees().reshape(-1, 1)
+                h_neigh = torch.cat(
+                    [graph.dstdata.pop(agg) for agg in self.aggregators], dim=1
+                )
+                h_neigh = torch.cat(
+                    [
+                        TORCH_SCALERS[scaler](h_neigh, D=degree, delta=self.delta)
+                        if scaler != "identity"
+                        else h_neigh
+                        for scaler in self.scalers
+                    ],
+                    dim=1,
+                )
+                graph.dstdata["h_neigh"] = h_neigh
+            else:
+                graph.srcdata["h"] = node_feat
+                dst_feat = graph.srcdata['h'][:graph.num_dst_nodes()]
+                graph.dstdata['h'] = dst_feat
+                graph.update_all(self.message, self.reduce_func)
+            h = self.U(torch.cat([dst_feat, graph.dstdata["h_neigh"]], dim=-1))
+            # h = h * snorm_n
             return self.dropout(self.batchnorm(h))
+
+        # snorm_n = torch.cat(
+        #     [
+        #         torch.ones(N, 1).to(node_feat) / N
+        #         for N in graph.batch_num_nodes()
+        #     ],
+        #     dim=0,
+        # ).sqrt()
+        # with graph.local_scope():
+        #     graph.ndata["h"] = node_feat
+        #     if self.edge_feat_size > 0:
+        #         assert edge_feat is not None, "Edge features must be provided."
+        #         graph.edata["a"] = edge_feat
+
+        #     graph.update_all(self.message, self.reduce_func)
+        #     h = self.U(torch.cat([node_feat, graph.ndata["h_neigh"]], dim=-1))
+        #     h = h * snorm_n
+        #     return self.dropout(self.batchnorm(h))
 
 
 class PNAConv(nn.Module):
@@ -265,6 +331,7 @@ class PNAConv(nn.Module):
         num_towers=1,
         edge_feat_size=0,
         residual=True,
+        mem_optimized=False
     ):
         super(PNAConv, self).__init__()
 
@@ -293,6 +360,7 @@ class PNAConv(nn.Module):
                     delta,
                     dropout=dropout,
                     edge_feat_size=edge_feat_size,
+                    mem_optimized=mem_optimized
                 )
                 for _ in range(num_towers)
             ]
@@ -341,7 +409,12 @@ class PNAConv(nn.Module):
         )
         h_out = self.mixing_layer(h_cat)
         # add residual connection
-        if self.residual:
-            h_out = h_out + node_feat
+
+        if graph.is_block:
+            if self.residual:
+                h_out = h_out + node_feat[:graph.num_dst_nodes()]
+        else:
+            if self.residual:
+                h_out = h_out + node_feat
 
         return h_out

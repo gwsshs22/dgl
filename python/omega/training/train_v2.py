@@ -13,7 +13,7 @@ from sklearn.metrics import f1_score
 
 import dgl
 from dgl import function as fn
-from omega.utils import load_graph, get_dataset_config, cal_labels, cal_metrics, get_graph_data_root
+from omega.utils import load_graph, get_dataset_config, cal_labels, cal_metrics, get_graph_data_root, get_pna_delta
 from omega.models import create_model
 
 def saint_preprocess(args, train_g, device, num_roots, walk_length, max_iter=50000):
@@ -404,6 +404,11 @@ def main(args):
     if args.gnn == "gat":
         assert len(gat_heads) == args.num_layers
         assert all([h > 0 for h in gat_heads])
+    
+    if args.gnn == 'pna':
+        pna_delta = get_pna_delta(g)
+    else:
+        pna_delta = -1.0
 
     model = create_model(
         args.gnn,
@@ -414,7 +419,8 @@ def main(args):
         gat_heads,
         gcn_norm=args.gcn_norm,
         dropout=args.dropout,
-        gcn2_alpha=args.gcn2_alpha).to(device)
+        gcn2_alpha=args.gcn2_alpha,
+        pna_delta=pna_delta).to(device)
 
     result_dir = Path(args.result_dir)
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -447,6 +453,7 @@ def main(args):
     args_dict["fanouts"] = ",".join([str(f) for f in fanouts]) if fanouts is not None else ""
     args_dict["num_roots"] = args.num_roots if args.num_roots is not None else -1
     args_dict["id"] = secrets.token_hex(10)
+    args_dict["pna_delta"] = pna_delta.item()
 
     with open(result_dir / "config.json", "w") as f:
         f.write(json.dumps(args_dict, indent=4, sort_keys=True))

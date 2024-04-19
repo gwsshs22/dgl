@@ -89,6 +89,9 @@ def load_graph(graph_name, ogbn_data_root=None, saint_data_root=None, igb_data_r
         g = g.remove_self_loop().add_self_loop()
     return g
 
+def get_pna_delta(graph):
+    return torch.mean(torch.log(graph.in_degrees() + 1.0))
+
 @dataclass
 class IgbConfig:
     path: Any

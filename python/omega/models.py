@@ -209,7 +209,106 @@ class GAT(nn.Module):
         else:
             return h
 
-def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='both', gcn2_alpha=0.5, dropout=0.0):
+class GINMLP(nn.Module):
+    """Construct two-layer MLP-type aggreator for GIN model"""
+
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.linears = nn.ModuleList()
+        # two-layer MLP
+        self.linears.append(nn.Linear(input_dim, hidden_dim, bias=False))
+        self.linears.append(nn.Linear(hidden_dim, output_dim, bias=False))
+        self.batch_norm = nn.BatchNorm1d((hidden_dim))
+
+    def forward(self, x):
+        h = x
+        h = F.relu(self.batch_norm(self.linears[0](h)))
+        return self.linears[1](h)
+
+class GIN(nn.Module):
+    def __init__(
+        self, in_feats, n_hidden, n_classes, n_layers, activation=F.relu, dropout=0.5, aggr="mean"):
+        super().__init__()
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.n_classes = n_classes
+        self.layers = nn.ModuleList()
+        self.batch_norms = nn.ModuleList()
+
+        for layer_idx in range(n_layers):
+            if layer_idx == 0:
+                mlp = GINMLP(in_feats, n_hidden, n_hidden)
+                self.batch_norms.append(nn.BatchNorm1d(n_hidden))
+            elif layer_idx < n_layers - 1:
+                mlp = GINMLP(n_hidden, n_hidden, n_hidden)
+                self.batch_norms.append(nn.BatchNorm1d(n_hidden))
+            else:
+                mlp = GINMLP(n_hidden, n_hidden, n_classes)
+
+            self.layers.append(
+                dglnn.GINConv(mlp, learn_eps=False)
+            )  # set to True if learning epsilon
+
+        self.dropout = nn.Dropout(dropout)
+        self.activation = activation
+
+    def feature_preprocess(self, x):
+        return x
+
+    def forward(self, blocks, x):
+        h = x
+        for i, (layer, block) in enumerate(zip(self.layers, blocks)):
+            h = layer(block, h)
+            if i != len(self.layers) - 1:
+                h = self.batch_norms[i](h)
+                h = self.activation(h)
+                h = self.dropout(h)
+        return h
+
+    def layer_foward(self, layer_idx, block, inputs, h0=None):
+        h = self.layers[layer_idx](block, inputs)
+        if layer_idx != len(self.layers) - 1:
+            h = self.batch_norms[layer_idx](h)
+            h = self.activation(h)
+            h = self.dropout(h)
+        return h
+
+
+class PNA(nn.Module):
+    def __init__(
+        self, in_feats, n_hidden, n_classes, n_layers, delta, activation=F.relu, dropout=0.0,
+        aggregators=['mean', 'min', 'max'], scalers=['identity', 'amplification', 'attenuation'],
+        mem_optimized=True):
+        super().__init__()
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.n_classes = n_classes
+        self.layers = nn.ModuleList()
+
+        self.layers.append(dglnn.PNAConv(in_feats, n_hidden, aggregators, scalers, delta, mem_optimized=mem_optimized))
+        for i in range(1, n_layers - 1):
+            self.layers.append(dglnn.PNAConv(n_hidden, n_hidden, aggregators, scalers, delta, mem_optimized=mem_optimized))
+        self.layers.append(dglnn.PNAConv(n_hidden, n_classes, aggregators, scalers, delta, mem_optimized=mem_optimized))
+        self.activation = activation
+
+    def feature_preprocess(self, x):
+        return x
+
+    def forward(self, blocks, x):
+        h = x
+        for i, (layer, block) in enumerate(zip(self.layers, blocks)):
+            h = layer(block, h)
+            if i != len(self.layers) - 1:
+                h = self.activation(h)
+        return h
+
+    def layer_foward(self, layer_idx, block, inputs, h0=None):
+        h = self.layers[layer_idx](block, inputs)
+        if layer_idx != len(self.layers) - 1:
+            h = self.activation(h)
+        return h
+
+def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='both', gcn2_alpha=0.5, dropout=0.0, pna_delta=-1.0):
     if gnn == "gcn":
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
     elif gnn == "gcn2":
@@ -219,6 +318,11 @@ def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_head
     elif gnn == "gat" or gnn == "gatv2":
         is_gatv2 = gnn == "gatv2"
         model = GAT(num_inputs, num_hiddens, num_classes, num_layers, heads=gat_heads, dropout=dropout, is_gatv2=is_gatv2)
+    elif gnn == "gin":
+        model = GIN(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout)
+    elif gnn == "pna":
+        assert pna_delta > 0.0
+        model = PNA(num_inputs, num_hiddens, num_classes, num_layers, pna_delta, mem_optimized=True)
     return model
 
 def load_training_config(training_config_path):
@@ -235,7 +339,7 @@ def load_training_config(training_config_path):
         with open(training_config_path, "w") as f:
             f.write(json.dumps(training_config, indent=4, sort_keys=True))
             f.write("\n")
-    
+
     return training_config
 
 def load_model_from(training_dir, for_omega=False):
@@ -258,13 +362,27 @@ def load_model_from(training_dir, for_omega=False):
     else:
         gat_heads = [8] * num_layers
 
+    if gnn == "pna":
+        pna_delta = training_config["pna_delta"]
+    else:
+        pna_delta = -1.0
+
+    if gnn == "gcn2":
+        assert "gcn2_alpha" in training_config
+        gcn2_alpha = training_config["training_config"]
+    else:
+        gcn2_alpha = 0.5
+
     model = create_model(
         training_config["gnn"],
         dataset_config.num_inputs,
         training_config["num_hiddens"],
         dataset_config.num_classes,
         num_layers,
-        gat_heads)
+        gat_heads,
+        pna_delta=pna_delta,
+        gcn_norm=training_config['gcn_norm'],
+        gcn2_alpha=gcn2_alpha)
     
     model.load_state_dict(torch.load(model_path, map_location="cpu"))
     return model, training_config, dataset_config

@@ -71,7 +71,7 @@ def main(args):
     num_eval_traces = args.num_eval_traces if args.num_eval_traces > 0 else len(traces)
 
     if args.thresholds is None:
-        thresholds = [100, 99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 60, 40, 20, 0]
+        thresholds = [100, 99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 88, 86, 84, 82, 80, 60, 40, 20, 0]
     else:
         thresholds = [int(t) for t in args.thresholds.split(",")]
 
@@ -173,14 +173,6 @@ def main(args):
                     logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, approx_error_policy, threshold)
                     logits_dict["approx_error"][threshold].append(logits)
 
-                # pe_grads = compute_pe_grads(g, features, device, model, num_layers, trace, batch_pe_provider, loss_fn)
-                # with torch.no_grad():
-                #     def grad_policy(trace, last_block, new_in_degrees, org_in_degrees):
-                #         return pe_grads
-    
-                #     logits, _ =  compute_with_recomputation(g, features, device, model, num_layers, trace, batch_pe_provider, grad_policy, threshold)
-                #     logits_dict["grad"][threshold].append(logits)
-
 
         policy_accs = defaultdict(list)
 
@@ -240,38 +232,6 @@ def new_edge_ratios_policy(trace, last_block, new_in_degrees, org_in_degrees):
 
 def random_policy(trace, last_block, new_in_degrees, org_in_degrees):
     return torch.rand(last_block.num_src_nodes() - last_block.num_dst_nodes())
-
-def compute_pe_grads(g, features, device, model, num_layers, trace, pe_provider, loss_fn):
-    batch_size = trace.target_gnids.shape[0]
-    block = to_block(trace.src_gnids, trace.dst_gnids, trace.target_gnids)
-
-    pe_nids = block.srcdata[dgl.NID][batch_size:]
-    h = features[pe_nids]
-    h = torch.concat((trace.target_features, h)).to(device)
-    block = block.to(device)
-    h.requires_grad_(False)
-
-    h0 = model.feature_preprocess(h)
-    h = h0    
-    h = model.layer_foward(0, block, h, h0)
-
-    pes = []
-    for layer_idx in range(1, num_layers):
-        p = pe_provider.get(layer_idx - 1, pe_nids).to(device)
-        p.requires_grad_(True)
-        p.retain_grad()
-        pes.append(p)
-        h = torch.concat((h, p))
-        h = model.layer_foward(layer_idx, block, h, h0)
-
-    loss = loss_fn(h, trace.target_labels.to(device))
-    loss.backward()
-
-    pe_grads = torch.norm(torch.stack([p.grad for p in pes]), dim=-1)
-    pe_grads = pe_grads.sum(dim=0)
-
-    return pe_grads.to("cpu")
-
 
 def compute_with_recomputation(g, features, device, model, num_layers, trace, pe_provider, policy, threshold):
     batch_size = trace.target_gnids.shape[0]

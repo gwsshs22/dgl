@@ -1,0 +1,23 @@
+{
+  "training_root": "/nfs/gwkim/omega_nsdi25/models",
+  "rel_paths": [
+    "240418/flickr/gcn/nl_2_lr_0.01_do_0.5_norm_both",
+    "240418/flickr/gat/nl_3_lr_0.01_do_0.5",
+    "240418/flickr/sage/nl_3_lr_0.01_do_0.5",
+    "240418/reddit/gcn/nl_2_lr_0.01_do_0.5_norm_both",
+    "240418/reddit/gat/nl_3_lr_0.001_do_0.5",
+    "240418/reddit/sage/nl_3_lr_0.001_do_0.5",
+    "240418/yelp/gcn/nl_2_lr_0.01_do_0.1_norm_both",
+    "240418/yelp/gat/nl_3_lr_0.001_do_0.1",
+    "240418/yelp/sage/nl_3_lr_0.001_do_0.1",
+    "240418/amazon/gcn/nl_2_lr_0.001_do_0.1_norm_both",
+    "240418/amazon/gat/nl_3_lr_0.001_do_0.1",
+    "240418/amazon/sage/nl_3_lr_0.001_do_0.1",
+    "240418/ogbn-products/gcn/nl_2_lr_0.01_do_0.5_norm_both",
+    "240418/ogbn-products/gat/nl_3_lr_0.001_do_0.5",
+    "240418/ogbn-products/sage/nl_3_lr_0.001_do_0.5",
+    "240418/ogbn-papers100M/gcn/nl_2_lr_0.01_do_0.5_norm_both",
+    "240418/ogbn-papers100M/gat/nl_3_lr_0.001_do_0.5",
+    "240418/ogbn-papers100M/sage/nl_3_lr_0.001_do_0.5"
+  ]
+}

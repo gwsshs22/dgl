@@ -1,17 +1,16 @@
-RESULT_ROOT_DIR=/nfs/gwkim/omega_nsdi25/models/240428_sage_lstm_tmp
+RESULT_ROOT_DIR=/nfs/gwkim/omega_nsdi25/models/240428_sage_lstm
 
-LOCAL_RANK=1
+LOCAL_RANK=3
 
 for GRAPH_NAME in "yelp"
 do
 
-# for LR in "0.01" "0.001" "0.0001"
-for LR in "0.0001"
+for LR in "0.01" "0.001" "0.0001"
 do
 
 HIDDEN_DIMS=512
 DROPOUT=0.1
-NUM_EPOCHS=1
+NUM_EPOCHS=30
 
 echo $GRAPH_NAME $HIDDEN_DIMS $DROPOUT $LR
 

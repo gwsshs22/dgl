@@ -67,11 +67,6 @@ def main(args):
         logits[remaining_test_mask],
         dataset_config.multilabel))
 
-    print(cal_metrics(
-        labels[infer_target_mask],
-        logits[infer_target_mask],
-        dataset_config.multilabel))
-
     pes = [p.cpu() for p in pes]
 
     torch.save({

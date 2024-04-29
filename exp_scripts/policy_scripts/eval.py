@@ -26,14 +26,16 @@ def run_eval(training_dir, batch_size, dgl_datasets_root, trace_root, output_roo
     training_config = load_training_config(training_dir / "config.json")
     gnn = training_config["gnn"]
     graph_name = training_config["graph_name"]
-    gen_precom_cmd = f"""
-python -m omega.tools.gen_precoms \
-  --graph_name {graph_name} \
-  --part_config {dgl_datasets_root}/{graph_name}/{graph_name}.json \
-  --training_dir {training_dir} \
-  --local_rank {local_rank}
-""".strip()
-    run_shell(gen_precom_cmd)
+
+    if graph_name != "ogbn-papers100M":
+        gen_precom_cmd = f"""
+    python -m omega.tools.gen_precoms \
+    --graph_name {graph_name} \
+    --part_config {dgl_datasets_root}/{graph_name}/{graph_name}.json \
+    --training_dir {training_dir} \
+    --local_rank {local_rank}
+    """.strip()
+        run_shell(gen_precom_cmd)
 
     output_dir = output_root / f"{graph_name}_{gnn}_bs{batch_size}"
 

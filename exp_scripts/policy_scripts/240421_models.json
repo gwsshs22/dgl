@@ -1,0 +1,8 @@
+{
+  "training_root": "/nfs/gwkim/omega_nsdi25/models",
+  "rel_paths": [
+    "240421/ogbn-papers100M/gcn/nl_2_lr_0.01_do_0.5_norm_both",
+    "240421/ogbn-papers100M/sage/nl_3_lr_0.001_do_0.5",
+    "240421/ogbn-papers100M/gat/nl_3_lr_0.001_do_0.5"
+  ]
+}

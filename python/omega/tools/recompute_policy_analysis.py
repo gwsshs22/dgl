@@ -207,6 +207,20 @@ class PrecomputedPEProvider:
     def get(self, layer_idx, nids):
         return self._pes[layer_idx][nids]
 
+# class OnlinePEProvider:
+#     def __init__(self, num_layers):
+#         self._num_layers = num_layers
+#         self._pes = {}
+
+#     def add_pe(self, layer_idx, pes):
+#         assert layer_idx <= self._num_layers - 2
+#         self._pes[layer_idx] = pes
+
+#     def get(self, layer_idx, nids):
+#         layer_pes = self._pes[layer_idx]
+#         assert layer_pes.shape[0] == nids.shape[0]
+#         return layer_pes
+
 class OnlinePEProvider:
     def __init__(self, num_layers):
         self._num_layers = num_layers
@@ -309,7 +323,7 @@ def compute_with_recomputation(g, features, device, model, num_layers, trace, pe
 
     pe = torch.zeros((block.num_src_nodes() - block.num_dst_nodes(),) + h.shape[1:], device=device)
     pe[recompute_mask] = h[batch_size:]
-    pe[torch.logical_not(recompute_mask)] = p = pe_provider.get(num_layers - 2, reuse_ids).to(device)
+    pe[torch.logical_not(recompute_mask)] = pe_provider.get(num_layers - 2, reuse_ids).to(device)
     h = torch.concat((
         h[:batch_size],
         pe
@@ -438,39 +452,73 @@ def compute_sampled_blocks_with_pe_no_recom(g, features, device, model, num_laye
 
         return h.cpu(), trace.target_labels
 
+# def create_pe_provider(g, features, device, model, num_layers, trace):
+#     online_pe_provider = OnlinePEProvider(num_layers)
+#     batch_size = trace.target_gnids.shape[0]
+#     block = to_block(trace.src_gnids, trace.dst_gnids, trace.target_gnids)
+#     blocks = [block]
+
+#     for _ in range(num_layers - 1):
+#         seeds = blocks[0].srcdata[dgl.NID][batch_size:]
+#         frontier = dgl.sampling.sample_neighbors(g, seeds, -1)
+#         u, v = frontier.edges()
+#         non_self_edge_mask = trace.dst_gnids != trace.src_gnids
+#         edge_mask = trace.src_gnids < trace.target_gnids.min()
+
+#         block = to_block(
+#             torch.concat((trace.src_gnids, u)),
+#             torch.concat((trace.dst_gnids, v)),
+#             blocks[0].srcdata[dgl.NID]
+#         )
+
+#         blocks.insert(0, block)
+
+#     if gcn_both_norm:
+#         for block in blocks:
+#             block.set_out_degrees(g.out_degrees(block.srcdata[dgl.NID]))
+
+#     h = features[blocks[0].srcdata[dgl.NID][batch_size:]]
+#     h = torch.concat((trace.target_features, h)).to(device)
+
+#     with torch.no_grad():
+#         h0 = model.feature_preprocess(h)
+#         h = h0
+#         for layer_idx in range(num_layers):
+#             h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
+#             if layer_idx != num_layers - 1:
+#                 online_pe_provider.add_pe(layer_idx, h[batch_size:].to("cpu"), blocks[layer_idx + 1].srcdata[dgl.NID][batch_size:])
+
+#         logits = h
+
+#     return online_pe_provider
+
 def create_pe_provider(g, features, device, model, num_layers, trace):
     online_pe_provider = OnlinePEProvider(num_layers)
     batch_size = trace.target_gnids.shape[0]
     block = to_block(trace.src_gnids, trace.dst_gnids, trace.target_gnids)
-    blocks = [block]
 
+    pe_nids = block.srcdata[dgl.NID][batch_size:]
+    num_pes = pe_nids.shape[0]
+    blocks = []
+    seeds = pe_nids
     for _ in range(num_layers - 1):
-        seeds = blocks[0].srcdata[dgl.NID][batch_size:]
         frontier = dgl.sampling.sample_neighbors(g, seeds, -1)
         u, v = frontier.edges()
-        non_self_edge_mask = trace.dst_gnids != trace.src_gnids
-        edge_mask = trace.src_gnids < trace.target_gnids.min()
-
-        block = to_block(
-            torch.concat((trace.src_gnids, u)),
-            torch.concat((trace.dst_gnids, v)),
-            blocks[0].srcdata[dgl.NID]
-        )
-
+        block = to_block(u, v, seeds)
+        seeds = block.srcdata[dgl.NID]
         blocks.insert(0, block)
 
-    h = features[blocks[0].srcdata[dgl.NID][batch_size:]]
-    h = torch.concat((trace.target_features, h)).to(device)
+    if gcn_both_norm:
+        for block in blocks:
+            block.set_out_degrees(g.out_degrees(block.srcdata[dgl.NID]))
 
+    h = features[blocks[0].srcdata[dgl.NID]].to(device)
     with torch.no_grad():
         h0 = model.feature_preprocess(h)
         h = h0
-        for layer_idx in range(num_layers):
+        for layer_idx in range(num_layers - 1):
             h = model.layer_foward(layer_idx, blocks[layer_idx].to(device), h, h0)
-            if layer_idx != num_layers - 1:
-                online_pe_provider.add_pe(layer_idx, h[batch_size:].to("cpu"), blocks[layer_idx + 1].srcdata[dgl.NID][batch_size:])
-
-        logits = h
+            online_pe_provider.add_pe(layer_idx, h.to("cpu"), blocks[layer_idx].srcdata[dgl.NID][:h.shape[0]])
 
     return online_pe_provider
 

@@ -408,7 +408,7 @@ def main(args):
     if args.gnn == 'pna':
         pna_delta = get_pna_delta(g)
     else:
-        pna_delta = -1.0
+        pna_delta = torch.tensor(-1.0)
 
     model = create_model(
         args.gnn,

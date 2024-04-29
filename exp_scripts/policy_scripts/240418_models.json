@@ -16,8 +16,8 @@
     "240418/ogbn-products/gcn/nl_2_lr_0.01_do_0.5_norm_both",
     "240418/ogbn-products/gat/nl_3_lr_0.001_do_0.5",
     "240418/ogbn-products/sage/nl_3_lr_0.001_do_0.5",
-    "240418/ogbn-papers100M/gcn/nl_2_lr_0.01_do_0.5_norm_both",
-    "240418/ogbn-papers100M/gat/nl_3_lr_0.001_do_0.5",
-    "240418/ogbn-papers100M/sage/nl_3_lr_0.001_do_0.5"
+    "240421/ogbn-papers100M/gcn/nl_2_lr_0.01_do_0.5_norm_both",
+    "240421/ogbn-papers100M/sage/nl_3_lr_0.001_do_0.5",
+    "240421/ogbn-papers100M/gat/nl_3_lr_0.001_do_0.5"
   ]
 }

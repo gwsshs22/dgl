@@ -369,7 +369,7 @@ def load_model_from(training_dir, for_omega=False):
 
     if gnn == "gcn2":
         assert "gcn2_alpha" in training_config
-        gcn2_alpha = training_config["training_config"]
+        gcn2_alpha = training_config["gcn2_alpha"]
     else:
         gcn2_alpha = 0.5
 

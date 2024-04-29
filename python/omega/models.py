@@ -308,13 +308,13 @@ class PNA(nn.Module):
             h = self.activation(h)
         return h
 
-def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='both', gcn2_alpha=0.5, dropout=0.0, pna_delta=-1.0):
+def create_model(gnn, num_inputs, num_hiddens, num_classes, num_layers, gat_heads, gcn_norm='both', gcn2_alpha=0.5, dropout=0.0, pna_delta=-1.0, sage_aggr='mean'):
     if gnn == "gcn":
         model = GCN(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, dropout=dropout)
     elif gnn == "gcn2":
         model = GCN2(num_inputs, num_hiddens, num_classes, num_layers, gcn_norm=gcn_norm, alpha=gcn2_alpha)
     elif gnn == "sage":
-        model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr='mean')
+        model = SAGE(num_inputs, num_hiddens, num_classes, num_layers, dropout=dropout, aggr=sage_aggr)
     elif gnn == "gat" or gnn == "gatv2":
         is_gatv2 = gnn == "gatv2"
         model = GAT(num_inputs, num_hiddens, num_classes, num_layers, heads=gat_heads, dropout=dropout, is_gatv2=is_gatv2)
@@ -336,6 +336,12 @@ def load_training_config(training_config_path):
     
     if "gcn_norm" not in training_config:
         training_config["gcn_norm"] = "both"
+        with open(training_config_path, "w") as f:
+            f.write(json.dumps(training_config, indent=4, sort_keys=True))
+            f.write("\n")
+    
+    if "sage_aggr" not in training_config:
+        training_config["sage_aggr"] = "mean"
         with open(training_config_path, "w") as f:
             f.write(json.dumps(training_config, indent=4, sort_keys=True))
             f.write("\n")
@@ -382,7 +388,8 @@ def load_model_from(training_dir, for_omega=False):
         gat_heads,
         pna_delta=pna_delta,
         gcn_norm=training_config['gcn_norm'],
-        gcn2_alpha=gcn2_alpha)
+        gcn2_alpha=gcn2_alpha,
+        sage_aggr=training_config['sage_aggr'])
     
     model.load_state_dict(torch.load(model_path, map_location="cpu"))
     return model, training_config, dataset_config

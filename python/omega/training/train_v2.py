@@ -420,6 +420,7 @@ def main(args):
         gcn_norm=args.gcn_norm,
         dropout=args.dropout,
         gcn2_alpha=args.gcn2_alpha,
+        sage_aggr=args.sage_aggr,
         pna_delta=pna_delta).to(device)
 
     result_dir = Path(args.result_dir)
@@ -483,6 +484,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_layers', type=int, required=True)
     parser.add_argument('--gat_heads', type=str)
     parser.add_argument('--gcn_norm', type=str, default='both', choices=['right', 'both'])
+    parser.add_argument('--sage_aggr', type=str, default='mean', choices=['mean', 'lstm'])
     parser.add_argument('--sampling_method', type=str, choices=['full', 'ns', 'saint'])
     parser.add_argument('--force_inductive', action='store_true')
 

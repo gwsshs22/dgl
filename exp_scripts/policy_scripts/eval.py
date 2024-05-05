@@ -46,7 +46,8 @@ python -m omega.tools.recompute_policy_analysis \
   --training_dir {training_dir} \
   --trace_dir {trace_root}/{graph_name}-random-{batch_size} \
   --local_rank {local_rank} \
-  --output_dir {output_dir}
+  --output_dir {output_dir} \
+  {'' if not args.thresholds else f'--thresholds {args.thresholds}' }
 """.strip()
     run_shell(analyze_cmd)
 
@@ -73,6 +74,7 @@ if __name__ == "__main__":
     parser.add_argument('--output_root', required=True)
     parser.add_argument('--batch_sizes', default="1024")
     parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument("--thresholds", type=str)
 
     args = parser.parse_args()
     main(args)

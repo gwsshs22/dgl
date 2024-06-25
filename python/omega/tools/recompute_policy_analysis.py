@@ -404,13 +404,6 @@ def compute_full_sampled_blocks(g, features, device, model, num_layers, fanouts,
 
         blocks.insert(0, block)
 
-    if gcn_both_norm:
-        for block in blocks:
-            block.set_out_degrees(torch.concat((
-                blocks[-2].out_degrees()[:batch_size],
-                g.out_degrees(block.srcdata[dgl.NID][batch_size:]))
-            ))
-
     h = features[blocks[0].srcdata[dgl.NID][batch_size:]]
     h = torch.concat((trace.target_features, h)).to(device)
 
@@ -561,7 +554,7 @@ if __name__ == "__main__":
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--sampled', action='store_true')
     parser.add_argument('--num_eval_traces', type=int, default=-1)
-    parser.add_argument('--random_seed', type=int, default=451241)
+    parser.add_argument('--random_seed', type=int, default=4512412)
 
     args = parser.parse_args()
 

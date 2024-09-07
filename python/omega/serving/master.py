@@ -224,8 +224,8 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
         time.sleep(0.5)
 
     latencies = np.array(latencies)
-
-    print(f"Exp elapsed time = {done_context.get_elapsed_time()}", flush=True)
+    total_elapsed_time = done_context.get_elapsed_time()
+    print(f"Exp elapsed time = {total_elapsed_time}, throughput = {latencies.shape[0] / total_elapsed_time }", flush=True)
     latencies = np.array(latencies)
     print(f"mean latency={np.mean(latencies)}")
     print(f"p50 latency={np.percentile(latencies, 50)}")

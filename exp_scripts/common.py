@@ -66,6 +66,7 @@ def run_exp(
     extra_envs = " ".join([f"{key}={os.environ[key]}" for key in extra_env_names])
     if force_cuda_mem_uncached:
         extra_envs += " PYTORCH_NO_CUDA_MEMORY_CACHING=1"
+    extra_envs += f" CUDA_VISIBLE_DEVICES={','.join(map(lambda i: str(i),  range(num_gpus_per_machine)))}"
     dataset_config = get_dataset_config(graph_name)
     num_classes = dataset_config.num_classes
     num_inputs = dataset_config.num_inputs

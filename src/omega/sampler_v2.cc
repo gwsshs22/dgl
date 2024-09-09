@@ -746,7 +746,18 @@ std::pair<IdArray, IdArray> SamplingExecutorV2::LocalSampling(const IdArray& see
 }
 
 NDArray SamplingExecutorV2::Pull(const std::string& name, const IdArray& id_arr_gpu) const {
-  const IdArray& id_arr = id_arr_gpu.CopyTo(cpu_ctx_);
+  IdArray id_arr_tmp;
+  if (name == "features" && has_feature_cache_) {
+    id_arr_tmp = id_arr_gpu.CopyTo(cpu_ctx_);
+    List<Value> filter_fn_inputs;
+    filter_fn_inputs.push_back(Value(MakeValue(id_arr_tmp)));
+    List<Value> filter_fn_ret = filter_cached_id_fn_(filter_fn_inputs);
+    id_arr_tmp = filter_fn_ret[0]->data;
+  } else {
+    id_arr_tmp = id_arr_gpu.CopyTo(cpu_ctx_);
+  }
+  
+  const IdArray& id_arr = id_arr_tmp;
   const int64_t num_nodes = id_arr->shape[0];
   const int64_t* id_arr_ptr = id_arr.Ptr<int64_t>();
   const int num_partitions = nid_partitions_.size() - 1;
@@ -973,12 +984,14 @@ SamplingExecutorV2::SamplingExecutorV2(
     const PackedFunc& pe_recom_policy_fn,
     const PackedFunc& all_gather_fn,
     const PackedFunc& dist_edges_fn,
+    const PackedFunc& filter_cached_id_fn,
     const HeteroGraphRef& empty_graph_ref,
     const HeteroGraphRef& local_graph_ref,
     const IdArray& local_graph_global_id_mapping,
     const std::unordered_map<std::string, NDArray>& local_data_store,
     const IdArray& in_degrees,
     const IdArray& out_degrees,
+    const IdArray& cached_id_map,
     const IdArray& gnid_to_local_id_mapping) :
       num_machines_(num_machines),
       machine_rank_(machine_rank),
@@ -996,12 +1009,15 @@ SamplingExecutorV2::SamplingExecutorV2(
       pe_recom_policy_fn_(pe_recom_policy_fn),
       all_gather_fn_(all_gather_fn),
       dist_edges_fn_(dist_edges_fn),
+      filter_cached_id_fn_(filter_cached_id_fn),
       empty_graph_ref_(empty_graph_ref),
       local_graph_ref_(local_graph_ref),
       local_graph_global_id_mapping_(local_graph_global_id_mapping),
       local_data_store_(local_data_store),
       in_degrees_(in_degrees),
       out_degrees_(out_degrees),
+      cached_id_map_(cached_id_map),
+      has_feature_cache_(cached_id_map->shape[0] > 0),
       gnid_to_local_id_mapping_(gnid_to_local_id_mapping),
       null_array_(NDArray::FromVector(std::vector<int64_t>({}))),
       cpu_ctx_({ DGLDeviceType::kDGLCPU, 0 }),

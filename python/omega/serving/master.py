@@ -62,6 +62,7 @@ def main(args):
     world_size = num_machines * num_gpus_per_machine
     part_config_path = args.part_config_path
     exec_mode = args.exec_mode
+    feature_cache_size = args.feature_cache_size
 
     os.environ["MASTER_ADDR"] = str(args.master_ip)
     os.environ["MASTER_PORT"] = str(args.master_rpc_port)
@@ -118,6 +119,7 @@ def main(args):
                     worker_idx,
                     worker_idx % num_gpus_per_machine,
                     exec_mode,
+                    feature_cache_size,
                     args.use_precoms,
                     args.recom_threshold,
                     args.recom_policy,
@@ -211,8 +213,9 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
                     batch_id, result_tensor = ret
                 done_context.inc_done()
                 done_time = time.time()
-
-                latencies.append(done_time - start_t)
+                latency = done_time - start_t
+                latencies.append(latency)
+                put_trace(batch_id, "latency", latency)
 
             except Exception as ex:
                 done_context.mark_error(ex)
@@ -227,10 +230,6 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
     total_elapsed_time = done_context.get_elapsed_time()
     print(f"Exp elapsed time = {total_elapsed_time}, throughput = {latencies.shape[0] / total_elapsed_time }", flush=True)
     latencies = np.array(latencies)
-    print(f"mean latency={np.mean(latencies)}")
-    print(f"p50 latency={np.percentile(latencies, 50)}")
-    print(f"p90 latency={np.percentile(latencies, 90)}")
-    print(f"p99 latency={np.percentile(latencies, 99)}")
     if done_context.error_marked():
         print(f"An exception occurred while executing inference requests: {done_context.get_ex()}")
 
@@ -317,6 +316,7 @@ if __name__ == "__main__":
     parser.add_argument('--tracing', action="store_true")
     parser.add_argument('--result_dir', type=str)
     parser.add_argument('--feature_dim', type=int)
+    parser.add_argument('--feature_cache_size', type=int)
 
     parser.add_argument("--recom_threshold", type=int, default=100) # 99 means recompute top 1% of nodes
     parser.add_argument("--recom_policy", type=str, default="in_dgr", choices=["in_dgr", "ns"])

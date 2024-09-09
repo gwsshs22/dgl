@@ -31,14 +31,16 @@ DGL_REGISTER_GLOBAL("omega.sampler_v2._CAPI_DGLOmegaCreateSampler")
     const PackedFunc pe_recom_policy_fn = args[12];
     const PackedFunc all_gather_fn = args[13];
     const PackedFunc dist_edges_fn = args[14];
-    const HeteroGraphRef empty_graph_ref = args[15];
-    const HeteroGraphRef local_graph_ref = args[16];
-    const IdArray local_graph_global_id_mapping = args[17];
-    const List<Value> local_data_names = args[18];
-    const List<Value> local_data_tensors = args[19];
-    const IdArray in_degrees = args[20];
-    const IdArray out_degrees = args[21];
-    const IdArray gnid_to_local_id_mapping = args[22];
+    const PackedFunc filter_cached_id_fn = args[15];
+    const HeteroGraphRef empty_graph_ref = args[16];
+    const HeteroGraphRef local_graph_ref = args[17];
+    const IdArray local_graph_global_id_mapping = args[18];
+    const List<Value> local_data_names = args[19];
+    const List<Value> local_data_tensors = args[20];
+    const IdArray in_degrees = args[21];
+    const IdArray out_degrees = args[22];
+    const IdArray cached_id_map = args[23];
+    const IdArray gnid_to_local_id_mapping = args[24];
 
     std::unordered_map<std::string, NDArray> local_data_store;
     CHECK_EQ(local_data_names.size(), local_data_tensors.size());
@@ -62,12 +64,14 @@ DGL_REGISTER_GLOBAL("omega.sampler_v2._CAPI_DGLOmegaCreateSampler")
       pe_recom_policy_fn,
       all_gather_fn,
       dist_edges_fn,
+      filter_cached_id_fn,
       empty_graph_ref,
       local_graph_ref,
       local_graph_global_id_mapping,
       local_data_store,
       in_degrees,
       out_degrees,
+      cached_id_map,
       gnid_to_local_id_mapping
     ));
 

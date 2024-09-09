@@ -41,12 +41,14 @@ class SamplingExecutorV2 : public Object {
     const PackedFunc& pe_recom_policy_fn,
     const PackedFunc& all_gather_fn,
     const PackedFunc& dist_edges_fn,
+    const PackedFunc& filter_cached_id_fn_,
     const HeteroGraphRef& empty_graph_ref,
     const HeteroGraphRef& local_graph_ref,
     const IdArray& local_graph_global_id_mapping,
     const std::unordered_map<std::string, NDArray>& local_data_store,
     const IdArray& in_degrees,
     const IdArray& out_degrees,
+    const IdArray& cached_id_map,
     const IdArray& gnid_to_local_id_mapping);
 
   sampling_ret SampleBlocksDp(
@@ -142,12 +144,15 @@ class SamplingExecutorV2 : public Object {
   const PackedFunc pe_recom_policy_fn_;
   const PackedFunc all_gather_fn_;
   const PackedFunc dist_edges_fn_;
+  const PackedFunc filter_cached_id_fn_;
   const HeteroGraphRef empty_graph_ref_;
   const HeteroGraphRef local_graph_ref_;
   const IdArray local_graph_global_id_mapping_;
   const std::unordered_map<std::string, NDArray> local_data_store_;
   const IdArray in_degrees_;
   const IdArray out_degrees_;
+  const IdArray cached_id_map_;
+  const bool has_feature_cache_;
   const IdArray gnid_to_local_id_mapping_;
   const IdArray null_array_;
   const DGLContext cpu_ctx_;

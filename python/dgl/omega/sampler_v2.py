@@ -117,9 +117,11 @@ def create_sampler(
     pe_recom_policy_fn,
     all_gather_fn,
     dist_edges_fn,
+    filter_cached_id_fn,
     local_data_store,
     in_degrees,
     out_degrees,
+    cached_id_map,
     gnid_to_local_id_mapping
 ):
     local_data_names = []
@@ -148,6 +150,7 @@ def create_sampler(
             pe_recom_policy_fn,
             all_gather_fn,
             dist_edges_fn,
+            filter_cached_id_fn,
             empty_graph._graph,
             local_graph_idx,
             F.zerocopy_to_dgl_ndarray(local_grph_nid),
@@ -155,6 +158,7 @@ def create_sampler(
             local_data_tensors,
             F.zerocopy_to_dgl_ndarray(in_degrees),
             F.zerocopy_to_dgl_ndarray(out_degrees),
+            F.zerocopy_to_dgl_ndarray(cached_id_map),
             F.zerocopy_to_dgl_ndarray(gnid_to_local_id_mapping))
 
 

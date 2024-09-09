@@ -61,7 +61,8 @@ def run_exp(
     worker_num_sampler_threads=1,
     extra_env_names=[],
     profiling=False,
-    force_cuda_mem_uncached=False
+    force_cuda_mem_uncached=False,
+    feature_cache_size=None,
 ):
     extra_envs = " ".join([f"{key}={os.environ[key]}" for key in extra_env_names])
     if force_cuda_mem_uncached:
@@ -87,7 +88,7 @@ def run_exp(
         num_inputs_args = f" --num_inputs {num_inputs} --feature_dim {num_inputs} "
     else:
         num_inputs_args = f" --num_inputs {num_inputs} "
-    
+
     if fanouts:
         assert len(fanouts) == num_layers
         assert all([f > 0 for f in fanouts])
@@ -146,6 +147,12 @@ def run_exp(
         profiling_args = f" --profiling "
     else:
         profiling_args = ""
+    
+    if feature_cache_size is not None:
+        assert feature_cache_size > 0
+        feature_cache_size_args = f" --feature_cache_size {feature_cache_size} "
+    else:
+        feature_cache_size_args = ""
 
     command = f"""
     python $DGL_HOME/python/omega/tools/launch_omega.py \
@@ -167,6 +174,7 @@ def run_exp(
     --trace_dir {input_trace_dir} \
     --gnn {gnn} --num_layers {num_layers} {num_inputs_args} --num_hiddens {num_hiddens} --num_classes {num_classes} \
     --gat_heads {gat_heads_str} --fanouts {fanouts_str} \
+    {feature_cache_size_args} \
     {exec_args} \
     {exp_args} \
     {exp_result_args} \
@@ -196,7 +204,7 @@ def exp_has_been_done(exp_result_dir):
 if __name__ == "__main__":
     run_exp(
         4,
-        "ogbn-products",
+        "reddit",
         "sage",
         3,
         [],
@@ -204,5 +212,6 @@ if __name__ == "__main__":
         "latency", latency_exp_params=LatencyExpParams(num_reqs=30),
         extra_env_names=[],
         recom_threshold=100,
-        batch_size=1024
+        batch_size=1024,
+        feature_cache_size=None
         )

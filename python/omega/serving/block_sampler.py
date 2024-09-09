@@ -45,6 +45,7 @@ class BlockSampler:
         num_layers,
         in_degrees,
         out_degrees,
+        cached_id_map,
         gnid_to_local_id_mapping,
         fanouts,
         tracing,
@@ -62,6 +63,7 @@ class BlockSampler:
         self._local_data_store = {}
         self._in_degrees = in_degrees
         self._out_degrees = out_degrees
+        self._cached_id_map = cached_id_map
         self._gnid_to_local_id_mapping = gnid_to_local_id_mapping
         self._device = device
         self._callback_holder = set()
@@ -124,9 +126,11 @@ class BlockSampler:
             self.pe_recom_policy_fn,
             self.all_gather_fn,
             self.dist_edges_fn,
+            self.filter_cached_id_fn,
             self._local_data_store,
             in_degrees,
             out_degrees,
+            self._cached_id_map,
             gnid_to_local_id_mapping)
 
     def sample_blocks_dp(self, batch_id, target_gnids, src_gnids, dst_gnids):
@@ -382,3 +386,8 @@ class BlockSampler:
         v = torch.concat(v_output)
 
         return [F.zerocopy_to_dgl_ndarray(u), F.zerocopy_to_dgl_ndarray(v)]
+    
+    def filter_cached_id_fn(self, id_arr):
+        id_arr = F.zerocopy_from_dgl_ndarray(id_arr[0])
+        id_arr = id_arr[self._cached_id_map[id_arr] < 0]
+        return [F.zerocopy_to_dgl_ndarray(id_arr)]

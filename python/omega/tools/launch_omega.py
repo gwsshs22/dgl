@@ -532,6 +532,7 @@ def submit_jobs(args, dry_run=False):
         f"--worker_num_sampler_threads {args.worker_num_sampler_threads} " +
         f"--exec_mode {args.exec_mode} " +
         (f"--feature_dim {args.feature_dim} " if args.feature_dim else "") +
+        (f"--feature_cache_size {args.feature_cache_size} " if args.feature_cache_size else "") +
         (f"--use_precoms " if args.use_precoms else "") +
         f"--trace_dir {args.trace_dir} " +
         f"--recom_threshold {args.recom_threshold} " +
@@ -655,6 +656,7 @@ def main():
                         the contents of current directory will be rsyncd",
     )
     parser.add_argument('--feature_dim', type=int)
+    parser.add_argument('--feature_cache_size', type=int)
     parser.add_argument("--master_omp_threads", type=int, default=8)
     parser.add_argument("--worker_num_sampler_threads", type=int, default=16)
     parser.add_argument("--worker_omp_threads", type=int, default=8)

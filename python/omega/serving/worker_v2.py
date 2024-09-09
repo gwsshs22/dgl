@@ -61,6 +61,7 @@ class WorkerAsyncExecContext:
         global_rank,
         local_rank,
         exec_mode,
+        feature_cache_size,
         use_precoms,
         recom_threshold,
         recom_policy,
@@ -95,6 +96,7 @@ class WorkerAsyncExecContext:
                 global_rank,
                 local_rank,
                 exec_mode,
+                feature_cache_size,
                 use_precoms,
                 recom_threshold,
                 recom_policy,
@@ -137,6 +139,7 @@ def process_main(
     global_rank,
     local_rank,
     exec_mode,
+    feature_cache_size,
     use_precoms,
     recom_threshold,
     recom_policy,
@@ -202,6 +205,7 @@ def process_main(
         local_rank,
         gpu_ranks,
         exec_mode,
+        feature_cache_size,
         use_precoms,
         recom_threshold,
         recom_policy,
@@ -265,6 +269,7 @@ class LocalExecutionContext:
         local_rank,
         gpu_ranks,
         exec_mode,
+        feature_cache_size,
         use_precoms,
         recom_threshold,
         recom_policy,
@@ -284,6 +289,7 @@ class LocalExecutionContext:
         self._local_rank = local_rank
         self._gpu_ranks = gpu_ranks
         self._exec_mode = exec_mode
+        self._feature_cache_size = feature_cache_size
         self._use_precoms = use_precoms
         self._recom_threshold = recom_threshold
         self._recom_policy = recom_policy
@@ -304,6 +310,7 @@ class LocalExecutionContext:
         self._load_model()
         self._load_degrees()
         self._set_cgp_conf(load_dgl_graph)
+        self._create_feature_cache()
         self._create_block_sampler()
         self._large_full_dp = "PYTORCH_NO_CUDA_MEMORY_CACHING" in os.environ
 
@@ -353,12 +360,48 @@ class LocalExecutionContext:
                     self._num_machines, self._num_gpus_per_machine_in_group, f
                 )[self._gpu_rank_in_group]) for f in self._fanouts
             ]
-        
+
         if load_dgl_graph:
             self._gnid_to_local_id_mapping = torch.ones(self._dist_g.num_nodes(), dtype=torch.long) * -1
             self._gnid_to_local_id_mapping[self._local_g.ndata[dgl.NID]] = torch.arange(self._local_g.num_nodes())
         else:
             self._gnid_to_local_id_mapping = torch.tensor([])
+
+    def _create_feature_cache(self):
+        if self._feature_cache_size is None:
+            self._feature_cache = None
+            self._cached_id_map = torch.tensor([])
+            return
+
+        self._feature_cache = torch.empty(self._feature_cache_size, self._model_config.num_inputs, device=self._device, dtype=torch.float32)
+        self._cached_id_map = torch.ones(self._out_degrees.shape[0], dtype=torch.int64) * -1
+
+        max_node_ids = self._gpb._max_node_ids
+        my_partid = self._gpb.partid
+        num_partitions = self._gpb.num_partitions()
+        out_degrees = self._out_degrees.clone()
+
+        if self._exec_mode == "dp":
+            start_idx = 0
+            for p in range(num_partitions):
+                end_idx = max_node_ids[p]
+                if p == my_partid:
+                    out_degrees[start_idx:end_idx] = -1
+                    break
+                start_idx = end_idx
+        else:
+            start_idx = 0
+            for p in range(num_partitions):
+                end_idx = max_node_ids[p]
+                if p != my_partid:
+                    out_degrees[start_idx:end_idx] = -1
+                start_idx = end_idx
+        assert (out_degrees >= 0).sum() >= self._feature_cache_size
+        self._cached_id_map[out_degrees.sort().indices[-self._feature_cache_size:]] = torch.arange(self._feature_cache_size)
+        assert (self._cached_id_map >= 0).sum() == self._feature_cache_size
+
+        print(f"Cache size = {self._feature_cache.element_size() * self._feature_cache.nelement() / 1000000000 :.2f}GB")
+        # self._cached_id_map[self._out_degrees.sort().indices[-self._feature_cache_size:]] = torch.arange(self._feature_cache_size)
 
     def _create_block_sampler(self):
         is_cgp = self._exec_mode == "cgp" or self._exec_mode == "cgp-multi"
@@ -381,6 +424,7 @@ class LocalExecutionContext:
             self._num_layers,
             self._in_degrees,
             self._out_degrees,
+            self._cached_id_map,
             self._gnid_to_local_id_mapping,
             fanouts,
             self._tracing,
@@ -433,7 +477,7 @@ class LocalExecutionContext:
 
         with trace_me(batch_id, "copy", self._device):
             input_features = fetched_inputs_list[0]
-            input_features = input_features.to(self._device)
+            input_features = self._copy_features(input_features, blocks[0].srcdata[dgl.NID][target_gnids.shape[0]:])
             target_features = target_features.to(self._device)
             features = torch.concat((
                 target_features,
@@ -484,7 +528,7 @@ class LocalExecutionContext:
 
         with trace_me(batch_id, "copy", self._device):
             input_features = fetched_inputs_list[0]
-            input_features = input_features.to(self._device)
+            input_features = self._copy_features(input_features, blocks[0].srcdata[dgl.NID][target_gnids.shape[0]:])
             target_features = target_features.to(self._device)
             features = torch.concat((
                 target_features,
@@ -521,7 +565,10 @@ class LocalExecutionContext:
             trace_blocks(batch_id, blocks)
 
         with trace_me(batch_id, "copy", self._device):
-            inputs_list = [l.to(self._device) for l in fetched_inputs_list]
+            input_features = fetched_inputs_list[0]
+            input_features = self._copy_features(input_features, blocks[0].srcdata[dgl.NID][target_gnids.shape[0]:])
+            inputs_list = [l.to(self._device) for l in fetched_inputs_list[1:]]
+            inputs_list.insert(0, input_features)
             features = torch.concat((
                 target_features.to(self._device),
                 inputs_list[0]
@@ -538,7 +585,7 @@ class LocalExecutionContext:
                 h = self._model.layer_foward(layer_idx, blocks[layer_idx], h, h0)
 
             h = h.cpu()
-    
+
         with trace_me(batch_id, "delete", self._device):
             del fetched_inputs_list
             del blocks
@@ -564,7 +611,10 @@ class LocalExecutionContext:
             trace_blocks(batch_id, [recompute_block, block])
 
         with trace_me(batch_id, "copy", self._device):
-            inputs_list = [l.to(self._device) for l in fetched_inputs_list]
+            input_features = fetched_inputs_list[0]
+            input_features = self._copy_features(input_features, recompute_block.srcdata[dgl.NID][target_gnids.shape[0]:])
+            inputs_list = [l.to(self._device) for l in fetched_inputs_list[1:]]
+            inputs_list.insert(0, input_features)
             h = torch.concat((
                 target_features.to(self._device),
                 inputs_list[0]))
@@ -615,7 +665,10 @@ class LocalExecutionContext:
             trace_blocks(batch_id, blocks)
 
         with trace_me(batch_id, "copy", self._device):
-            inputs_list = [l.to(self._device) for l in fetched_inputs_list]
+            input_features = fetched_inputs_list[0]
+            input_features = self._copy_features(input_features, blocks[0].srcdata[dgl.NID][target_features.shape[0]:])
+            inputs_list = [l.to(self._device) for l in fetched_inputs_list[1:]]
+            inputs_list.insert(0, input_features)
             features = torch.concat((
                 target_features.to(self._device),
                 inputs_list[0]
@@ -659,7 +712,10 @@ class LocalExecutionContext:
             trace_blocks(batch_id, blocks)
 
         with trace_me(batch_id, "copy", self._device):
-            inputs_list = [l.to(self._device) for l in fetched_inputs_list]
+            input_features = fetched_inputs_list[0]
+            input_features = self._copy_features(input_features, blocks[0].srcdata[dgl.NID][target_features.shape[0]:])
+            inputs_list = [l.to(self._device) for l in fetched_inputs_list[1:]]
+            inputs_list.insert(0, input_features)
             h = torch.concat((
                 target_features.to(self._device),
                 inputs_list[0]))
@@ -693,6 +749,20 @@ class LocalExecutionContext:
             del block
 
         return h
+
+    def _copy_features(self, fetched_features, src_ids):
+        fetched_features = fetched_features.to(self._device)
+        if self._feature_cache_size is None:
+            return fetched_features
+
+        input_features = torch.empty(src_ids.shape[0], fetched_features.shape[1], dtype=fetched_features.dtype, device=self._device)
+        cache_slots = self._cached_id_map[src_ids.to("cpu")].to(self._device)
+        cached_index = cache_slots >= 0
+
+        input_features[torch.logical_not(cached_index)] = fetched_features
+        input_features[cached_index] = self._feature_cache[cache_slots[cached_index]]
+
+        return input_features
 
     def _all_gather_recompute_block_target_ids(self, local_recompute_block_target_ids):
         group_size = len(self._gpu_ranks)

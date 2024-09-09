@@ -27,6 +27,10 @@ TRACE_COLUMN_NAMES = [
 @dataclass
 class TraceSummary:
     batch_id: int
+    latency_p50: Any
+    latency_p90: Any
+    latency_p95: Any
+    latency_p99: Any
     latency: Any
     transfer: Any
     cg: Any
@@ -93,6 +97,10 @@ def _summary_traces(exp_config, trace_path):
         summaries.append(
             TraceSummary(
                 batch_id=batch_id,
+                latency_p50=None,
+                latency_p90=None,
+                latency_p95=None,
+                latency_p99=None,
                 latency=latency,
                 transfer=transfer,
                 cg=cg,
@@ -120,6 +128,10 @@ def _summary_traces(exp_config, trace_path):
 
     return TraceSummary(
         batch_id=0,
+        latency_p50=np.percentile(tmp_data["latency"], 50),
+        latency_p90=np.percentile(tmp_data["latency"], 90),
+        latency_p95=np.percentile(tmp_data["latency"], 95),
+        latency_p99=np.percentile(tmp_data["latency"], 99),
         latency=stat("latency"),
         transfer=stat("transfer"),
         cg=stat("cg"),
@@ -165,6 +177,11 @@ def main(args):
             "exec_type",
             "recom_threshold",
             "batch_size",
+            "feature_cache_size",
+            "latency_p50",
+            "latency_p90",
+            "latency_p95",
+            "latency_p99",
             "latency",
             "transfer",
             "cg",
@@ -208,6 +225,11 @@ def main(args):
                 exec_type,
                 exp_config["recom_threshold"],
                 exp_config["batch_size"],
+                exp_config["feature_cache_size"] if "feature_cache_size" in exp_config else "",
+                trace_summary.latency_p50,
+                trace_summary.latency_p90,
+                trace_summary.latency_p95,
+                trace_summary.latency_p99,
                 trace_summary.latency[0],
                 trace_summary.transfer[0],
                 trace_summary.cg[0],

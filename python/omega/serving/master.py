@@ -146,10 +146,10 @@ def main(args):
     try:
         if args.exp_type == "throughput":
             num_warmups = world_size * num_omega_groups * 2
-            latencies = run_throughput_exp(worker_comms, num_warmups, req_generator)
+            latencies, throughput = run_throughput_exp(worker_comms, num_warmups, req_generator)
         elif args.exp_type == "latency":
             num_warmups = 4
-            latencies = run_latency_exp(worker_comms, num_warmups, req_generator)
+            latencies, throughput = run_latency_exp(worker_comms, num_warmups, req_generator)
         else:
             raise f"Unknown exp_type={exp_type}"
         traces = []
@@ -160,7 +160,7 @@ def main(args):
                 for async_exec_context in worker_async_exec_contexts:
                     traces += async_exec_context.rpc_sync().collect_traces()
         if args.result_dir:
-            write_result(args, req_generator.batch_size, num_warmups, latencies, traces)
+            write_result(args, req_generator.batch_size, num_warmups, latencies, throughput, traces)
         print("Master finished.", flush=True)
     except Exception as ex:
         print(f"Experiment failed with exception {ex}")
@@ -228,12 +228,13 @@ def run_throughput_exp(worker_comms, num_warmups, req_generator):
 
     latencies = np.array(latencies)
     total_elapsed_time = done_context.get_elapsed_time()
-    print(f"Exp elapsed time = {total_elapsed_time}, throughput = {latencies.shape[0] / total_elapsed_time }", flush=True)
+    throughput = latencies.shape[0] / total_elapsed_time
+    print(f"Exp elapsed time = {total_elapsed_time}, throughput = {throughput}", flush=True)
     latencies = np.array(latencies)
     if done_context.error_marked():
         print(f"An exception occurred while executing inference requests: {done_context.get_ex()}")
 
-    return latencies
+    return latencies, throughput
 
 def run_latency_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
@@ -274,17 +275,19 @@ def run_latency_exp(worker_comms, num_warmups, req_generator):
         batch_id += 1
 
     latencies = np.array(latencies)
-    print(f"Mean latency = {np.mean(latencies)}s")
+    mean_latency = np.mean(latencies)
+    print(f"Mean latency = {mean_latency}s")
 
-    return latencies
+    return latencies, (1/mean_latency).item()
 
-def write_result(args, batch_size, num_warmups, latencies, traces):
+def write_result(args, batch_size, num_warmups, latencies, throughput, traces):
     result_dir_path = Path(args.result_dir)
     os.makedirs(str(result_dir_path), exist_ok=True)
 
     args_dict = vars(args)
     args_dict["num_warmups"] = num_warmups
     args_dict["batch_size"] = batch_size
+    args_dict["throughput"] = throughput
 
     with open(result_dir_path / "traces.txt", "w") as f:
         for trace in traces:

@@ -73,5 +73,7 @@ python $DGL_HOME/exp_scripts/distribute_degrees.py \
   --my_rank $MY_RANK \
   --machine_ips "node0,node1,node2,node3"
 
+rm -rf $DGL_DATA_HOME/omega_datasets-$NUM_PARTS/$GRAPH_NAME-random-$NUM_PARTS
+rm -rf $DGL_DATA_HOME/omega_datasets-$NUM_PARTS/$GRAPH_NAME-random-$NUM_PARTS-outedges
 done
 done

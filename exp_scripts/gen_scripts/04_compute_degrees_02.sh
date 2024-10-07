@@ -3,7 +3,7 @@
 MY_RANK=3
 
 NUM_PARTS=4
-for GRAPH_NAME in "fb5b" "fb10b"
+for GRAPH_NAME in "fb10b"
 do
 
 python -m omega.tools.compute_degrees \

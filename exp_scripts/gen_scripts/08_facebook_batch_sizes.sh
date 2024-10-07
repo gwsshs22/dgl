@@ -3,7 +3,7 @@
 MY_RANK=3
 NUM_PARTS=4
 
-for GRAPH_NAME in "fb10b" "fb5b"
+for GRAPH_NAME in "fb10b"
 do
 for BATCH_SIZE in "64" "128" "256" "512" "2048"
 do

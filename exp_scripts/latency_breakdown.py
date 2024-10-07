@@ -72,7 +72,7 @@ def _summary_traces(exp_config, trace_path):
             name: np.mean(data)
             for name, data in agg_data.items()
         }
-        
+
         latency = agg_data["latency"]
         copy = agg_data["copy"]
         delete = agg_data["delete"]
@@ -90,7 +90,7 @@ def _summary_traces(exp_config, trace_path):
 
         gpu_comm = gpu_all_gather + gpu_all_to_all
         gpu_compute = agg_data["compute"] - gpu_comm
-        
+
         transfer = latency - (copy + cg + fetch + gpu_compute + gpu_comm)
 
         latencies.append(latency)

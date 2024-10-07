@@ -73,7 +73,7 @@ def main(args):
         world_size=world_size * num_omega_groups + 1 + num_machines,
         rpc_backend_options=rpc.TensorPipeRpcBackendOptions(
             num_worker_threads=16,
-            rpc_timeout=600 # 10 minutes timeout
+            rpc_timeout=3 * 600 # 30 minutes timeout
         )
     )
 
@@ -148,7 +148,7 @@ def main(args):
             num_warmups = world_size * num_omega_groups * 2
             latencies, throughput = run_throughput_exp(worker_comms, num_warmups, req_generator)
         elif args.exp_type == "latency":
-            num_warmups = 4
+            num_warmups = len(worker_comms) * 2
             latencies, throughput = run_latency_exp(worker_comms, num_warmups, req_generator)
         else:
             raise f"Unknown exp_type={exp_type}"
@@ -240,8 +240,9 @@ def run_latency_exp(worker_comms, num_warmups, req_generator):
     # Warm-ups
     req_generator.set_num_reqs(num_warmups)
     batch_id = 0
+    num_worker_comms = len(worker_comms)
     for batch_req in req_generator:
-        fut = worker_comms[-1].request(batch_id, batch_req)
+        fut = worker_comms[batch_id % num_worker_comms].request(batch_id, batch_req)
         ret = fut.wait()
         if isinstance(ret, list):
             ret_batch_id, result_tensor = ret[0].value()
@@ -259,7 +260,7 @@ def run_latency_exp(worker_comms, num_warmups, req_generator):
     req_counts = 0
     for batch_req in req_generator:
         start_t = time.time()
-        fut = worker_comms[-1].request(batch_id, batch_req)
+        fut = worker_comms[batch_id % num_worker_comms].request(batch_id, batch_req)
         ret = fut.wait()
         done_t = time.time()
         if isinstance(ret, list):

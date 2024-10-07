@@ -4,7 +4,7 @@ MY_RANK=0
 
 for NUM_PARTS in "3" "2"
 do
-for GRAPH_NAME in "ogbn-products"
+for GRAPH_NAME in "amazon"
 do
 
 python -m omega.tools.partition_graph \

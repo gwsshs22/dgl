@@ -1,9 +1,9 @@
 # Running on node0
 MY_RANK=0
 NUM_PARTS=4
-GRAPH_NAME=ogbn-products
 PART_METHOD=metis
-
+for GRAPH_NAME in "yelp" "amazon" "ogbn-products"
+do
 python -m omega.tools.partition_graph \
   --dataset $GRAPH_NAME \
   --num_parts $NUM_PARTS \
@@ -72,3 +72,4 @@ python $DGL_HOME/exp_scripts/distribute_degrees.py \
   --graph_partitioning metis \
   --my_rank 0 \
   --machine_ips "node0,node1,node2,node3"
+done

@@ -1,61 +1,50 @@
 import argparse
 import time
 
-from common import run_exp, LatencyExpParams
-
-def turn_off_memory_cache(num_machines, exec_type, graph_name, gnn, num_layers):
-    if num_machines == 2 and graph_name == "fb10b" and gnn == "gat" and num_layers >= 3:
-        return True
-
-    if exec_type != "dp":
-        return False
-
-    if graph_name == "fb5b" or graph_name == "fb10b" or graph_name == "amazon":
-        return True
-    if (graph_name == "ogbn-products" or graph_name == "reddit") and gnn == "gat" and num_layers >= 3:
-        return True
-
-    return False
-
+from common import (
+    run_exp,
+    turn_off_memory_cache,
+    skip_oom_case,
+    get_fanouts,
+    LatencyExpParams
+)
 
 def main(args):
     print(f"Start run_scalability.py args={args}", flush=True)
     start_t = time.time()
 
-    gnn_names = ["gcn", "sage", "gat"]
-    graph_names = ["fb10b", "ogbn-products"]
-    # exec_types = ["cgp-multi", "cgp", "dp-precoms", "dp"]
-    exec_types = ["cgp-multi", "cgp", "dp-precoms"]
-
     extra_env_names = []
     if args.extra_env_names:
         extra_env_names = args.extra_env_names.split(",")
+
+    graph_names = ["fb10b"]
+    exec_types = ["cgp-multi", "cgp", "dp-sampled"]
+    gnn = "sage"
+    num_layers = 3
+    exp_result_dir = f"{args.exp_root_dir}/scalability"
     batch_size = 1024
 
-    exp_result_dir = f"{args.exp_root_dir}/scalability"
-
     for graph_name in graph_names:
-        for num_machines in [2, 3]:
-            for gnn in gnn_names:
-                for exec_type in exec_types:
-                    num_reqs = args.num_reqs
-                    num_layers = 2 if gnn == "gcn" else 3
-
-                    run_exp(
-                        num_machines=num_machines,
-                        graph_name=graph_name,
-                        gnn=gnn,
-                        num_layers=num_layers,
-                        fanouts=[],
-                        exec_type=exec_type,
-                        exp_type="latency",
-                        latency_exp_params=LatencyExpParams(num_reqs=num_reqs),
-                        batch_size=batch_size,
-                        exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_nm_{num_machines}",
-                        extra_env_names=extra_env_names,
-                        recom_threshold='auto',
-                        force_cuda_mem_uncached=turn_off_memory_cache(num_machines, exec_type, graph_name, gnn, num_layers)
-                    )
+        for num_machines in [4, 3, 2]:
+            for exec_type in exec_types:
+                if skip_oom_case(exec_type, gnn, graph_name):
+                    continue
+                num_reqs = args.num_reqs if exec_type != "dp" else args.full_dp_num_reqs
+                num_gpus_per_machine = 2 if exec_type == "cgp" else 1
+                run_exp(
+                    num_machines=num_machines,
+                    num_gpus_per_machine=num_gpus_per_machine,
+                    graph_name=graph_name,
+                    gnn=gnn,
+                    num_layers=num_layers,
+                    fanouts=get_fanouts(exec_type, num_layers),
+                    exec_type=exec_type,
+                    exp_type="latency",
+                    latency_exp_params=LatencyExpParams(num_reqs=num_reqs),
+                    batch_size=batch_size,
+                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_num_machines_{num_machines}",
+                    extra_env_names=extra_env_names,
+                    force_cuda_mem_uncached=turn_off_memory_cache(exec_type, gnn, graph_name))
 
     print(f"Total experiments time={time.time() - start_t}s", flush=True)
 
@@ -63,6 +52,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_root_dir', required=True)
     parser.add_argument('--num_reqs', type=int, default=500)
+    parser.add_argument('--full_dp_num_reqs', type=int, default=50)
     parser.add_argument('--extra_env_names', type=str, default="")
 
     args = parser.parse_args()

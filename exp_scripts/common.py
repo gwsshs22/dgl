@@ -48,7 +48,7 @@ def run_exp(
     fanouts,
     exec_type, # dp, dp-precoms, cgp-multi, cgp,
     exp_type, # latency, throughput
-    recom_threshold=100, # Use 'auto' for recomputation with < 1% acc drop
+    recom_threshold='auto', # Use 'auto' for recomputation with < 1% acc drop
     latency_exp_params=None,
     throughput_exp_params=None,
     exp_result_dir=None,
@@ -56,7 +56,7 @@ def run_exp(
     feature_dim=None,
     num_hiddens=None,
     batch_size=1024,
-    num_gpus_per_machine=2,
+    num_gpus_per_machine=1,
     graph_partitioning="random",
     worker_num_sampler_threads=1,
     extra_env_names=[],
@@ -115,6 +115,9 @@ def run_exp(
 
     if exec_type == "dp":
         exec_args = f" --exec_mode dp "
+    elif exec_type == "dp-sampled":
+        exec_args = f" --exec_mode dp "
+        assert sampling
     elif exec_type == "dp-precoms":
         exec_args = f" --exec_mode dp --use_precoms --recom_threshold {recom_threshold}"
     elif exec_type == "cgp-multi":
@@ -123,7 +126,7 @@ def run_exp(
         exec_args = f" --exec_mode cgp --use_precoms --recom_threshold {recom_threshold}"
     else:
         raise f"Unkown exec_type {exec_type}"
-    
+
     if exp_type == "latency":
         assert latency_exp_params is not None
         assert latency_exp_params.num_reqs > 0
@@ -201,17 +204,53 @@ def exp_has_been_done(exp_result_dir):
     exp_result_dir = Path(exp_result_dir)
     return (exp_result_dir / "config.json").exists() and (exp_result_dir / "traces.txt").exists()
 
+def turn_off_memory_cache(exec_type, gnn, graph_name):
+    if exec_type != "dp":
+        return False
+    if graph_name == "amazon":
+        return True
+    
+    if graph_name in ["ogbn-products", "reddit"] and gnn == "gat":
+        return True
+
+    return False
+
+def skip_oom_case(exec_type, gnn, graph_name):
+    if exec_type != "dp":
+        return False
+
+    return graph_name == "fb10b" or (graph_name in "amazon" and gnn == "gat")
+
+def get_fanouts(exec_type, num_layers):
+    assert exec_type in ["cgp", "cgp-multi", "dp-precoms", "dp", "dp-sampled"]
+    if exec_type == "dp-sampled":
+        if num_layers == 2:
+            return [10, 25]
+        elif num_layers == 3:
+            return [5, 10, 15]
+        elif num_layers == 4:
+            return [5, 10, 10, 15]
+        elif num_layers == 6:
+            return [5, 10, 10, 10, 10, 15]
+        else:
+            raise f"Unsupported num_layers={num_layers}"
+    else:
+        return []
+
 if __name__ == "__main__":
     run_exp(
         4,
-        "reddit",
+        "yelp",
         "sage",
         3,
-        [],
-        "cgp-multi",
-        "latency", latency_exp_params=LatencyExpParams(num_reqs=30),
+        [5,10,15],
+        "dp",
+        "latency",
+        latency_exp_params=LatencyExpParams(num_reqs=32),
         extra_env_names=[],
         recom_threshold=100,
         batch_size=1024,
-        feature_cache_size=None
+        graph_partitioning="random",
+        feature_cache_size=None,
+        force_cuda_mem_uncached=False
         )

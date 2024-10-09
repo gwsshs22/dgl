@@ -17,6 +17,8 @@ def main(args):
     num_layers = 3
 
     exec_type = args.exec_type
+    num_machines = args.num_machines
+    num_gpus_per_machine = args.num_gpus_per_machine
     req_per_sec_list = [float(r) for r in args.req_per_sec_list.split(",")]
 
     extra_env_names = []
@@ -33,8 +35,8 @@ def main(args):
                     continue
 
                 run_exp(
-                    num_machines=4,
-                    num_gpus_per_machine=1,
+                    num_machines=num_machines,
+                    num_gpus_per_machine=num_gpus_per_machine,
                     graph_name=graph_name,
                     gnn=gnn,
                     num_layers=num_layers,
@@ -45,7 +47,7 @@ def main(args):
                         req_per_sec=req_per_sec,
                         exp_secs=args.exp_secs),
                     batch_size=batch_size,
-                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_rps_{req_per_sec}",
+                    exp_result_dir=f"{exp_result_dir}/{graph_name}_{gnn}_{exec_type}_rps_{req_per_sec}_nm_{num_machines}_ngpu_{num_gpus_per_machine}",
                     extra_env_names=extra_env_names,
                     force_cuda_mem_uncached=turn_off_memory_cache(exec_type, gnn, graph_name))
 
@@ -57,6 +59,8 @@ if __name__ == "__main__":
     parser.add_argument('--req_per_sec_list', type=str, required=True)
     parser.add_argument('--exp_secs', type=float, required=True)
     parser.add_argument('--exec_type', type=str, required=True)
+    parser.add_argument('--num_machines', type=int, default=4)
+    parser.add_argument('--num_gpus_per_machine', type=int, default=1)
     parser.add_argument('--extra_env_names', type=str, default="")
 
     args = parser.parse_args()

@@ -167,6 +167,7 @@ def main(args):
     with open(exp_root_dir / "latency_breakdown.csv", "w") as f:
         head = ",".join([
             "num_machines",
+            "num_gpus_per_machine",
             "graph_name",
             "gnn",
             "num_layers",
@@ -217,6 +218,7 @@ def main(args):
 
             row = ",".join([str(c) for c in [
                 exp_config["num_machines"],
+                exp_config["num_gpus_per_machine"],
                 exp_config["graph_name"] if "graph_name" in exp_config else "",
                 exp_config["gnn"],
                 exp_config["num_layers"],
